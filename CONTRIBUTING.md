@@ -1,4 +1,4 @@
 Contributing to ArcherSys
 ==========================
-Did  I Check for :
-- [ ]  Unintentionally Inanimate UI Features?
+How to Download
+
