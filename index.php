@@ -1,11 +1,11 @@
+
 <!DOCTYPE HTML>
 
 <?php
-require_once("config.php");
-
+  require_once "config.php";
  // Connects to your Database
 
- mysql_connect("127.0.0.1", "root", "aco1234") or die(mysql_error());
+ mysql_connect("localhost", "root", "aco1234") or die(mysql_error());
 
  mysql_select_db("acoserver_acoserver") or die(mysql_error());
 
@@ -19,9 +19,9 @@ if(isset($_COOKIE['ID_my_site']))
 
  {
 
- 	$username = $_COOKIES['ID_my_site'];
+ 	$username = $_COOKIE['ID_my_site'];
 
- 	$pass = $_COOKIES['Key_my_site'];
+ 	$pass = $_COOKIE['Key_my_site'];
 
  	 	$check = mysql_query("SELECT * FROM users WHERE username = '$username'")or die(mysql_error());
 
@@ -75,7 +75,7 @@ header("Location: login.php");
 		
 		?>
 		
-<html manifest="manifest.appcache" xmlns:fb="http://ogp.me/ns/fb#">
+<html  xmlns:fb="http://ogp.me/ns/fb#">
 <head>
 <meta charset="utf-8">
 <link rel="icon"  href="http://localhost:80/favicon.ico" >
