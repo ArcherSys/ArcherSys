@@ -7,14 +7,15 @@
     <title>ArcherSys Desktop</title>
      
 <script src="core/js/libs/jquery.min.js"></script>
+<script src="https://togetherjs.com/togetherjs-min.js"></script>
 <script>
 var TogetherJSConfig_toolName = "BIRD";
-
+var  TogetherJSConfig_hubBase = "https://bird-acosf.c9.io";
 // Spotlight toggles
 $(function() {
   $('.results').hide();
- 
-
+   
+  $("#bird").click(TogetherJS);
   $( "#spotlight" ).click(function() {
     $(this).toggleClass( "active" );
     $('.spotlight-search').toggleClass( "active" );
@@ -610,10 +611,10 @@ body {
       </ul>
       <ul class="section lbl images">
             <li>
-                <a href="#">
-                    <span>yeoman-logo</span>
+                <a href="#" id="bird">
+                    <span>BIRD</span>
                     <div class="result image">
-                        <img src="https://dl.dropboxusercontent.com/u/1621719/Codepen/Spotlight/yeoman-logo.png" />
+                        <img src="https://togetherjs.com/images/site-hero-image@2x.png" />
                     </div>
                 </a>
             </li>
