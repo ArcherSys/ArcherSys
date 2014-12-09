@@ -84,18 +84,12 @@ header("Location: login.php");
 <link rel="manifest" href="manifest.webapp">
 <meta name="application-name" content="ArcherSys OS">
 <meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
-<meta http-equiv="X-UA-Compatible" content="chrome=1"/>
 <script src="core/js/libs/jquery.min.js"></script>
-<link rel="stylesheet" href="core/css/jquery-ui.css" />
+<meta http-equiv="X-UA-Compatible" content="chrome=1"/>
+<script src="core/js/libs/togetherjs.js"></script>
+<script src="core/js/libs/localforage.min.js"></script>
 
-<link rel="stylesheet" href="core/css/jquery-ui.min.css" />
-<link rel="stylesheet" href="core/css/jquery-ui.theme.min.css" />
 
-<link rel="stylesheet" href="core/css/jquery-ui.structure.css" />
-<link rel="stylesheet" href="core/css/jquery-ui.structure.min.css" />
-<link rel="stylesheet" href="core/css/jquery-ui.theme.css" />
-<script src="core/js/jquery-ui.min.js"></script>
-<script src="vendor/tinymce/tinymce/tinymce.js"></script>
  <link rel="stylesheet" href="core/css/style.css">
 <script src="https://login.persona.org/include.js"></script>
 <meta http-equiv="X-UA-Compatible" content="IE=Edge">
@@ -436,7 +430,8 @@ input[type=button] {
 
 .twitter {
   background-image: url(http://ashleyjt.net/windows/images/twitter.png); }
-
+.mahara{
+  background-image: url("http://t3.gstatic.com/images?q=tbn:ANd9GcQGpYFBI1FW7pfgS3SvuODfDt8Yy1udDp9w5-cZfYZSU6E2jeHJ:www.tknika.net/liferay/image/image_gallery%3Fuuid%3D0d1f4093-0233-4817-94bf-e9d146890659%26groupId%3D115903%26t%3D1348833285293");}
 .mail {
   background-image: url(http://ashleyjt.net/windows/images/Hotmail.png); }
 
@@ -862,24 +857,13 @@ img.prof{
 	bottom: 0px;
 }
 </style>
-<script src="core/js/libs/localforage.min.js"></script>
+
 <script src="core/js/beximal.js"></script>
-<script src="core/js/archersysjs.js"></script>
+
 <script type="text/javascript">
 
 
 $(document).ready(function(){
-$(".profile").css({
-background-image: 'url('+sessionStorage.gravatar + ')',
-background-repeat: 'no-repeat'
-});
-  
-   
-
-
-
-
-$(window).bind("online",ArcherSys.notifyOnline);
   var sliderUL = $('div.slider').children('ul'),
   	screens = sliderUL.find('li'),
 		screenWidth = screens.width(),
@@ -929,7 +913,7 @@ $(window).bind("online",ArcherSys.notifyOnline);
 
 </script>
 
-<script src="core/js/libs/togetherjs.js"></script>
+
 
 <script src="core/js/mozilla/events.js"></script>
 <script>
@@ -992,14 +976,18 @@ if (signoutLink) {
 <li>
 <div class="module green double img fb" id="birdc">
 <p class="title">Collaborate</p>
-<fb:like href="https://facebook.com/pages/ArcherSys" layout="standard" action="like" show_faces="true" share="true"></fb:like>
+
 </div>
 <div class="module red single img mail">
 <h2 class="title">RoundCube Mail</p>
 </div>
-</li>
+
 
 <li>
+<div class="module blue double img mahara">
+						<a href="http://127.0.0.1/apps/mahara/htdocs"><p class="title">Partners</p></a>
+					</div>
+</li>
 </li>
 </ul>
 
