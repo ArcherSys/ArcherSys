@@ -1,4 +1,8 @@
 Contributing to ArcherSys
 ==========================
-Did  I Check for :
-- [ ]  Unintentionally Inanimate UI Features?
+How to Download
+
+1. Unzip
+2. Start Your Server Or VM
+3. Create DBs
+4. Create a account in the OS

@@ -11,5 +11,4 @@ return array(
     'React\\EventLoop\\' => array($vendorDir . '/react/event-loop'),
     'Parse\\' => array($vendorDir . '/parse/php-sdk/src/Parse'),
     'Fxp\\Composer\\AssetPlugin\\' => array($vendorDir . '/fxp/composer-asset-plugin'),
-    'ArcherSys' => array($baseDir . '/includes'),
 );

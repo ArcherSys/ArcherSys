@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <!DOCTYPE HTML>
 
 <html>
@@ -26,6 +27,9 @@
   <body>
     <div id="wrapper">
      <?php
+=======
+ <?php
+>>>>>>> d9c4bd974e8b9b6b5f96bea8f5e0f2864a6c8635
 
  // Connects to your Database
 
@@ -142,9 +146,9 @@
 
  	 $hour = time() + 3600;
 
- setcookie(ID_my_site, $_POST['username'], $hour);
+ setcookie('ID_my_site', $_POST['username'], $hour);
 
- setcookie(Key_my_site, $_POST['pass'], $hour);
+ setcookie('Key_my_site', $_POST['pass'], $hour);
 
  
 
@@ -162,12 +166,40 @@
 
 {
 
- 
+
 
  // if they are not logged in
 
  ?>
 
+<!DOCTYPE HTML>
+
+<html>
+  
+<head>
+   <!--[if IE]>
+      <link rel="stylesheet" type="text/css" href="core/css/login/screen-ie.css">
+<link type="text/css" rel="stylesheet" media="screen" href="core/css/theme.css" />
+<link rel="stylesheet" type="text/css" media="screen" href="core/css/converse.min.css">
+<script src="core/js/converse.min.js"></script>
+   <![endif]-->
+
+ <link rel="stylesheet" type="text/css" href="core/css/login.css"/>
+
+    <meta name="Content-Type" content="text/html;charset=utf-8">
+        <script type="text/javascript" src="http://www.google.com/recaptcha/api/js/recaptcha_ajax.js"></script>
+    <title>Login to the ArcherVM</title>
+    <script type="text/javascript">
+         function showRecaptcha(element) {
+           Recaptcha.create("AIzaSyAPx5WHasOtdyDoWMq2jnJ3RLId1MIeXgo", element, {
+             theme: "red",
+             callback: Recaptcha.focus_response_field});
+         }
+      </script>
+  </head>
+  <body>
+    <div id="wrapper">
+    
  
 <form id="login" class="front box" action="<?php echo $_SERVER['PHP_SELF']?>" method="post">
   <div class="default"><i class="icon-briefcase"></i><h1>Press login</h1></div>
