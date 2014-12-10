@@ -13,6 +13,6 @@ $content   = array (
     'model' => 'Galaxy Camera $1',
   ),
 );
-$expires_on   = 1416057599;
+$expires_on   = 1418308847;
 $cache_complete   = true;
 ?>

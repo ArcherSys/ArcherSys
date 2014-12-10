@@ -80,7 +80,7 @@ header("Location: login.php");
 <meta charset="utf-8">
 <link rel="icon"  href="http://localhost:80/favicon.ico" >
 <title>VM Home</title>
-
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.webapp">
 <meta name="application-name" content="ArcherSys OS">
 <meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>

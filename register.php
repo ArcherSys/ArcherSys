@@ -2,8 +2,8 @@
 <html>
 <head>
 <title>Sign Up for ArcherVM Peridot</title>
-<link rel="stylesheet"  type="text/css" href="css/registerstyles.css"/>
-<script type="text/javascript" src="js/registerscript.js"></script>
+<link rel="stylesheet"  type="text/css" href="core/css/registerstyles.css"/>
+<script type="text/javascript" src="core/js/registerscript.js"></script>
 
  <?php
  // Connects to your Database
