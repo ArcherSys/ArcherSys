@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 <!DOCTYPE HTML>
 
 <html>
@@ -27,9 +27,8 @@
   <body>
     <div id="wrapper">
      <?php
-=======
- <?php
->>>>>>> d9c4bd974e8b9b6b5f96bea8f5e0f2864a6c8635
+
+
 
  // Connects to your Database
 
@@ -203,33 +202,13 @@
  
 <form id="login" class="front box" action="<?php echo $_SERVER['PHP_SELF']?>" method="post">
   <div class="default"><i class="icon-briefcase"></i><h1>Press login</h1></div>
-  <span id="signinButton">
-  <span
-    class="g-signin"
-    data-callback="signinCallback"
-    data-clientid="422061338001-fq07c919csupifnhacf73egoobbcnrlv.apps.googleusercontent.com
-"
-    data-cookiepolicy="https://localhost:443/"
-    data-requestvisibleactions="http://schemas.google.com/AddActivity"
-    data-scope="https://www.googleapis.com/auth/plus.login">
-  </span>
-</span>
+
 <input type="text" placeholder="username" name="username"/>
 <input type="password" placeholder="password" name="pass"/>
 <input type="submit" name="submit"class="login"><i class="icon-ok"></i></button>
 
-     <div id="recaptcha_div"> <noscript>
-       <iframe src="http://www.google.com/recaptcha/api/noscript?k=AIzaSyAPx5WHasOtdyDoWMq2jnJ3RLId1MIeXgo"
-           height="300" width="500" frameborder="0"></iframe><br>
-       <textarea name="recaptcha_challenge_field" rows="3" cols="40">
-       </textarea>
-       <input type="hidden" name="recaptcha_response_field"
-           value="manual_challenge">
-    </noscript></div>
-  
-      <input type="button" value="Show reCAPTCHA" onclick="showRecaptcha('recaptcha_div');"></input>
-
 </form>
+
 
 <div class="back box">
 <img src="http://i.imgur.com/sdDkYt1.png"/>
@@ -241,7 +220,8 @@
 </ul>
 <button class="logout"><i class="icon-off"></i></button>
 </div>
-</div>
+    </div>
+
 <a href="register.php"  class="register-button">Register</a>
 
    <script type="text/javascript">

@@ -2,12 +2,12 @@
 <!DOCTYPE HTML>
 
 <?php
-<<<<<<< HEAD
 
 
-=======
+
+
   require_once "config.php";
->>>>>>> d9c4bd974e8b9b6b5f96bea8f5e0f2864a6c8635
+
  // Connects to your Database
 
  mysql_connect("localhost", "root", "aco1234") or die(mysql_error());
@@ -1006,6 +1006,15 @@ if (signoutLink) {
 
 			<button data-dir="prev"><</button>
 			<button data-dir="next">></button>
+		</div>
+
+</div>
+
+
+
+ </body>
+ </html>
+r="next">></button>
 		</div>
 
 </div>
