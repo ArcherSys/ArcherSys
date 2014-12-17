@@ -17,6 +17,15 @@ var  TogetherJSConfig_hubBase = "https://bird-acosf.c9.io";
 $(function() {
   $('.results').hide();
    
+
+        
+        $('#calendar').fullCalendar({
+      
+    });
+     
+  
+
+
   $("#bird").click(TogetherJS);
   $( "#spotlight" ).click(function() {
     $(this).toggleClass( "active" );
@@ -40,6 +49,8 @@ $(function() {
 });
 
 
+    
+
 // Clock [from: unknown]
 function updateClock ( ) {
   var currentTime = new Date ( );
@@ -61,7 +72,10 @@ function updateClock ( ) {
 </script>
 <script src="/js/libs/togetherjs.js"></script>
 <script type="text/javascript" src="https://apis.google.com/js/platform.js"></script>
- 
+ <link rel='stylesheet' href='core/js/fullcalendar/fullcalendar.css' />
+<script src='core/js/fullcalendar/lib/jquery.min.js'></script>
+<script src='core/js/fullcalendar/lib/moment.min.js'></script>
+<script src='core/js/fullcalendar/fullcalendar.js'></script>
 
 <link rel="stylesheet" type="text/css" href="core/css/modo.css">
 </head>
@@ -141,7 +155,7 @@ function updateClock ( ) {
             </li>
             <li>
                 <a href="#">
-                    <span>yeoman</span>
+                    <span>View</span>
                     <div class="result image">
                         <img src="https://dl.dropboxusercontent.com/u/1621719/Codepen/Spotlight/yeoman.gif" />
                     </div>
@@ -192,6 +206,7 @@ function updateClock ( ) {
 <div class="demo">
  <a href="https://codeclimate.com/github/ArcherSys/ArcherSys"><img src="https://codeclimate.com/github/ArcherSys/ArcherSys/badges/gpa.svg" /></a>
 </div>
+<div id='calendar'></div>
 
 </body>
 </html>

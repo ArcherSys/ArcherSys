@@ -1,5 +1,10 @@
 <?php
 
+<<<<<<< HEAD
+=======
+ 
+
+>>>>>>> a22cc45164f149ea1f86cd9091311521ec92ae1d
  require_once 'vendor/autoload.php';
 
  require_once "includes/archersys-connect/asos-gravatar-fetch.php";
