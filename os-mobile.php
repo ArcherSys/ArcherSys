@@ -1,4 +1,4 @@
-<?php 
+<?php
   require "config.php";
   use ArcherSys\ArcherSearchToolBox;
  require_once "includes\ArcherSearchToolbox.php";
@@ -12,8 +12,8 @@
     
   <link rel="stylesheet" href="core/mobile-theme/themes/ArcherSys_OS.css" />
   <link rel="stylesheet" href="core/mobile-theme/themes/jquery.mobile.icons.min.css" />
-  <link rel="stylesheet" href="core/mobile-theme/themes/jquery.mobile.structure-1.4.5.min.css" /> 
-  <script src="core/js/libs/jquery.min.js"></script> 
+  <link rel="stylesheet" href="core/mobile-theme/themes/jquery.mobile.structure-1.4.5.min.css" />
+  <script src="core/js/libs/jquery.min.js"></script>
   <script src="core/mobile-theme/jquery.mobile-1.4.5.min.js"></script>
 >
 <script src='//cdn.goroost.com/roostjs/5c55db4345ae4ee88f1bcfbcceb82145' async></script>
@@ -70,7 +70,7 @@ var theme = $("#theme").val();
    $asb->renderApps($config["dbhost"],$config["dbuser"],$config["dbpass"],$config["dbname"]);
        
    
-      ?>  
+      ?>
     <li data-role="listdivider">Services</li>
     <li><a href="#facebook">My Facebook Shelf</a></li>
    <li><a href="#archersys-github">ArcherSys On Github.io</a></li>
@@ -117,6 +117,11 @@ var theme = $("#theme").val();
 <div data-role="header"><h1>ArcherSysCloud</h1></div>
 <iframe src="http://localhost:80/owncloud-serv" width="1100" height="800"></iframe>
 </div>
-
+<div data-role="page" id="hatchcraft">
+<div data-role="header"><h1>HatchCraft</h1></div>
+<iframe src="http://www.codeavengers.com/c/acosf2014pdflint/hatchcraft""
+   frameborder="0" width=2000 height=900
+  allowfullscreen></iframe>
+</div>
 </body>
 </html>

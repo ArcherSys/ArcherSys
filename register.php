@@ -1,7 +1,7 @@
 <!DOCTYPE HTML>
 <html>
 <head>
-<title>Sign Up for ArcherVM Peridot</title>
+<title>Sign Up for ArcherSys OS</title>
 <link rel="stylesheet"  type="text/css" href="core/css/registerstyles.css"/>
 <script type="text/javascript" src="core/js/registerscript.js"></script>
 
