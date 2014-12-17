@@ -207,6 +207,7 @@
 <input type="password" placeholder="password" name="pass"/>
 <input type="submit" name="submit"class="login"><i class="icon-ok"></i></button>
 
+<a href="register.php"  class="register-button">Register</a>
 </form>
 
 
@@ -222,7 +223,6 @@
 </div>
     </div>
 
-<a href="register.php"  class="register-button">Register</a>
 
    <script type="text/javascript">
       (function() {
