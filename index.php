@@ -82,6 +82,7 @@ header("Location: login.php");
 		
 <html  xmlns:fb="http://ogp.me/ns/fb#">
 <head>
+<meta name="msapplication-config" content="ieconfig.xml" />
 <meta charset="utf-8">
 <link rel="icon"  href="http://localhost:80/favicon.ico" >
 <title>VM Home</title>
@@ -949,7 +950,7 @@ if (signoutLink) {
 
 
 	
-	<div class="container-fluid">
+	<div class="container-fluid" sandbox >
 
 		<div class="slider">
 			<ul class="screen">
@@ -984,7 +985,7 @@ if (signoutLink) {
 
 </div>
 <div class="module red single img mail">
-<h2 class="title">RoundCube Mail</p>
+<h2 class="title">RoundCube Mail</h2>
 </div>
 
 
@@ -999,11 +1000,10 @@ if (signoutLink) {
 </div>
 		
 
-</div>
 
-		<div id="screen-nav">
-                         
 
+	<div id="screen-nav">
+                        
 			<button data-dir="prev"><</button>
 			<button data-dir="next">></button>
 		</div>
@@ -1014,12 +1014,4 @@ if (signoutLink) {
 
  </body>
  </html>
-r="next">></button>
-		</div>
 
-</div>
-
-
-
- </body>
- </html>
