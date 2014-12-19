@@ -26,7 +26,7 @@
 				<a href="<?php print_unescaped(OCP\Util::linkToRoute('collaboration_route', array('rel_path' => 'dashboard')));?>">
 					<img src="<?php print_unescaped(OCP\Util::imagePath('collaboration', 'dashboard.png')); ?>" height="35px" width="35px" />
 					<br />
-					<?php p($l->t('Dashboard')) ?>
+					<?php p($l->t('Dashboard')); ?>
 				</a>
 			</li>
 
@@ -39,7 +39,7 @@
 				<a href="<?php print_unescaped(OCP\Util::linkToRoute('collaboration_route', array('rel_path' => 'update_project')));?>">
 					<img src="<?php print_unescaped(OCP\Util::imagePath('collaboration', 'create_project.png')); ?>" height="35px" width="35px" />
 					<br />
-					<?php p($l->t('Create Project')) ?>
+					<?php p($l->t('Create Project')); ?>
 				</a>
 			</li>
 			
@@ -47,7 +47,7 @@
 				<a href="<?php print_unescaped(OCP\Util::linkToRoute( 'collaboration_route', array('rel_path' => 'update_task' )));?>">
 					<img src="<?php print_unescaped(OCP\Util::imagePath('collaboration', 'create_task.png')); ?>" height="35px" width="35px" />
 					<br />
-					<?php p($l->t('Create Task')) ?>
+					<?php p($l->t('Create Task')); ?>
 				</a>
 			</li>
 			
@@ -59,7 +59,7 @@
 				<a href="<?php print_unescaped(OCP\Util::linkToRoute( 'collaboration_route', array('rel_path' => 'projects' )));?>">
 					<img src="<?php print_unescaped(OCP\Util::imagePath('collaboration', 'projects.png')); ?>" height="35px" width="35px" />
 					<br />
-					<?php p($l->t('Projects')) ?>
+					<?php p($l->t('Projects')); ?>
 				</a>
 			</li>
 
@@ -67,7 +67,7 @@
 				<a href="<?php print_unescaped(OCP\Util::linkToRoute( 'collaboration_route', array('rel_path' => 'tasks' )));?>">
 					<img src="<?php print_unescaped(OCP\Util::imagePath('collaboration', 'tasks.png')); ?>" height="35px" width="35px" />
 					<br />
-					<?php p($l->t('Tasks')) ?>
+					<?php p($l->t('Tasks')); ?>
 				</a>
 			</li>
 		
@@ -79,7 +79,7 @@
 				<a href="<?php print_unescaped(OCP\Util::linkToRoute( 'collaboration_route', array('rel_path' => 'report' )));?>">
 					<img src="<?php print_unescaped(OCP\Util::imagePath('collaboration', 'report.png')); ?>" height="35px" width="35px" />
 					<br />
-					<?php p($l->t('Report')) ?>
+					<?php p($l->t('Report')); ?>
 				</a>
 			</li>
 			<?
@@ -90,7 +90,7 @@
 				<a href="<?php print_unescaped(OCP\Util::linkToRoute( 'collaboration_route', array('rel_path' => 'notify' )));?>">
 					<img src="<?php print_unescaped(OCP\Util::imagePath('collaboration', 'notify.png')); ?>" height="35px" width="35px" />
 					<br />
-					<?php p($l->t('Notify')) ?>
+					<?php p($l->t('Notify')); ?>
 				</a>
 			</li>
 			
@@ -98,7 +98,7 @@
 				<a href="<?php print_unescaped(OCP\Util::linkToRoute('collaboration_route', array('rel_path' => 'skillset')));?>">
 					<img src="<?php print_unescaped(OCP\Util::imagePath('collaboration', 'skill_set.png')); ?>" height="35px" width="35px" />
 					<br />
-					<?php p($l->t('My Skillset')) ?>
+					<?php p($l->t('My Skillset')); ?>
 				</a>
 			</li>
 
