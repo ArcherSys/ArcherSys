@@ -993,6 +993,10 @@ if (signoutLink) {
 <div class="module blue double img mahara">
 						<a href="http://127.0.0.1/apps/mahara/htdocs"><p class="title">Partners</p></a>
 					</div>
+					<div class="module red single img market">
+					<a href="https://sites.google.com/site/archersysoswalnutstore/"><p class="title">ArcherSys Walnut App Store</p></a>
+					</div>
+					</div>
 </li>
 </li>
 </ul>
