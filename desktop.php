@@ -45,7 +45,11 @@ $(function() {
     $('.spotlight-search').toggleClass( "active" );
     $('#spotlight').toggleClass( "active" );
   });
-  
+  	var date = new Date(),
+	weekday = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+        $('#weekday').html(weekday[date.getDay()]);
+	$('#day').html(date.getDate());
+
 });
 
 
@@ -204,9 +208,23 @@ function updateClock ( ) {
 </div>
 
 <div class="demo">
+<div class="app">
+
+			<div class="app-calendar">
+			
+				<div id="weekday">monday</div>
+
+				<div id="day">13</div>
+
+			</div> <!-- end app-calendar -->
+
+			<p class="app-title">Calendar</p>
+
+		</div> <!-- end app -->
+
  <a href="https://codeclimate.com/github/ArcherSys/ArcherSys"><img src="https://codeclimate.com/github/ArcherSys/ArcherSys/badges/gpa.svg" /></a>
 </div>
-<div id='calendar'></div>
+
 
 </body>
 </html>

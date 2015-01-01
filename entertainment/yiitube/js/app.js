@@ -1,0 +1,1 @@
+window.YiiTube = Ember.Application.create();
