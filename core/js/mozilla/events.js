@@ -1,5 +1,5 @@
 $(function() {
-  var status = ArcherSys.jQ("#status");
+  var status = $("#status");
 
     var condition = (window.navigator.onLine) ? "online" : "offline";
      if(condition === "online"){

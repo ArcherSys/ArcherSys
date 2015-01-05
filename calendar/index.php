@@ -1,4 +1,7 @@
 <!DOCTYPE HTML>
+<?php 
+  require  $_SERVER["DOCUMENT_ROOT"]."/includes/component-functions.php";
+?>
 <html>
 <head>
 <title>ArcherCal</title>
@@ -32,5 +35,8 @@ dayClick: function(){
 </head>
 <body>
 <div id='calendar' class="archercal-container"></div>
+<?php 
+   addFeedBack();
+?>
 </body>
 </html>
