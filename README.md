@@ -1,6 +1,7 @@
 ArcherSys
 =========
-
+## What is ArcherSys?
+ArcherSys OS is a powerful OS in the form of a website.
 
 Directions
 ==========
