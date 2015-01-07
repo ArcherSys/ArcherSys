@@ -84,14 +84,6 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 @import url(http://fonts.googleapis.com/css?family=Open+Sans:400,300);
 
 
-body{
-  margin:0px;
-  padding:0px;
-	font-family: "Open Sans", arial;
-	background:#0f6d39;
-	color:#fff;
-	font-weight:300;
-}
 
 h1{
 	font-family: "Open Sans", arial;
@@ -277,7 +269,9 @@ $(document).ready(function(){
 		transition(sliderUL, loc, direction);
 
 	});
-
+$(".header h1").click(function(){
+    window.location.assign("http://localhost/settings");
+});
 });
 	function transition(container, loc, direction) {
 		var unit;
@@ -321,6 +315,10 @@ $(document).ready(function(){
 						<h2 class="title">Home</h2>
 					<p class="subheading"> <a href="main.php">Welcome to the new ArcherSys UI !</a> </p>
 					</div>
+					<a href="https://www.flowdock.com/oauth/authorize?client_id=ce74f931ded75f964c9e98c3676ff5dfdfee64d5fb41178f801882029e4d2f00&redirect_uri=http%3A%2F%2Flocalhost%3A80&response_type=code"><div class="module purple double img w">
+						<h2 class="title">Sign in to Flowdock</h2>
+					<p class="subheading"> <a href="main.php">Log in to Flowdock!</a> </p>
+					</div></a>
 <div class="module midblue double img twitter">
    <h2 class="title">Wordpress</h2>
  <p class="subheading"> <a href="archersocial">Access your social center</a></p>
@@ -335,14 +333,13 @@ $(document).ready(function(){
       <p class="title">PDFLint</p>
     </a>
 </div>
-<div class="module blue double img ps">
-<p class="title">CanvasShoppe</p>
-</div>
+
 
 </li>
 <li>
-
-<a href="#" class="wide gallery"><h1>Art</h1></a>
+<div class="module blue double img ps">
+<p class="title">CanvasShoppe</p>
+</div>
 <div class="module green double img fb" id="birdc">
 
 <p class="title">Collaborate</p>

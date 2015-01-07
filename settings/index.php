@@ -13,8 +13,8 @@
 <script src="js/ximal.js"></script>
 <script src="js/notidar.js"></script>
 
+<script src="js/dropzone.js"></script>
 
-<script src="js/archersysjs.js"></script>
 <script src="js/events.js"></script>
 
 </head>
@@ -25,9 +25,12 @@
 
 </div>
 <div class="asos-body">
-<form class="asos-config-ui">
+<form class="asos-config-ui dropzone" action="/profile.php" id="settings">
 <h2 class="asos-config-ui-header">Configure ArcherSys OS</h2>
 <input type="text" class="asos-config-ui-field asos-config-is-vital" placeholder="OS ID">
+<div class="fallback">
+<input type="file" name="file" >
+</div>
 </form>
 </div>
 </div>
