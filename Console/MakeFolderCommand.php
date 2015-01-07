@@ -22,9 +22,9 @@ use Symfony\Component\Console\Helper\HelperSet;
 }
  protected function execute(InputInterface $input, OutputInterface $output)
     {
-        if ($input->getOption('xml')) {
-            $input->setOption('format', 'xml');
-        }
+        if($input->getOption("name"));
+       mkdir($input->getOption("name");
+}
 }
 
 private function createDefinition()
@@ -33,7 +33,7 @@ private function createDefinition()
             new InputArgument('namespace', InputArgument::OPTIONAL, 'The namespace name'),
             new InputOption('xml', null, InputOption::VALUE_NONE, 'To output list as XML'),
             new InputOption('raw', null, InputOption::VALUE_NONE, 'To output raw command list'),
-            new InputOption('format', null, InputOption::VALUE_REQUIRED, 'To output list in other formats', 'txt'),
+            new InputOption('name', null, InputOption::VALUE_REQUIRED, 'The name of your folder'),
         ));
     }
 
