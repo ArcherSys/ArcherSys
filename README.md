@@ -1,5 +1,6 @@
 ArcherSys
 =========
+[![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/ArcherSys/ArcherSys?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 ## What is ArcherSys?
 ArcherSys OS is a powerful OS in the form of a website.
 
