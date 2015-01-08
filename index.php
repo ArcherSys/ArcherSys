@@ -70,6 +70,8 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 <script src="core/js/libs/jquery.min.js"></script>
 <meta http-equiv="X-UA-Compatible" content="chrome=1"/>
 <script src="core/js/libs/togetherjs.js"></script>
+<script src="core/js/notidar.js"></script>
+<script src="core/js/events.js"></script>
 
 
  
@@ -340,7 +342,7 @@ $(".header h1").click(function(){
 <div class="module blue double img ps">
 <p class="title">CanvasShoppe</p>
 </div>
-<div class="module green double img fb" id="birdc">
+<div class="module green single img fb" id="birdc">
 
 <p class="title">Collaborate</p>
 
@@ -348,7 +350,7 @@ $(".header h1").click(function(){
 <div class="module red single img mail">
 <h2 class="title">RoundCube Mail</h2>
 </div>
-
+</li>
 
 <li>
 <div class="module blue double img mahara">
@@ -357,8 +359,8 @@ $(".header h1").click(function(){
 					<div class="module red single img market">
 					<a href="https://sites.google.com/site/archersysoswalnutstore/"><p class="title">ArcherSys Walnut App Store</p></a>
 					</div>
-					</div>
-</li>
+					
+
 </li>
 </ul>
 

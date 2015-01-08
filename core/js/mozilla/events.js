@@ -1,4 +1,5 @@
 $(function() {
+  window.Notification.requestPermission(function(status){
   var status = $("#status");
 
     var condition = (window.navigator.onLine) ? "online" : "offline";
@@ -34,5 +35,6 @@ $(".asos-pdflint").click(function(){
 });
 $(".asos-owncloud").click(function(){
   $("iframe").attr("src", "http://localhost/owncloud-serv");
+});
 });
 });

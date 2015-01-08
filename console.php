@@ -1,7 +1,9 @@
 <?php
   require_once "vendor/autoload.php";
-require_once "Console/MakeFolderCommand.php";
-
+require_once "Console/console_classes.inc.php";
+use ArcherSys\Shell\MakeFolderCommand;
+use ArcherSys\Shell\ListFolderCommand;
+use ArcherSys\Shell\RemoveFolderCommand;
 use Symfony\Component\Console\Application;
 use Symfony\Component\Console\Descriptor\TextDescriptor;
 use Symfony\Component\Console\Descriptor\XmlDescriptor;
@@ -31,8 +33,10 @@ use Symfony\Component\Console\Event\ConsoleCommandEvent;
 use Symfony\Component\Console\Event\ConsoleExceptionEvent;
 use Symfony\Component\Console\Event\ConsoleTerminateEvent;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+ $ASOSBASH = new Application("ArcherBash","1.0");
+ $ASOSBASH->add(new MakeFolderCommand());
+  $ASOSBASH->add(new ListFolderCommand());
+  $ASOSBASH->add(new RemoveFolderCommand());
 
-     $ASOSBASH  = new Application("ArcherBash","1.5");
-   $ASOSBASH->add(new MakeFolderCommand());
-  $ASOSBASH->run();
-
+ $ASOSBASH->run();
+?>
