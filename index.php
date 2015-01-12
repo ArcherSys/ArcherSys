@@ -334,7 +334,11 @@ $(".header h1").click(function(){
     <a href="Producktiviti/PDFLint">
       <p class="title">PDFLint</p>
     </a>
-</div>
+    </div>
+    <div class="module red single img birds">
+						<a href="http://localhost/entertainment/games/index.php"><p class="title">Games</p></a>
+					</div>
+
 
 
 </li>
