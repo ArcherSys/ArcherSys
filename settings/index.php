@@ -1,35 +1,21 @@
-<?php 
- require_once $_SERVER["DOCUMENT_ROOT"]."/vendor/autoload.php";
-
-?>
 <!DOCTYPE HTML>
 <html>
 <head>
-<title>Settings</title>
-<meta name="viewport" content="width=device-width initial-scale=1.0">
-<link rel="stylesheet" type="text/css" href="_styles/styles.css">
-<script src="js/jquery.min.js"></script>
-<script src="js/localforage.js"></script>
-<script src="js/ximal.js"></script>
-<script src="js/notidar.js"></script>
 
-
-<script src="js/archersysjs.js"></script>
-<script src="js/events.js"></script>
+    <script src="components/webcomponentsjs/webcomponents.js"></script>
 
 </head>
-<body>
-<div class="asos-config">
-<div class="asos-config-header">
-<h1 class="asos-config-header-heading">ArcherSys SettingsBox</h1>
+<body fullbleed layout vertical>
 
-</div>
-<div class="asos-body">
-<form class="asos-config-ui">
-<h2 class="asos-config-ui-header">Configure ArcherSys OS</h2>
-<input type="text" class="asos-config-ui-field asos-config-is-vital" placeholder="OS ID">
-</form>
-</div>
-</div>
+<link rel="import" href="components/polymer/polymer.html" />
+<link rel="import" href="components/core-icons/core-icons.html">
+<link rel="import" href="components/core-header-panel/core-header-panel.html">
+    <link rel="import" href="components/core-toolbar/core-toolbar.html">
+
+<core-header-panel flex>
+  <core-toolbar><core-icon-button icon="menu" on-tap="{{menuAction}}"></core-icon-button>
+  <div flex>Title</div>
+  <core-icon-button icon="more" on-tap="{{moreAction}}"></core-icon-button></core-toolbar>
+</core-header-panel>
 </body>
 </html>
