@@ -7,8 +7,8 @@ ArcherSys OS is a powerful OS in the form of a website.
 
 Directions
 ==========
-- [x] 1. Unzip
-- [x] 2. Start Your Server Or VM
-- [x] 3. Create DBs
-- [x] 4. Create a account in the OS
+- [x] 1. Download The Tools 
+- [x] 1. XAMPP
+- [x] 2. Git
+- [x] 3. Chrome or Firefox
 
