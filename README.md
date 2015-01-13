@@ -8,7 +8,10 @@ ArcherSys OS is a powerful OS in the form of a website.
 Directions
 ==========
 - [x] 1. Download The Tools 
-- [x] 1. XAMPP
-- [x] 2. Git
-- [x] 3. Chrome or Firefox
+ - [x] 1. XAMPP
+ - [x] 2. Git
+ - [x] 3. Chrome or Firefox
+- [x] Install XAMPP and Git
+- [x] Type ''' cd YOUR_DIRECTORY ''' 
+- [x] Type ''' git init ''' 
 
