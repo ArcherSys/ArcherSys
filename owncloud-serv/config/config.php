@@ -2,11 +2,15 @@
 $CONFIG = array (
   'instanceid' => 'ocb2f9d4fd41',
   'passwordsalt' => '59023877bf92c375898a24ab84bd4a',
-  'trusted_domains' => 
+  'trusted_domains' =>
   array (
     0 => 'localhost',
   ),
+<<<<<<< HEAD
   'datadirectory' => 'C:\\xampp\\htdocs\\owncloud-serv\\data',
+=======
+  'datadirectory' => 'c:\xampp\\htdocs\\owncloud-serv\\data',
+>>>>>>> f2f4b47f3765e3a11408eb84afb26438b121fc8a
   'dbtype' => 'mysql',
   'version' => '7.0.2.1',
   'dbname' => 'acoserver_acoserver',

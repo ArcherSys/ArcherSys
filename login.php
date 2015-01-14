@@ -1,31 +1,4 @@
 
-<!DOCTYPE HTML>
-
-<html>
-  
-<head>
-   <!--[if IE]>
-      <link rel="stylesheet" type="text/css" href="core/css/login/screen-ie.css">
-<link type="text/css" rel="stylesheet" media="screen" href="core/css/theme.css" />
-<link rel="stylesheet" type="text/css" media="screen" href="core/css/converse.min.css">
-<script src="core/js/converse.min.js"></script>
-   <![endif]-->
-
- <link rel="stylesheet" type="text/css" href="/core/css/login.css">
-
-    <meta name="Content-Type" content="text/html;charset=utf-8">
-        <script type="text/javascript" src="http://www.google.com/recaptcha/api/js/recaptcha_ajax.js"></script>
-    <title>Login to the ArcherVM</title>
-    <script type="text/javascript">
-         function showRecaptcha(element) {
-           Recaptcha.create("AIzaSyAPx5WHasOtdyDoWMq2jnJ3RLId1MIeXgo", element, {
-             theme: "red",
-             callback: Recaptcha.focus_response_field});
-         }
-      </script>
-  </head>
-  <body>
-    <div id="wrapper">
      <?php
 
 
@@ -179,21 +152,26 @@
    <!--[if IE]>
       <link rel="stylesheet" type="text/css" href="core/css/login/screen-ie.css">
 <link type="text/css" rel="stylesheet" media="screen" href="core/css/theme.css" />
-<link rel="stylesheet" type="text/css" media="screen" href="core/css/converse.min.css">
-<script src="core/js/converse.min.js"></script>
+
    <![endif]-->
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/0.10.2/dropbox.min.js">
+</script>
  <link rel="stylesheet" type="text/css" href="core/css/login.css"/>
 
     <meta name="Content-Type" content="text/html;charset=utf-8">
         <script type="text/javascript" src="http://www.google.com/recaptcha/api/js/recaptcha_ajax.js"></script>
     <title>Login to the ArcherVM</title>
     <script type="text/javascript">
-         function showRecaptcha(element) {
-           Recaptcha.create("AIzaSyAPx5WHasOtdyDoWMq2jnJ3RLId1MIeXgo", element, {
-             theme: "red",
-             callback: Recaptcha.focus_response_field});
-         }
+          
+  var client = new Dropbox.Client({ key: "brwekpcno93vtpz" });
+
+  client.authenticate(function(error, client) {
+  
+      client.getAccountInfo(function(error, accountInfo) {
+  
+      });
+  });
       </script>
   </head>
   <body>

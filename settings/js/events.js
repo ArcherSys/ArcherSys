@@ -1,5 +1,5 @@
 $(function() {
-window.Notificatin.requestPermission(function(stat){
+window.Notification.requestPermission(function(status){
   var status = ArcherSys.jQ("#status");
 
     var condition = (window.navigator.onLine) ? "online" : "offline";

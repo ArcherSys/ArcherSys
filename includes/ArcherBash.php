@@ -5,6 +5,6 @@ namespace ArcherSys\Shell;
   class ArcherBash {
     const ASOSBash = new Application();
     static function start(){
-     ArcherBash->ASOSBash->run();
+     ArcherBash::ASOSBash->run();
     }
   }
