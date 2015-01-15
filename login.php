@@ -155,17 +155,23 @@
 
    <![endif]-->
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/0.10.2/dropbox.min.js">
+</script>
  <link rel="stylesheet" type="text/css" href="core/css/login.css"/>
 
     <meta name="Content-Type" content="text/html;charset=utf-8">
         <script type="text/javascript" src="http://www.google.com/recaptcha/api/js/recaptcha_ajax.js"></script>
     <title>Login to the ArcherVM</title>
     <script type="text/javascript">
-         function showRecaptcha(element) {
-           Recaptcha.create("AIzaSyAPx5WHasOtdyDoWMq2jnJ3RLId1MIeXgo", element, {
-             theme: "red",
-             callback: Recaptcha.focus_response_field});
-         }
+          
+  var client = new Dropbox.Client({ key: "brwekpcno93vtpz" });
+
+  client.authenticate(function(error, client) {
+  
+      client.getAccountInfo(function(error, accountInfo) {
+  
+      });
+  });
       </script>
   </head>
   <body>

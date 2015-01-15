@@ -6,7 +6,15 @@ $CONFIG = array (
   array (
     0 => 'localhost',
   ),
+<<<<<<< HEAD
   'datadirectory' => 'c:\\Users\\Student\\xampp\\htdocs\\owncloud-serv\\data',
+=======
+<<<<<<< HEAD
+  'datadirectory' => 'C:\\xampp\\htdocs\\owncloud-serv\\data',
+=======
+  'datadirectory' => 'c:\xampp\\htdocs\\owncloud-serv\\data',
+>>>>>>> f2f4b47f3765e3a11408eb84afb26438b121fc8a
+>>>>>>> 93e1e06b1fc47125bca0f0d8de64c369ce57ea96
   'dbtype' => 'mysql',
   'version' => '7.0.2.1',
   'dbname' => 'acoserver_acoserver',
