@@ -58,8 +58,14 @@
  // makes sure they filled it in
 
  	if(!$_POST['username'] | !$_POST['pass']) {
-
- 		die('You did not fill in a required field.');
+                echo "<!DOCTYPE HTML>";
+                echo "<html>";
+                echo "<head>";
+                echo "<title>Try Again</title>";
+                echo "<link rel='stylesheet' href='/core/css/err-rf.css'/>";
+                echo "</head>";
+                echo "<body>";
+ 		die('<div class="message"><p>You did not fill in a required field.</p><div class="revert">Redo Login</div></div></body></html>');
 
  	}
 
@@ -151,6 +157,7 @@
 <head>
    <!--[if IE]>
       <link rel="stylesheet" type="text/css" href="core/css/login/screen-ie.css">
+
 <link type="text/css" rel="stylesheet" media="screen" href="core/css/theme.css" />
 
    <![endif]-->
