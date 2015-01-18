@@ -17,7 +17,7 @@
   
   <core-icon-button icon="more" on-tap="{{moreAction}}"></core-icon-button>
   <div flex>Title</div></core-toolbar>
-  <section id="ui"> </section>
+  <section id="ui"></section>
 </core-header-panel>
 </body>
 </html>
