@@ -1,9 +1,11 @@
 
-<!DOCTYPE HTML>
+
 
 <?php
 
-
+  require_once "includes/HtGen.php";
+  use ArcherSys\Neokit\HtGen;
+  HtGen::declareHTML5();
 
 
   require_once "config.php";
@@ -53,6 +55,7 @@ if(isset($_COOKIE['ID_my_site']))
 
  			{
 $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
+HtGen
   
 ?>
 	
@@ -65,7 +68,7 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 <title>VM Home</title>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.webapp">
-<meta name="application-name" content="ArcherSys OS">
+<?php HtGen::declareApplication("ArcherSys OS"); ?>
 <meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
 <script src="core/js/libs/jquery.min.js"></script>
 <meta http-equiv="X-UA-Compatible" content="chrome=1"/>
@@ -243,6 +246,7 @@ img.prof{
 
 
 $(document).ready(function(){
+  $("title").text("VM Home - "+localStorage.getItem("os-name"));
   var sliderUL = $('div.slider').children('ul'),
   	screens = sliderUL.find('li'),
 		screenWidth = screens.width(),
