@@ -55,7 +55,7 @@ if(isset($_COOKIE['ID_my_site']))
 
  			{
 $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
-HtGen
+
   
 ?>
 	
@@ -70,11 +70,7 @@ HtGen
 <link rel="manifest" href="manifest.webapp">
 <?php HtGen::declareApplication("ArcherSys OS"); ?>
 <meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
-<script src="core/js/libs/jquery.min.js"></script>
-<meta http-equiv="X-UA-Compatible" content="chrome=1"/>
-<script src="core/js/libs/togetherjs.js"></script>
-<script src="core/js/notidar.js"></script>
-<script src="core/js/events.js"></script>
+<script data-main="/core/neokit-loader.js" src="core/require.js"></script>
 
 
  
