@@ -19,3 +19,6 @@ Directions
 - [x] Type ''' cd YOUR_DIRECTORY ''' 
 - [x] Type ''' git init ''' 
 
+========
+Linux
+Coming Soon
