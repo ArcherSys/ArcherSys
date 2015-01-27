@@ -1,4 +1,5 @@
-$(function() {
+define(["js/jquery","js/notidar"],function($,Notidar){
+$(document).ready(function() {
   window.Notification.requestPermission(function(status){
   var status = $("#status");
 
@@ -35,6 +36,7 @@ $(".asos-pdflint").click(function(){
 });
 $(".asos-owncloud").click(function(){
   $("iframe").attr("src", "http://localhost/owncloud-serv");
+});
 });
 });
 });

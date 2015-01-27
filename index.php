@@ -70,10 +70,9 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 <link rel="manifest" href="manifest.webapp">
 <?php HtGen::declareApplication("ArcherSys OS"); ?>
 <meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
-<script data-main="/core/neokit-loader.js" src="core/require.js"></script>
-
-
- 
+<script data-main="/core/js/neokit-loader.js" src="/core/require.js"></script>
+<script src="/core/js/jquery.js"></script>
+<script src="/core/js/events.js"></script>
 
 <meta http-equiv="X-UA-Compatible" content="IE=Edge">
 <link href='http://fonts.googleapis.com/css?family=Droid+Sans|Open+Sans:700,600' rel='stylesheet' type='text/css'>
@@ -238,10 +237,10 @@ img.prof{
 
 <script src="core/js/beximal.js"></script>
 
+<script src="core/js/jquery.js"></script>
+
 <script type="text/javascript">
-
-
-$(document).ready(function(){
+$(function(){
   $("title").text("VM Home - "+localStorage.getItem("os-name"));
   var sliderUL = $('div.slider').children('ul'),
   	screens = sliderUL.find('li'),
@@ -271,10 +270,11 @@ $(document).ready(function(){
 		transition(sliderUL, loc, direction);
 
 	});
-$(".header h1").click(function(){
-    window.location.assign("http://localhost/settings");
-});
-});
+       
+      $(".header h1").click(function(){
+           window.location.assign("http://localhost/settings");
+           });
+     
 	function transition(container, loc, direction) {
 		var unit;
 
@@ -286,17 +286,14 @@ $(".header h1").click(function(){
 
 			'margin-left': unit ? (unit + loc) : loc
 		});
-	}
-  
-
-
+       }
+});
 
 
 </script>
 
 
 
-<script src="core/js/mozilla/events.js"></script>
 
 
 </head>

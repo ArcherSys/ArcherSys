@@ -1,3 +1,4 @@
+NKdefine(function(){
 var Notidar  = {};
 Notidar.Notidex = new Array();
 Notidar.pushOnlineNotification = function(){
@@ -6,3 +7,5 @@ Notidar.Notidex.push(new Notification("Online!",{icon: "http://localhost:80/core
 Notidar.pushOfflineNotification = function(){
  Notidar.Notidex.push(new Notification("Offline!",{icon: "/core/media/img/notidar.ico", body: "You're disconnected - officially. "}));
 };
+return Notidar;
+});

@@ -1,4 +1,5 @@
-<?php 
+<!DOCTYPE HTML>
+<?php
 session_start();
 include "aup.php";
 include_once "class_character.php";
@@ -44,7 +45,7 @@ function refresh() {
 		if ($color == '') {
 			$color = "white";
 		}
-		print '<hr><div align="left"><font color="'.$color.'">' . $row['postname'] . ',' . date('Y/m/d H:i', $row['postdate']) . '<br><br> '.$row['posttext'] .' <br></font>';
+		print '<hr><div align="left"><style> hr div{color:'.$color.';}</style>' . $row['postname'] . ',' . date('Y/m/d H:i', $row['postdate']) . '<br><br> '.$row['posttext'] .' <br></font>';
 	}
 
 	$result = mysql_query ('SELECT * FROM phaos_shout');
@@ -104,10 +105,10 @@ background-position: 50px 50px;
 <link rel="shortcut icon" href="images/phaos.ico" type="image/x-icon">
 <link rel="icon" href="images/phaos.ico" type="image/x-icon">
 </head>
-<body bgcolor=#000000 onFocus="refresh();">
+<body  onFocus="refresh();">
 
 <!-- START HELP MENU CODE -->
-<SCRIPT SRC="help_ssm.js" language="JavaScript"></script>
+<script src="help_ssm.js" type="text/javascript"></script>
 
 <SCRIPT language="JavaScript">
 <!--
