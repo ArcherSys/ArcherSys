@@ -1,0 +1,1 @@
+@"C:\xampp\htdocs\Scripts\python.exe" "C:\xampp\htdocs\Scripts\markdown_py" %*

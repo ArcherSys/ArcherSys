@@ -3,9 +3,7 @@
 
 <?php
 
-  require_once "includes/HtGen.php";
-  use ArcherSys\Neokit\HtGen;
-  HtGen::declareHTML5();
+ 
 
 
   require_once "config.php";
@@ -58,7 +56,7 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 
   
 ?>
-	
+	<!DOCTYPE HTML>
 		
 <html  xmlns:fb="http://ogp.me/ns/fb#">
 <head>
