@@ -47,10 +47,27 @@
   </core-menu>
   <?php
   switch($_GET["channel"]){
+      case "appinventor":
+          echo "<iframe width=\"1000\" height=\"315\" src=\"https://www.youtube.com/embed/HbntNGGXamw?list=PLsxoqvm6HPQV5XMPwN4N0tYIe7asB81PS\" frameborder=\"0\" allowfullscreen></iframe>"
     case "chemistry":
       echo '<iframe width="1000" height="315" src="//www.youtube.com/embed/Bfg9pq3Whmw?list=PLQJpFnTw8t0K3JElSenGJFImUJ6s-N2EL" frameborder="0" allowfullscreen></iframe>';
       break;
+      case "emberjs":
+        echo "<iframe width=\"1000\" height=\"315\" src=\"https://www.youtube.com/embed/videoseries?list=PL0nNJgE19Y-js_1XHA5QdEU1ed_ldOaks\" frameborder=\"0\" allowfullscreen></iframe>";
+        break;
+    case "portfolio":
+      echo "<div class=\"g-page\" data-width=\"450\" data-href=\"//plus.google.com/u/0/114657577319697970021\" data-theme=\"dark\" data-rel=\"publisher\"></div>"."<div class=\"g-community\" data-width=\"450\" data-href=\"https://plus.google.com/b/114657577319697970021/communities/113885134081295677037\" data-showowners=\"true\"></div>";
+      echo "<a href=\"https://plus.google.com/114657577319697970021/posts/Uc3fYmGhpyX\">Share your Thoughts on Our Logo</a>";
 
+
+    echo "<script type=\"text/javascript\">". " (function() {".
+   " var po = document.createElement('script'); po.type = 'text/javascript'; po.async = true;".
+   " po.src = 'https://apis.google.com/js/platform.js';".
+   " var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(po, s);".
+  "})();" ;
+echo "</script>";
+break;
+  
   }
   ?>
 </section>

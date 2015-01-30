@@ -5,7 +5,8 @@ baseUrl: "/core/js/",
     
 jquery: "jquery",
  notidar: "notidar",
-events: "events"
+events: "events",
+ activity: "activity",
  },
 context: "archersys"
 });

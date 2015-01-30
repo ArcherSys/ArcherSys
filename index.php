@@ -12,8 +12,8 @@
   require_once "includes/component-functions.php";
 
  // Connects to your Database
-
- mysql_connect("localhost", "root", "aco1234") or die(mysql_error());
+@ini_set("max_execution_time", 300);
+ mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or die(mysql_error());
 
  mysql_select_db("acoserver_acoserver") or die(mysql_error());
 
@@ -60,7 +60,7 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 ?>
 	
 		
-<html  xmlns:fb="http://ogp.me/ns/fb#">
+<html  i18n-values="bookmarkbarattached:bookmarkbarattached" bookmarbarattached="true" xmlns:fb="http://ogp.me/ns/fb#">
 <head>
 <meta name="msapplication-config" content="ieconfig.xml" />
 <meta charset="utf-8">
@@ -236,19 +236,24 @@ img.prof{
 </style>
 
 <script src="core/js/beximal.js"></script>
-
+<script src="/core/js/activity-amd.js"></script>
 <script src="core/js/jquery.js"></script>
-
 <script type="text/javascript">
 $(function(){
   $("title").text("VM Home - "+localStorage.getItem("os-name"));
+ 
+       
+  
   var sliderUL = $('div.slider').children('ul'),
   	screens = sliderUL.find('li'),
 		screenWidth = screens.width(),
 		screenLength = screens.length,
 		current = 1,
 		totalScreenWidth = screenLength * screenWidth;
-
+   $("#silverdrive-starter").click(function(){
+   var sd = SilverDriveActivity();
+      sd.start();
+   })
 	var h1 = $('div.header').children('h1');
 
 	$('#screen-nav').find('button').on('click', function() {
@@ -289,7 +294,6 @@ $(function(){
        }
 });
 
-
 </script>
 
 
@@ -298,8 +302,7 @@ $(function(){
 
 </head>
 
-<body>
-	
+<body >
 
 	
 	<div class="container" >
@@ -327,15 +330,15 @@ $(function(){
 	<h2 class="top cal_i">Today's Schedule</h2>
 				<i class="icon-calendar"></i>
 			</a>
-<div class="module neonblue single img word">
+<div class="module neonblue single img word" >
     <a href="Producktiviti/PDFLint">
       <p class="title">PDFLint</p>
     </a>
     </div>
-    <div class="module red single img birds">
-						<a href="http://localhost/entertainment/games/index.php"><p class="title">Games</p></a>
-					</div>
 
+  <div class="module red single img birds">
+<a href="http://localhost/entertainment/games/index.php"><p class="title">Games</p></a>
+					</div>
 
 
 </li>
@@ -361,7 +364,9 @@ $(function(){
 					<a href="https://sites.google.com/site/archersysoswalnutstore/"><p class="title">ArcherSys Walnut App Store</p></a>
 					</div>
 					
-
+<div class="module blue double img word" id="silverdrive-starter">
+  <p class="title">Start SilverDrive</p>
+</div>
 </li>
 </ul>
 
