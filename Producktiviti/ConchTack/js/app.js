@@ -297,7 +297,7 @@
             var removed = removedModel.attributes;
 
             //if model acquired default photo property, remove it
-            if (removed.photo === "/img/placeholder.png") {
+            if (removed.photo === "img/placeholder.png") {
                 delete removed.photo;
             }
 
