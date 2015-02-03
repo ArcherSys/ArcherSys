@@ -1,21 +1,63 @@
-﻿(function ($) {
+(function ($) {
+   
+   var  contacts = [{
+        name: "Contact 1",
+        address: "1, a street, a town, a city, AB12 3CD",
+        tel: "0123456789",
+        email: "anemail@me.com",
+        type: "family"
+    }, {
+        name: "Contact 2",
+        address: "1, a street, a town, a city, AB12 3CD",
+        tel: "0123456789",
+        email: "anemail@me.com",
+        type: "family"
+    }, {
+        name: "Contact 3",
+        address: "1, a street, a town, a city, AB12 3CD",
+        tel: "0123456789",
+        email: "anemail@me.com",
+        type: "friend"
+    }, {
+        name: "Contact 4",
+        address: "1, a street, a town, a city, AB12 3CD",
+        tel: "0123456789",
+        email: "anemail@me.com",
+        type: "colleague"
+    }, {
+        name: "Contact 5",
+        address: "1, a street, a town, a city, AB12 3CD",
+        tel: "0123456789",
+        email: "anemail@me.com",
+        type: "family"
+    }, {
+        name: "Contact 6",
+        address: "1, a street, a town, a city, AB12 3CD",
+        tel: "0123456789",
+        email: "anemail@me.com",
+        type: "colleague"
+    }, {
+        name: "Contact 7",
+        address: "1, a street, a town, a city, AB12 3CD",
+        tel: "0123456789",
+        email: "anemail@me.com",
+        type: "friend"
+    }, {
+        name: "Contact 8",
+        address: "1, a street, a town, a city, AB12 3CD",
+        tel: "0123456789",
+        email: "anemail@me.com",
+        type: "family"
+    }];
 
-    //demo data
-    var contacts = [
-        { name: "Contact 1", address: "1, a street, a town, a city, AB12 3CD", tel: "0123456789", email: "anemail@me.com", type: "family" },
-        { name: "Contact 2", address: "1, a street, a town, a city, AB12 3CD", tel: "0123456789", email: "anemail@me.com", type: "family" },
-        { name: "Contact 3", address: "1, a street, a town, a city, AB12 3CD", tel: "0123456789", email: "anemail@me.com", type: "friend" },
-        { name: "Contact 4", address: "1, a street, a town, a city, AB12 3CD", tel: "0123456789", email: "anemail@me.com", type: "colleague" },
-        { name: "Contact 5", address: "1, a street, a town, a city, AB12 3CD", tel: "0123456789", email: "anemail@me.com", type: "family" },
-        { name: "Contact 6", address: "1, a street, a town, a city, AB12 3CD", tel: "0123456789", email: "anemail@me.com", type: "colleague" },
-        { name: "Contact 7", address: "1, a street, a town, a city, AB12 3CD", tel: "0123456789", email: "anemail@me.com", type: "friend" },
-        { name: "Contact 8", address: "1, a street, a town, a city, AB12 3CD", tel: "0123456789", email: "anemail@me.com", type: "family" }
-    ];
-
-    //define product model
-    var Contact = Backbone.Model.extend({
+    /** Contact Model Lets You record your social
+     * your very own database.
+     * @constructor
+     * There are no params.
+     */
+  var   Contact = Backbone.Model.extend({
         defaults: {
-            photo: "/img/placeholder.png",
+            photo: "img/placeholder.png",
             name: "",
             address: "",
             tel: "",
@@ -24,33 +66,39 @@
         }
     });
 
-    //define directory collection
+    /** ConchTack Directory Collection
+     *  To be placed in parse
+     * @constructor
+     *
+     */
     var Directory = Backbone.Collection.extend({
         model: Contact
     });
 
-    //define individual contact view
+    /** define individual contact view
+     * Parse Ready
+     */
     var ContactView = Backbone.View.extend({
         tagName: "article",
         className: "contact-container",
         template: _.template($("#contactTemplate").html()),
         editTemplate: _.template($("#contactEditTemplate").html()),
 
-        render: function () {
+        render: function() {
             this.$el.html(this.template(this.model.toJSON()));
             return this;
         },
 
         events: {
-            "click button.delete": "deleteContact",
-            "click button.edit": "editContact",
+            "click core-icon-button.delete": "deleteContact",
+            "click core-icon-button.edit": "editContact",
             "change select.type": "addType",
-            "click button.save": "saveEdits",
-            "click button.cancel": "cancelEdit"
+            "click core-icon-button.save": "saveEdits",
+            "click core-icon-button.cancel": "cancelEdit"
         },
 
-        //delete a contact
-        deleteContact: function () {
+        /** deletes a contact */
+        deleteContact: function() {
             var removedType = this.model.get("type").toLowerCase();
 
             //remove model
@@ -65,8 +113,10 @@
             }
         },
 
-        //switch contact to edit mode
-        editContact: function () {
+        /** switches contact to edit mode
+         * @function
+         */
+        editContact: function() {
             this.$el.html(this.editTemplate(this.model.toJSON()));
 
             //add select to set type
@@ -79,7 +129,7 @@
             this.$el.find("input[type='hidden']").remove();
         },
 
-        addType: function () {
+        addType: function() {
             if (this.select.val() === "addType") {
 
                 this.select.remove();
@@ -90,14 +140,14 @@
             }
         },
 
-        saveEdits: function (e) {
+        saveEdits: function(e) {
             e.preventDefault();
 
             var formData = {},
-                prev = this.model.previousAttributes();
+            prev = this.model.previousAttributes();
 
             //get form data
-            $(e.target).closest("form").find(":input").not("button").each(function () {
+            $(e.target).closest("form").find(":input").not("button").each(function() {
                 var el = $(this);
                 formData[el.attr("class")] = el.val();
             });
@@ -114,28 +164,28 @@
             this.render();
 
             //if model acquired default photo property, remove it
-            if (prev.photo === "/img/placeholder.png") {
+            if (prev.photo === "img/placeholder.png") {
                 delete prev.photo;
             }
 
             //update contacts array
-            _.each(contacts, function (contact) {
+            _.each(contacts, function(contact) {
                 if (_.isEqual(contact, prev)) {
                     contacts.splice(_.indexOf(contacts, contact), 1, formData);
                 }
             });
         },
 
-        cancelEdit: function () {
+        cancelEdit: function() {
             this.render();
         }
     });
 
-    //define master view
-    var DirectoryView = Backbone.View.extend({
+    /** define master view */
+   var  DirectoryView = Backbone.View.extend({
         el: $("#contacts"),
 
-        initialize: function () {
+        initialize: function() {
             this.collection = new Directory(contacts);
 
             this.render();
@@ -147,34 +197,34 @@
             this.collection.on("remove", this.removeContact, this);
         },
 
-        render: function () {
+        render: function() {
             this.$el.find("article").remove();
 
-            _.each(this.collection.models, function (item) {
+            _.each(this.collection.models, function(item) {
                 this.renderContact(item);
             }, this);
         },
 
-        renderContact: function (item) {
+        renderContact: function(item) {
             var contactView = new ContactView({
                 model: item
             });
             this.$el.append(contactView.render().el);
         },
 
-        getTypes: function () {
-            return _.uniq(this.collection.pluck("type"), false, function (type) {
+        getTypes: function() {
+            return _.uniq(this.collection.pluck("type"), false, function(type) {
                 return type.toLowerCase();
             });
         },
 
-        createSelect: function () {
+        createSelect: function() {
             var filter = this.$el.find("#filter"),
                 select = $("<select/>", {
                     html: "<option value='all'>All</option>"
                 });
 
-            _.each(this.getTypes(), function (item) {
+            _.each(this.getTypes(), function(item) {
                 var option = $("<option/>", {
                     value: item.toLowerCase(),
                     text: item.toLowerCase()
@@ -192,21 +242,24 @@
         },
 
         //Set filter property and fire change event
-        setFilter: function (e) {
+        setFilter: function(e) {
             this.filterType = e.currentTarget.value;
             this.trigger("change:filterType");
         },
 
         //filter the view
-        filterByType: function () {
+        filterByType: function() {
             if (this.filterType === "all") {
                 this.collection.reset(contacts);
                 contactsRouter.navigate("filter/all");
-            } else {
-                this.collection.reset(contacts, { silent: true });
+            }
+            else {
+                this.collection.reset(contacts, {
+                    silent: true
+                });
 
                 var filterType = this.filterType,
-                    filtered = _.filter(this.collection.models, function (item) {
+                    filtered = _.filter(this.collection.models, function(item) {
                         return item.get("type").toLowerCase() === filterType;
                     });
 
@@ -217,11 +270,11 @@
         },
 
         //add a new contact
-        addContact: function (e) {
+        addContact: function(e) {
             e.preventDefault();
 
             var formData = {};
-            $("#addContact").children("input").each(function (i, el) {
+            $("#addContact").children("input").each(function(i, el) {
                 if ($(el).val() !== "") {
                     formData[el.id] = $(el).val();
                 }
@@ -234,39 +287,42 @@
             if (_.indexOf(this.getTypes(), formData.type) === -1) {
                 this.collection.add(new Contact(formData));
                 this.$el.find("#filter").find("select").remove().end().append(this.createSelect());
-            } else {
+            }
+            else {
                 this.collection.add(new Contact(formData));
             }
         },
 
-        removeContact: function (removedModel) {
+        removeContact: function(removedModel) {
             var removed = removedModel.attributes;
 
             //if model acquired default photo property, remove it
-            if (removed.photo === "/img/placeholder.png") {
+            if (removed.photo === "img/placeholder.png") {
                 delete removed.photo;
             }
 
             //remove from contacts array
-            _.each(contacts, function (contact) {
+            _.each(contacts, function(contact) {
                 if (_.isEqual(contact, removed)) {
                     contacts.splice(_.indexOf(contacts, contact), 1);
                 }
             });
         },
 
-        showForm: function () {
+        showForm: function() {
             this.$el.find("#addContact").slideToggle();
         }
     });
 
-    //add routing
+    /** Router adds routing
+     * @constructor
+     */
     var ContactsRouter = Backbone.Router.extend({
         routes: {
             "filter/:type": "urlFilter"
         },
 
-        urlFilter: function (type) {
+        urlFilter: function(type) {
             directory.filterType = type;
             directory.trigger("change:filterType");
         }
@@ -276,9 +332,8 @@
     var directory = new DirectoryView();
 
     //create router instance
-    var contactsRouter = new ContactsRouter();
+   var  contactsRouter = new ContactsRouter();
 
     //start history service
     Backbone.history.start();
-
-} (jQuery));
+}(jQuery));

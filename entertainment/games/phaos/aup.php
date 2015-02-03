@@ -9,14 +9,15 @@ include_once 'include_lang.php';
 
 if ( !$auth ) {
 	?>
+	<!DOCTYPE HTML>
 	<html>
 	<head>
 	<title><?php echo $SITETITLE; ?></title>
-	<link rel=stylesheet type=text/css href=styles/phaos.css>
+	<link rel="stylesheet" type="text/css" href="styles/phaos.css">
 	<link rel='shortcut icon' href='images/phaos.ico' type='image/x-icon'>
 	<link rel='icon' href='images/phaos.ico' type='image/x-icon'>
 	</head>
-	<body bottommargin="0" rightmargin="0" leftmargin="0" topmargin="0" marginwidth="0" marginheight="0">
+	<body>
 	<div align=center>
 	<br>
 	<br>
@@ -32,31 +33,31 @@ if ( !$auth ) {
 	<td><input name="PHP_PHAOS_USER" type="text" value="<?php echo $_COOKIE[PHP_PHAOS_USER]; ?>"></td>
 	</tr>
 	<tr>
-	<td align=right><font color="black"><strong><?php echo $lang_aup["pass"]; ?>: &nbsp</strong></font></td>
+	<td align=right><strong class="phaos-pass-cell"><?php echo $lang_aup["pass"]; ?>: &nbsp</strong></td>
 	<td><input name="PHP_PHAOS_PW" type="password"></td>
 	</tr>
 	</table>
 	<br>
-	<input type="submit" value="<?php echo $lang_aup["login"]; ?>"> 
-	</td> 
-	</tr> 
-	</table> 
-	</form> 
+	<input type="submit" value="<?php echo $lang_aup["login"]; ?>">
+	</td>
+	</tr>
+	</table>
+	</form>
 	<p>
-	<a href="register.php"><?php echo $lang_aup["register"]; ?></a> 
+	<a href="register.php"><?php echo $lang_aup["register"]; ?></a>
 	<p>
 	<br>
 	<br>
-	<a href='http://www.worldofphaos.com/magewar/index.php?rbuid=1' target='_blank' title='World of Phaos: The Mage War - Free Online Strategy Game - www.WorldOfPhaos.com' style='border:none;'><div style='text-align: center'><img src='http://www.worldofphaos.com/magewar/images/banners/banner_468x60.gif' alt='World of Phaos: The Mage War - Free Online Strategy Game - www.WorldOfPhaos.com' title='World of Phaos: The Mage War - Free Online Strategy Game - www.WorldOfPhaos.com' width='468' height='60' style='border:none;'></div></a>
+	</div></a>
 	<br>
 	<br>
-	<small>
+	<span class="phaos-aerodia-info">
 	Copyright 2004-<?php echo date("Y",time()); ?>
-	<br><a href="http://www.worldofphaos.com/" target="_blank"><?php echo $lang_aup["license"]; ?></a>
-
+	<br><a href="#"><?php echo $lang_aup["license"]; ?></a>
+  </span>
 	</body>
 	</html>
 	<?php
 	exit;
-} 
+}
 ?>

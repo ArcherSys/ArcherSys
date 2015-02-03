@@ -1,19 +1,19 @@
--- 
+--
 -- Table structure for table `phaos_admin`
--- 
+--
 
 CREATE TABLE `phaos_admin` (
   `id` int(11) NOT NULL auto_increment,
   `admin_user` varchar(100) NOT NULL default '',
   `admin_pass` varchar(100) NOT NULL default '',
   PRIMARY KEY  (`id`)
-) TYPE=InnoDB AUTO_INCREMENT=2 ;
+) ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_armor`
--- 
+--
 
 CREATE TABLE `phaos_armor` (
   `name` varchar(100) NOT NULL default '',
@@ -27,13 +27,13 @@ CREATE TABLE `phaos_armor` (
   KEY `armor_class` (`armor_class`),
   KEY `buy_price` (`buy_price`),
   KEY `sell_price` (`sell_price`)
-) TYPE=InnoDB AUTO_INCREMENT=66 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_boots`
--- 
+--
 
 CREATE TABLE `phaos_boots` (
   `name` varchar(100) NOT NULL default '',
@@ -47,13 +47,13 @@ CREATE TABLE `phaos_boots` (
   KEY `armor_class` (`armor_class`),
   KEY `buy_price` (`buy_price`),
   KEY `sell_price` (`sell_price`)
-) TYPE=InnoDB AUTO_INCREMENT=130 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_buildings`
--- 
+--
 
 CREATE TABLE `phaos_buildings` (
   `shop_id` int(11) unsigned NOT NULL auto_increment,
@@ -68,13 +68,13 @@ CREATE TABLE `phaos_buildings` (
   KEY `type` (`type`),
   KEY `owner_id` (`owner_id`),
   KEY `capacity` (`capacity`)
-) TYPE=InnoDB AUTO_INCREMENT=125 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_char_inventory`
--- 
+--
 
 CREATE TABLE `phaos_char_inventory` (
   `id` int(11) NOT NULL auto_increment,
@@ -91,13 +91,13 @@ CREATE TABLE `phaos_char_inventory` (
   KEY `equiped` (`equiped`),
   KEY `asking_price` (`asking_price`),
   KEY `sell_to` (`sell_to`)
-) TYPE=InnoDB AUTO_INCREMENT=289386 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_characters`
--- 
+--
 
 CREATE TABLE `phaos_characters` (
   `id` int(11) NOT NULL auto_increment,
@@ -146,13 +146,13 @@ CREATE TABLE `phaos_characters` (
   KEY `stamina` (`stamina`),
   KEY `stamina_time` (`stamina_time`),
   KEY `regen_time` (`regen_time`)
-) TYPE=InnoDB AUTO_INCREMENT=146557 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_clan_admin`
--- 
+--
 
 CREATE TABLE `phaos_clan_admin` (
   `id` int(11) NOT NULL auto_increment,
@@ -179,13 +179,13 @@ CREATE TABLE `phaos_clan_admin` (
   `clan_sig` varchar(100) NOT NULL default '',
   PRIMARY KEY  (`id`),
   KEY `clanname` (`clanname`)
-) TYPE=InnoDB AUTO_INCREMENT=37 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_clan_in`
--- 
+--
 
 CREATE TABLE `phaos_clan_in` (
   `id` int(11) NOT NULL auto_increment,
@@ -196,13 +196,13 @@ CREATE TABLE `phaos_clan_in` (
   `clanrank` int(3) NOT NULL default '0',
   PRIMARY KEY  (`id`),
   KEY `clanname` (`clanname`)
-) TYPE=InnoDB AUTO_INCREMENT=184 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_clan_search`
--- 
+--
 
 CREATE TABLE `phaos_clan_search` (
   `id` int(11) NOT NULL auto_increment,
@@ -212,13 +212,13 @@ CREATE TABLE `phaos_clan_search` (
   PRIMARY KEY  (`id`),
   KEY `clanname` (`clanname`),
   KEY `charname` (`charname`)
-) TYPE=InnoDB AUTO_INCREMENT=46 ;
+) ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_classes`
--- 
+--
 
 CREATE TABLE `phaos_classes` (
   `id` int(11) NOT NULL auto_increment,
@@ -235,13 +235,13 @@ CREATE TABLE `phaos_classes` (
   KEY `weaponless` (`weaponless`),
   KEY `lockpick` (`lockpick`),
   KEY `traps` (`traps`)
-) TYPE=InnoDB AUTO_INCREMENT=19 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_gloves`
--- 
+--
 
 CREATE TABLE `phaos_gloves` (
   `name` varchar(100) NOT NULL default '',
@@ -255,13 +255,13 @@ CREATE TABLE `phaos_gloves` (
   KEY `armor_class` (`armor_class`),
   KEY `buy_price` (`buy_price`),
   KEY `sell_price` (`sell_price`)
-) TYPE=InnoDB AUTO_INCREMENT=130 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_ground`
--- 
+--
 
 CREATE TABLE `phaos_ground` (
   `location` int(11) unsigned NOT NULL default '0',
@@ -273,13 +273,13 @@ CREATE TABLE `phaos_ground` (
   KEY `item_id` (`item_id`),
   KEY `item_type` (`item_type`),
   KEY `number` (`number`)
-) TYPE=InnoDB;
+) ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_helmets`
--- 
+--
 
 CREATE TABLE `phaos_helmets` (
   `name` varchar(100) NOT NULL default '',
@@ -293,13 +293,13 @@ CREATE TABLE `phaos_helmets` (
   KEY `armor_class` (`armor_class`),
   KEY `buy_price` (`buy_price`),
   KEY `sell_price` (`sell_price`)
-) TYPE=InnoDB AUTO_INCREMENT=122 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_help`
--- 
+--
 
 CREATE TABLE `phaos_help` (
   `id` int(11) NOT NULL auto_increment,
@@ -309,13 +309,13 @@ CREATE TABLE `phaos_help` (
   PRIMARY KEY  (`id`),
   KEY `title` (`title`),
   KEY `category` (`file`)
-) TYPE=InnoDB AUTO_INCREMENT=21 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_level_chart`
--- 
+--
 
 CREATE TABLE `phaos_level_chart` (
   `id` int(11) NOT NULL auto_increment,
@@ -324,11 +324,11 @@ CREATE TABLE `phaos_level_chart` (
   PRIMARY KEY  (`id`),
   KEY `level` (`level`),
   KEY `xp_needed` (`xp_needed`)
-) TYPE=InnoDB AUTO_INCREMENT=1001 ;
+) ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_locations`
 --
  
@@ -401,7 +401,7 @@ KEY `above_right` (`above_right`),
 --
  
 -- Table structure for table `phaos_mail`
--- 
+--
 
 CREATE TABLE `phaos_mail` (
   `UserTo` tinytext NOT NULL,
@@ -412,13 +412,13 @@ CREATE TABLE `phaos_mail` (
   `SentDate` text NOT NULL,
   `mail_id` int(80) NOT NULL auto_increment,
   PRIMARY KEY  (`mail_id`)
-) TYPE=InnoDB AUTO_INCREMENT=18 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_npcs`
--- 
+--
 
 CREATE TABLE `phaos_npcs` (
   `id` int(11) NOT NULL auto_increment,
@@ -433,13 +433,13 @@ CREATE TABLE `phaos_npcs` (
   KEY `race` (`race`),
   KEY `location` (`location`),
   KEY `quest` (`quest`)
-) TYPE=InnoDB AUTO_INCREMENT=5 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_opponents`
--- 
+--
 
 CREATE TABLE `phaos_opponents` (
   `id` int(11) NOT NULL auto_increment,
@@ -457,13 +457,13 @@ CREATE TABLE `phaos_opponents` (
   PRIMARY KEY  (`id`),
   KEY `name` (`name`),
   KEY `location` (`location`)
-) TYPE=InnoDB AUTO_INCREMENT=201 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_potion`
--- 
+--
 
 CREATE TABLE `phaos_potion` (
   `id` int(11) NOT NULL auto_increment,
@@ -477,13 +477,13 @@ CREATE TABLE `phaos_potion` (
   KEY `effect` (`effect`),
   KEY `buy_price` (`buy_price`),
   KEY `sell_price` (`sell_price`)
-) TYPE=InnoDB AUTO_INCREMENT=17 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_potions`
--- 
+--
 
 CREATE TABLE `phaos_potions` (
   `image_path` longtext NOT NULL,
@@ -497,13 +497,13 @@ CREATE TABLE `phaos_potions` (
   KEY `heal_amount` (`heal_amount`),
   KEY `buy_price` (`buy_price`),
   KEY `sell_price` (`sell_price`)
-) TYPE=InnoDB AUTO_INCREMENT=4 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_questhunters`
--- 
+--
 
 CREATE TABLE `phaos_questhunters` (
   `charid` int(11) NOT NULL default '0',
@@ -516,13 +516,13 @@ CREATE TABLE `phaos_questhunters` (
   `expearned` int(11) NOT NULL default '0',
   `goldearned` int(11) NOT NULL default '0',
   `complete` int(11) NOT NULL default '0'
-) TYPE=InnoDB;
+) ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_quests`
--- 
+--
 
 CREATE TABLE `phaos_quests` (
   `questid` int(11) NOT NULL auto_increment,
@@ -554,13 +554,13 @@ CREATE TABLE `phaos_quests` (
   `maxtime` bigint(20) NOT NULL default '0',
   `restnum` int(11) NOT NULL default '0',
   PRIMARY KEY  (`questid`)
-) TYPE=InnoDB AUTO_INCREMENT=1 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_races`
--- 
+--
 
 CREATE TABLE `phaos_races` (
   `id` int(11) NOT NULL auto_increment,
@@ -579,26 +579,26 @@ CREATE TABLE `phaos_races` (
   KEY `stamina_regen_rate` (`stamina_regen_rate`),
   KEY `healing_time` (`healing_time`),
   KEY `healing_rate` (`healing_rate`)
-) TYPE=InnoDB AUTO_INCREMENT=25 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_sex`
--- 
+--
 
 CREATE TABLE `phaos_sex` (
   `id` int(11) NOT NULL auto_increment,
   `sex` varchar(20) NOT NULL default '',
   PRIMARY KEY  (`id`),
   KEY `sex` (`sex`)
-) TYPE=InnoDB AUTO_INCREMENT=3 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_shields`
--- 
+--
 
 CREATE TABLE `phaos_shields` (
   `name` varchar(100) NOT NULL default '',
@@ -612,13 +612,13 @@ CREATE TABLE `phaos_shields` (
   KEY `armor_class` (`armor_class`),
   KEY `buy_price` (`buy_price`),
   KEY `sell_price` (`sell_price`)
-) TYPE=InnoDB AUTO_INCREMENT=82 ;
+) ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_shop_basics`
--- 
+--
 
 CREATE TABLE `phaos_shop_basics` (
   `shop_id` int(11) NOT NULL auto_increment,
@@ -631,13 +631,13 @@ CREATE TABLE `phaos_shop_basics` (
   KEY `item_location_id` (`item_location_id`),
   KEY `restock_time` (`restock_time`),
   KEY `restock_time_delta` (`restock_time_delta`)
-) TYPE=InnoDB AUTO_INCREMENT=119 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_shop_inventory`
--- 
+--
 
 CREATE TABLE `phaos_shop_inventory` (
   `shop_id` int(11) NOT NULL default '0',
@@ -654,13 +654,13 @@ CREATE TABLE `phaos_shop_inventory` (
   KEY `sell` (`sell`),
   KEY `quantity` (`quantity`),
   KEY `max` (`max`)
-) TYPE=InnoDB;
+) ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_shop_refill`
--- 
+--
 
 CREATE TABLE `phaos_shop_refill` (
   `shop_id` int(11) NOT NULL default '0',
@@ -678,13 +678,13 @@ CREATE TABLE `phaos_shop_refill` (
   KEY `item_value_growth_probability` (`item_value_growth_probability`),
   KEY `item_count_min` (`item_count_min`),
   KEY `item_name_like` (`item_name_like`)
-) TYPE=InnoDB;
+) ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_shout`
--- 
+--
 
 CREATE TABLE `phaos_shout` (
   `id` int(11) NOT NULL auto_increment,
@@ -698,13 +698,13 @@ CREATE TABLE `phaos_shout` (
   KEY `destname` (`destname`),
   KEY `postname` (`postname`),
   KEY `postdate` (`postdate`)
-) TYPE=InnoDB AUTO_INCREMENT=2449 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_spells_items`
--- 
+--
 
 CREATE TABLE `phaos_spells_items` (
   `id` int(11) NOT NULL auto_increment,
@@ -724,13 +724,13 @@ CREATE TABLE `phaos_spells_items` (
   KEY `sell_price` (`sell_price`),
   KEY `req_skill` (`req_skill`),
   KEY `damage_mess` (`damage_mess`)
-) TYPE=InnoDB AUTO_INCREMENT=257 ;
+)  ;
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_store_inventory`
--- 
+--
 
 CREATE TABLE `phaos_store_inventory` (
   `id` int(11) NOT NULL auto_increment,
@@ -762,13 +762,13 @@ CREATE TABLE `phaos_store_inventory` (
 
 -- --------------------------------------------------------
 
--- 
+--
 
 -- Table structure for table `phaos_users`
 --
  
 
-CREATE TABLE `phaos_users` 
+CREATE TABLE `phaos_users`
 (
   `id` int(11) NOT NULL auto_increment,
 
@@ -797,15 +797,15 @@ KEY `password` (`password`),
 KEY `grid_size` (`grid_size`),
  
  KEY `grid_status` (`grid_status`)
-) 
+)
  ;
 
 
 -- --------------------------------------------------------
 
--- 
+--
 -- Table structure for table `phaos_weapons`
--- 
+--
 
 CREATE TABLE `phaos_weapons` (
   `name` varchar(100) NOT NULL default '',
@@ -821,4 +821,4 @@ CREATE TABLE `phaos_weapons` (
   KEY `max_damage` (`max_damage`),
   KEY `buy_price` (`buy_price`),
   KEY `sell_price` (`sell_price`)
-) TYPE=InnoDB AUTO_INCREMENT=262 ;
+)  ;

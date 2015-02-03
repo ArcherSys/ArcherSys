@@ -108,8 +108,14 @@
  //gives error if the password is wrong
 
  	if ($_POST['pass'] != $info['password']) {
-
- 		die('Incorrect password, please try again.');
+                echo "<!DOCTYPE HTML>";
+                echo "<html>";
+                   echo "<head>";
+                  echo "<title>Incorrect Password</title>";
+                 echo "<link rel=\"stylesheet\" type=\"text/css\" href=\"/core/css/err-rf.css\"/>";
+                 echo "</head>";
+                 echo "<body>";
+ 		die('<div class="asos-incorrect-pass"><p>Incorrect password.</p> <button class="asos-ipass-button" onclick="window.reload()">Please Try Again</button></div></body></html>');
 
  	}
 
@@ -152,7 +158,7 @@
 
 <!DOCTYPE HTML>
 
-<html>
+<html i18n-values="bookmarkbarattached:bookmarkbarattached" bookmarbarattached >
   
 <head>
    <!--[if IE]>
@@ -172,11 +178,12 @@
     <script type="text/javascript">
           
   var client = new Dropbox.Client({ key: "brwekpcno93vtpz" });
-
+    var gh2FEnabled = confirm("Enabled GH ArcherSys 2F Authenthication?");
   client.authenticate(function(error, client) {
-  
+         
       client.getAccountInfo(function(error, accountInfo) {
-  
+          if(gh2FEnabled)
+               window.location.assign("https://github.com/login/oauth/authorize?response_type=code&client_id=095447377bd289fa5201&redirect_uri=http%3A%2F%2Flocalhost%2Findex.php");
       });
   });
       </script>
@@ -187,7 +194,17 @@
  
 <form id="login" class="front box" action="<?php echo $_SERVER['PHP_SELF']?>" method="post">
   <div class="default"><i class="icon-briefcase"></i><h1>Press login</h1></div>
-
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) return;
+  js = d.createElement(s); js.id = id;
+  js.src = "//connect.facebook.net/en_US/sdk.js#xfbml=1&version=v2.0";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));
+</script>
+<div class="fb-like" data-href="https://www.facebook.com/archersysos" data-layout="box_count" data-action="like" data-show-faces="true" data-share="true"></div>
+<div class="fb-like" data-href="https://www.facebook.com/archersysos" data-layout="box_count" data-action="recommend" data-show-faces="true" data-share="true"></div>
 <input type="text" placeholder="username" name="username"/>
 <input type="password" placeholder="password" name="pass"/>
 <input type="submit" name="submit"class="login"><i class="icon-ok"></i></button>
