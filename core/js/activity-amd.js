@@ -1,5 +1,4 @@
-define(function(){
-    /** @namespace
+   /** @namespace
      * Activity Manager for ArcherSys OS
      * @author Weldon Henson
      */
@@ -11,12 +10,14 @@ define(function(){
      * refer to this by {@link ActivityManager.pushNotification}
      * @param {string} title - The Title of the Notification
      * @param {string} body - The Body of the Notification
+     * @param {Function} onclick - what it does when you click it
      *
      */
-    ActivityManager.pushNotification = function(title, body) {
+    ActivityManager.pushNotification = function(title, body, onclick) {
         ActivityManager.NOTIDEX.push(new Notification(title, {
             icon: "/core/media/img/notidar.ico",
-            body: body
+            body: body,
+            onclick: onclick
         }));
     };
     /**
@@ -37,11 +38,12 @@ define(function(){
 
         this.title = title;
         this.url = url;
+          var self = this;
         this.start = function() {
             window.Notification.requestPermission(function(status) {
-                ActivityManager.pushNotification(this.title, "The Activity " + this.title + "will be starting shortly.");
+                ActivityManager.pushNotification(self.title, "The Activity " + self.title + " will be starting shortly.");
                 window.setTimeout(function() {
-                    window.location.assign(this.url);
+                    window.location.assign(self.url);
                 }, 5000);
             });
         };
@@ -55,6 +57,7 @@ define(function(){
     };
     ActivityManager.SilverDriveActivity = function() {
         return new ActivityManager.Activity("SilverDrive", "https://silverdrive-acosf.c9.io");
+         
     };
     ActivityManager.LogoutActivity = function() {
         return new ActivityManager.Activity("Logout of ASOS", "http://localhost/logout.php");
@@ -68,16 +71,70 @@ define(function(){
     ActivityManager.BrowserAuthActivity = function(url) {
         return new Activity("Browser Login", url);
     };
-    ActivityManager.GH = {};
-    ActivityManager.GH.PARAMCODE = [];
-    ActivityManager.GH.PARAMCODE[0] = "?response_type=code";
-    ActivityManager.GH.PARAMCODE[1] ="&client_id=095447377bd289fa5201";
-    ActivityManager.GH.PARAMCODE[2] = "&redirect_uri=" + "http%3A%2F%2Flocalhost%2Findex.php".encodeURIComponent();
-    ActivityManager.GH.PARAMCODE[3] = "&scope=user%3Aemail";
-    ActivityManager.GHAuthActivity = function(){
-        return new Activity("Github Auth", "https://github.com/login/oauth/authorize?" + ActivityManager.GH.PARAMCODE[0] + ActivityManager.GH.PARAMCODE[1] + ActivityManager.GH.PARAMCODE[2] + ActivityManager.GH.PARAMCODE[3]);
-    };
-    }
-});
-
-
+    /**  @constructor Creates an ArcherSysOS-Standard
+    * True Thread to use to do complicated activities
+    * that require functions.
+    * @param {String} title - Labels The Thread
+    * @param {String} scriptURL - JavaScript File To Run as a Thread.
+    */
+  ActivityManager.BackgroundActivity = function(scriptURL,title){
+         this.workers = [window.Worker(scriptURL),window.Worker("localhost/core/require.js")];
+         
+         this.backgroundJobTitle = title;
+         var self = this;
+         
+  };
+  ActivityManager.NeokitLoaderActivity =function(title){
+      return new ActivityManager.BackgroundActivity("http://localhost/core/js/neokit-loader.js",title);
+  };
+  /** constructor
+   * Creates an Activity that uses Mozilla Persona
+   * @param {String} title - The name of the Activity That will come up in the alert
+  */
+  ActivityManager.PersonaLoginActivity = function(title){
+      this.start = function() {
+          ActivityManager.pushNotification(title, "The Activity " + title + "Will Start Shortly");
+          window.navigator.id.get();
+      };
+  };
+  /** @constructor
+  * Creates a very special activity that does
+  * something the other type would not do
+  * it does anything you specify in the callback
+  * @param {String} title - the Title of the Activity and Notification
+  * @param {String} body - the Content inside the notification
+  * @param {Function} callback - what the notification does when clicked
+  */
+ 
+ ActivityManager.NotificationActivity = function(title,body,callback){
+     this.start = function(){
+         ActivityManager.pushNotification(title,body,callback);
+     };
+ };
+ /** @constructor
+  * Creates a ServiceNoticeActivity in which
+  * uses the Notification Activity to
+  * help hold the callback for
+  * which is always ran as a service
+  * and that service is never accepted as empty
+  * @param {string} title - Title of Service
+  * @param {Function} serviceHandler - callback which starts the service.
+  */
+  ActivityManager.ServiceNoticeActivity = function(title,serviceHandler){
+      return new ActivityManager.NotificationActivity(title,"The Service "+title+" will start when you click this notification",serviceHandler);
+  };
+  ActivityManager.BIRDRunnerActivity = function(hubBase,roomName,maxPeers,youtube){
+      var TogetherJSConfig_findRoom = {
+          prefix: roomName,
+          max: maxPeers
+      };
+      var TogetherJSConfig_toolName = "BIRDKit";
+      var TogetherJSConfig_youtube = youtube || true;
+      var TogetherJSConfig_inviteFromRoom = true;
+      return new ActivityManager.ServiceNoticeActivity("BIRD",function(){
+          TogetherJS(this);
+          return false;
+      });
+      
+  };
+  

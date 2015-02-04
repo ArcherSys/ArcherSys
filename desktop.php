@@ -7,8 +7,16 @@
     <title>ArcherSys Desktop</title>
       <link rel="stylesheet" href="//code.jquery.com/ui/1.11.2/themes/smoothness/jquery-ui.css">
 <script src="//code.jquery.com/jquery-1.10.2.js"></script>
-<script src="//code.jquery.com/ui/1.11.2/jquery-ui.js"></script
-<script src="core/js/libs/jquery.min.js"></script>
+<script src="//code.jquery.com/ui/1.11.2/jquery-ui.js"></script>
+<script src="/core/js/libs/jquery.min.js"></script>
+<script src="https://login.persona.org/include.js"></script>
+<script src="/core/js/activity-amd.js"></script>
+<script type="text/javascript">
+     var Person = new ActivityManager.PersonLoginActivity("Login");
+     Person.start();
+     
+     
+     </script>
 <script src="https://togetherjs.com/togetherjs-min.js"></script>
 <script>
 var TogetherJSConfig_toolName = "BIRD";
@@ -208,19 +216,7 @@ function updateClock ( ) {
 </div>
 
 <div class="demo">
-<div class="app">
 
-			<div class="app-calendar">
-			
-				<div id="weekday">monday</div>
-
-				<div id="day">13</div>
-
-			</div> <!-- end app-calendar -->
-
-			<p class="app-title">Calendar</p>
-
-		</div> <!-- end app -->
 
  <a href="https://codeclimate.com/github/ArcherSys/ArcherSys"><img src="https://codeclimate.com/github/ArcherSys/ArcherSys/badges/gpa.svg" /></a>
 </div>

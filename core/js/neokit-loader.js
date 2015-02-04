@@ -1,9 +1,15 @@
 /** @namespace
 * Neokit Module Definer
 */
-var NKDefine = requirejs.config({
+ requirejs.config({
     baseUrl: "/core/js/",
     paths:{
-        jquery:"jquery"
+        jquery:"jquery",
+        activity: "activity"
+    },
+    shim:{
+        "activity":{
+            exports: "ActivityManager"
+        }
     }
 });

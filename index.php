@@ -70,7 +70,24 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 <link rel="manifest" href="manifest.webapp">
 <?php HtGen::declareApplication("ArcherSys OS"); ?>
 <meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
-<script data-main="/core/js/neokit-loader.js" src="/core/require.js"></script>
+<script  src="/core/require.js"></script>
+<script>
+/** @namespace
+* Neokit Module Definer
+*/
+ requirejs.config({
+    baseUrl: "/core/js/",
+    paths:{
+        jquery:"jquery",
+        activity: "activity"
+    },
+    shim:{
+        "activity":{
+            exports: "ActivityManager"
+        }
+    }
+});
+</script>
 <script src="/core/js/jquery.js"></script>
 <script src="/core/js/events.js"></script>
 
@@ -251,9 +268,9 @@ $(function(){
 		current = 1,
 		totalScreenWidth = screenLength * screenWidth;
    $("#silverdrive-starter").click(function(){
-   var sd = SilverDriveActivity();
+      var sd = ActivityManager.SilverDriveActivity();
       sd.start();
-   })
+   });
 	var h1 = $('div.header').children('h1');
 
 	$('#screen-nav').find('button').on('click', function() {
@@ -357,15 +374,18 @@ $(function(){
 </li>
 
 <li>
-<div class="module blue double img mahara">
+<div class="module blue single wimg mahara">
 						<a href="http://127.0.0.1/apps/mahara/htdocs"><p class="title">Partners</p></a>
 					</div>
 					<div class="module red single img market">
 					<a href="https://sites.google.com/site/archersysoswalnutstore/"><p class="title">ArcherSys Walnut App Store</p></a>
 					</div>
 					
-<div class="module blue double img word" id="silverdrive-starter">
+<div class="module blue single img word" id="silverdrive-starter">
   <p class="title">Start SilverDrive</p>
+</div>
+<div  class="module single blue img mail">
+<p class="title">ArrowHeadMail</p>
 </div>
 </li>
 </ul>
