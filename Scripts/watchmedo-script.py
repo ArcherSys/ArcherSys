@@ -1,4 +1,8 @@
+<<<<<<< HEAD
+#!C:\xampp\htdocs\Scripts\python.exe
+=======
 #!K:\ArcherVMPeridot\htdocs\Scripts\python.exe
+>>>>>>> 029169e0ae62bb1a8453d802eef1cac663806832
 # EASY-INSTALL-ENTRY-SCRIPT: 'watchdog==0.8.2','console_scripts','watchmedo'
 __requires__ = 'watchdog==0.8.2'
 import sys

@@ -1,4 +1,8 @@
+<<<<<<< HEAD
+#!C:\xampp\htdocs\Scripts\python.exe
+=======
 #!K:\ArcherVMPeridot\htdocs\Scripts\python.exe
+>>>>>>> 029169e0ae62bb1a8453d802eef1cac663806832
 
 # $Id: rst2xetex.py 7038 2011-05-19 09:12:02Z milde $
 # Author: Guenter Milde

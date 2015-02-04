@@ -7,11 +7,11 @@ $CONFIG = array (
     0 => 'localhost',
   ),
 
-  'datadirectory' => 'C:\\Users\\student\\xampp\\htdocs\\owncloud-serv\\data',
+  'datadirectory' => 'C:\\xampp\\htdocs\\owncloud-serv\\data',
 
   'datadirectory' => '\data',
 
-  'datadirectory' => 'C:\\Users\\student\\xampp\\htdocs\\owncloud-serv\\data',
+  'datadirectory' => 'C:\\xampp\\htdocs\\owncloud-serv\\data',
 
   'dbtype' => 'mysql',
   'version' => '7.0.2.1',
