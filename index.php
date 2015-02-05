@@ -414,7 +414,7 @@ $(function(){
 
 else {
   
-header("Location: login.php");
+header("Location: login.php?redirect_uri=index.php");
 
  }
 

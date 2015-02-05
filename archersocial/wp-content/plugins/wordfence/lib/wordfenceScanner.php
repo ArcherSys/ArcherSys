@@ -160,7 +160,7 @@ class wordfenceScanner {
 									'severity' => 1,
 									'ignoreP' => $this->path . $file,
 									'ignoreC' => $fileSum,
-									'shortMsg' => "This file appears to be malicious",
+									'shortMsg' => "File appears to be malicious: " . $file,
 									'longMsg' => "This file appears to be installed by a hacker to perform malicious activity. If you know about this file you can choose to ignore it to exclude it from future scans. The text we found in this file that matches a known malicious file is: <strong style=\"color: #F00;\">\"" . $matches[1] . "\"</strong>.",
 									'data' => array(
 										'file' => $file,
@@ -236,7 +236,6 @@ class wordfenceScanner {
 					}
 				}
 				fclose($fh);
-				$mtime = sprintf("%.5f", microtime(true) - $stime);
 				$this->totalFilesScanned++;
 				if(microtime(true) - $this->lastStatusTime > 1){
 					$this->lastStatusTime = microtime(true);
@@ -304,19 +303,6 @@ class wordfenceScanner {
 	}
 	private function writeScanningStatus(){
 		wordfence::status(2, 'info', "Scanned contents of " . $this->totalFilesScanned . " additional files at " . sprintf('%.2f', ($this->totalFilesScanned / (microtime(true) - $this->startTime))) . " per second");
-	}
-	public static function containsCode($arr){
-		foreach($arr as $elem){
-			if(preg_match($this->patterns['pat3'], $elem)){
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static function hostInURL($host, $url){
-		$host = str_replace('.', '\\.', $host);
-		return preg_match('/(?:^|^http:\/\/|^https:\/\/|^ftp:\/\/)' . $host . '(?:$|\/)/i', $url);
 	}
 	private function addResult($result){
 		for($i = 0; $i < sizeof($this->results); $i++){

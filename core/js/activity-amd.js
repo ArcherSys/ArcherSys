@@ -123,7 +123,7 @@
   ActivityManager.ServiceNoticeActivity = function(title,serviceHandler){
       return new ActivityManager.NotificationActivity(title,"The Service "+title+" will start when you click this notification",serviceHandler);
   };
-  ActivityManager.BIRDRunnerActivity = function(hubBase,roomName,maxPeers,youtube){
+  ActivityManager.BIRDRunnerActivity = function(hubBase,roomName,maxPeers,siteName,youtube){
       var TogetherJSConfig_findRoom = {
           prefix: roomName,
           max: maxPeers

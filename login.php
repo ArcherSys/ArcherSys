@@ -38,7 +38,7 @@
 
  			{
 
- 			header("Location: index.php");
+ 			header("Location:".$_GET["redirect_uri"]);
 
 
 
@@ -138,7 +138,7 @@
 
  //then redirect them to the members area
 
- header("Location: index.php");
+ header("Location: ". $_GET["redirect_uri"]);
 
  }
 
@@ -176,16 +176,17 @@
         <script type="text/javascript" src="http://www.google.com/recaptcha/api/js/recaptcha_ajax.js"></script>
     <title>Login to the ArcherVM</title>
     <script type="text/javascript">
-          
+   if(confirm("Use Dropbox")){
   var client = new Dropbox.Client({ key: "brwekpcno93vtpz" });
     var gh2FEnabled = confirm("Enabled GH ArcherSys 2F Authenthication?");
   client.authenticate(function(error, client) {
-         
+       
       client.getAccountInfo(function(error, accountInfo) {
           if(gh2FEnabled)
                window.location.assign("https://github.com/login/oauth/authorize?response_type=code&client_id=095447377bd289fa5201&redirect_uri=http%3A%2F%2Flocalhost%2Findex.php");
       });
   });
+}
       </script>
   </head>
   <body>
@@ -233,6 +234,11 @@
        var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(po, s);
      })();
     </script>
+
+ 
+  </body>
+
+</html>
 <?php
 
  }
@@ -240,8 +246,3 @@
  
 
  ?>
-
- 
-  </body>
-
-</html>

@@ -1,28 +1,28 @@
 <!DOCTYPE HTML>
 <html>
 <head>
+<title>Admin Portal</title>
+<script src="/settings/components/webcomponentsjs/webcomponents.js"></script>
+<link rel="import" href="/settings/components/polymer/polymer.html">
+<link rel="import" href="/settings/components/core-header-panel/core-header-panel.html">
 
-<link rel="stylesheet" type="text/css" href="css/stylesheet.css">
-<script src="js/libs/jquery.min.js"></script>
-<script src="js/localforage.min.js"></script>
-<script src="js/ximal.js"></script>
-<script src="js/archersysjs.js"></script>
-
-
-
+<link rel="import" href="/settings/components/font-roboto/roboto.html">
+<link rel="import" href="/settings/components/core-toolbar/core-toolbar.html">
 </head>
-<body>
-<div class="asos-container">
-<div class="asos-header"><div class="asos-maximize-button asos-util-button">^</div><div class="asos-close-button asos-util-button">X</div><h1>ArcherSys OS Panel</h1></div>
-<div class="asos-admin-content">
-    <div class="asos-admin-content-nav">
-    <ul>
-     <li class="asos-admin-content-nav-menuItem"><a href="/piwik">Piwik</a></li>
-    
-    
-</ul>
-</div>
-</div>
-</div>
+<body fullbleed layout horizontal>
+<style>
+ core-toolbar{
+  font-family:  RobotoDraft, Segoe UI;
+   background-color: crimson;
+
+}
+
+</style>
+<core-header-panel flex>
+ <core-toolbar>
+<div flex>Admin Panel</div>
+</core-toolbar>
+
+</core-header-panel>
 </body>
 </html>
