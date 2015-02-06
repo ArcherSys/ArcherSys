@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-#!C:\xampp\htdocs\Scripts\python.exe
-=======
 #!K:\ArcherVMPeridot\htdocs\Scripts\python.exe
->>>>>>> 029169e0ae62bb1a8453d802eef1cac663806832
 
 # Author: 
 # Contact: grubert@users.sf.net

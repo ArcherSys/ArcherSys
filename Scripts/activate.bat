@@ -1,9 +1,5 @@
 @echo off
-<<<<<<< HEAD
 set "VIRTUAL_ENV=K:\ArcherVMPeridot\htdocs"
-=======
-set "VIRTUAL_ENV=C:\xampp\htdocs"
->>>>>>> 93093b07da84ecc0622f16ec992e2700e08acb44
 
 if not defined PROMPT (
     set "PROMPT=$P$G"

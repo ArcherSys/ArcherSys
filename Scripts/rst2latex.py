@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-#!C:\xampp\htdocs\Scripts\python.exe
-=======
 #!K:\ArcherVMPeridot\htdocs\Scripts\python.exe
->>>>>>> 029169e0ae62bb1a8453d802eef1cac663806832
 
 # $Id: rst2latex.py 5905 2009-04-16 12:04:49Z milde $
 # Author: David Goodger <goodger@python.org>

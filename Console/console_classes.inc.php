@@ -82,3 +82,24 @@ private function createDefinition()
 
 
 }
+ class RemoveFolderCommand extends Command{
+      protected function configure(){
+           $this->setName('rmdir')
+            ->setDefinition($this->createDefinition())
+            ->setDescription('deletes a directory');
+}
+ protected function execute(InputInterface $input, OutputInterface $output)
+    {
+       system("XCOPY phpliteadmin.php ".$input->getOption("appdest"));
+}
+
+private function createDefinition()
+    {
+        return new InputDefinition(array(
+            new InputArgument('namespace', InputArgument::OPTIONAL, 'The namespace name'),
+            new InputOption('appdest',null,InputOption::VALUE_REQUIRED, 'destination of the admin service')
+        ));
+    }
+
+
+}

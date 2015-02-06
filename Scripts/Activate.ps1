@@ -27,11 +27,7 @@ function global:deactivate ([switch]$NonDestructive) {
 
 deactivate -nondestructive
 
-<<<<<<< HEAD
 $env:VIRTUAL_ENV="K:\ArcherVMPeridot\htdocs"
-=======
-$env:VIRTUAL_ENV="C:\xampp\htdocs"
->>>>>>> 93093b07da84ecc0622f16ec992e2700e08acb44
 
 # Set the prompt to include the env name
 # Make sure _OLD_VIRTUAL_PROMPT is global
