@@ -8,7 +8,9 @@
 
   require_once "config.php";
   require_once "includes/component-functions.php";
-
+  require_once "includes/ViewManager.php";
+  use ArcherSys\Viewer\ViewManager;
+  
  // Connects to your Database
 @ini_set("max_execution_time", 300);
  mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or die(mysql_error());
@@ -60,14 +62,14 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 		
 <html  i18n-values="bookmarkbarattached:bookmarkbarattached" bookmarbarattached="true" xmlns:fb="http://ogp.me/ns/fb#">
 <head>
-<meta name="msapplication-config" content="ieconfig.xml" />
 <meta charset="utf-8">
 <link rel="icon"  href="http://localhost:80/favicon.ico" >
 <title>VM Home</title>
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="manifest" href="manifest.webapp">
-<?php HtGen::declareApplication("ArcherSys OS"); ?>
-<meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
+<?php
+ ViewManager::addMSAppConfig();
+?><meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
 <script  src="/core/require.js"></script>
 <script>
 /** @namespace
