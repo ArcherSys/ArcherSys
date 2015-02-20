@@ -12,5 +12,11 @@ class ViewManager{
 <a href=\"$link\"><p class=\"title\">$name</p></a>
 					</div>";
     }
+    static function setupFavicons(){
+      include "/includes/viewssi/faviconconfig.php";
+    }
+    static function addNg(){
+      echo "<script src='/core/js/angularjs/angular.min.js'></script>";
+    }
 }
 ?>
