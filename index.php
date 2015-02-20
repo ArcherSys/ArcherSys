@@ -63,12 +63,15 @@ $_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 <html  i18n-values="bookmarkbarattached:bookmarkbarattached" bookmarbarattached="true" xmlns:fb="http://ogp.me/ns/fb#">
 <head>
 <meta charset="utf-8">
+<link rel="shortcut icon"  href="http://localhost:80/favicon.ico" >
+
 <link rel="icon"  href="http://localhost:80/favicon.ico" >
 <title>VM Home</title>
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="manifest" href="manifest.webapp">
+
+<link rel="manifest" href="manifest.json">
 <?php
  ViewManager::addMSAppConfig();
+ ViewManager::addAppleAppConfig();
 ?><meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
 <script  src="/core/require.js"></script>
 <script>
