@@ -332,7 +332,9 @@ $(function(){
 		<div class="slider">
 			<ul class="screen">
 				<li>
-
+  <?php
+  ViewManager::addGame("http://localhost/entertainment/games/index.php","Games");
+  ?>
 					<div class="module purple double img w">
 						<h2 class="title">Home</h2>
 					<p class="subheading"> <a href="main.php">Welcome to the new ArcherSys UI !</a> </p>

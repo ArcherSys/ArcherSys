@@ -7,5 +7,10 @@ class ViewManager{
     static function addAppleAppConfig(){
       include "/includes/viewssi/appleappconfig.php";
     }
+    static function addGame($link,$name){
+      echo " <div class=\"module red single img birds\">
+<a href=\"$link\"><p class=\"title\">$name</p></a>
+					</div>";
+    }
 }
 ?>
