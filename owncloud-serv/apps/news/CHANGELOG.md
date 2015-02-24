@@ -1,3 +1,147 @@
+owncloud-news (5.2.6)
+* **Bugfix**: Update picoFeed to strip out contents of script and style tags which were previously converted into plain text, #723
+
+owncloud-news (5.2.5)
+* **Bugfix**: Fix flying loading icon since snap.js does not seem to want to fix it
+* **Bugfix**: Turn all http iframes into https iframes
+* **Bugfix**: Set a CSP to display external media on master
+
+owncloud-news (5.2.4)
+* **Enhancement**: Add a new API route to check for the status and possible problems
+
+owncloud-news (5.2.3)
+* **Enhancement**: Push explore button at the bottom of the feed list
+* **Enhancement**: When passing a negative batchSizes to the item API, all items will be returned
+
+owncloud-news (5.2.2)
+* **Security**: Only allow YouTube and Vimeo to embed iframes if they use HTTPS to prevent mixed active content iframe attacks
+
+owncloud-news (5.2.1)
+* **Bugfix**: Fix admin settings by using the correct config path
+
+owncloud-news (5.2.0)
+* **New dependency**: Require iconv php module (which is required by picoFeed)
+
+owncloud-news (5.1.1)
+* **Bugfix**: Use the correct scrolltop position for pull to refresh to not reload the feed when jumping back to an article using keyboard shortcuts
+
+owncloud-news (5.1.0)
+* **Backwards incompatible change**: Break client side plugin API to combat limitations that make it hard to impossible to get the DOM element
+* **New dependency**: Bump required ownCloud version to 8 beta 2
+* **Enhancement**: Expose feed ordering parameter in API
+
+owncloud-news (5.0.1)
+* **Enhancement**: Show error messages when authentication or network related errors appear
+* **Enhancement**: Show a pull to refresh area if you are at the very top and jump to the previous article using either page up or a jump to previous article shortcut. If this area is already visible reload the page
+* **Enhancement**: Make it possible to overwrite the global ordering for certain feeds
+
+owncloud-news (5.0.0)
+* **New dependency**: Bump required ownCloud version to 8
+* **Enhancement**: Set the rel="noreferrer" attribute for all links that point to external articles to enhance privacy
+
+owncloud-news (4.3.2)
+* **Bugfix**: Update picoFeed to fix an HTTP cache problem where only one match (Etag or Last-Modified) was required to mark a feed as not modified. This can cause some feeds to not update if one cache parameter is always the same
+* **Enhancement**: If a feed is added without the protocol, prepend https:// instead of http:// (e.g. adding cnn.com would result in https://cnn.com being added)
+
+owncloud-news (4.3.1)
+* **Bugfix**: Update picoFeed to fix feed format detection, e.g. http://aroundthebloc.podbean.com/feed/ was previously not recognized as a valid feed
+* **Enhancement**: Add thecodinglove.com and der-postilion.com enhancers
+* **Enhancement**: Make it possible to define your own article actions by adding article action plugins
+
+owncloud-news (4.3.0)
+* **Backwards incompatible change**: Refactor the Python updater into a Python package. To stay with the old behavior without installing the package use **python3 -m bin/updater/owncloud_news_updater YOUROPTIONS**
+* **Backwards incompatible change**: Use seconds instead of minutes for the Python updater interval
+* **New dependency**: Require requests 2.5.0 for the Python updater
+* **Enhancement**: Ship a systemd and sysvinit script + installer for the Python updater to run the updater in the background
+* **Enhancement**: Log errors from Python updater to stderr
+* **Enhancement**: Add metronieuws.nl article enhancer
+
+owncloud-news (4.2.6)
+* **Bugfix**: Wording fixes
+* **Enhancement**: Add linuxtoday.com article enhancer
+* **Enhancement**: Make expand entries in compact view after jumping to next/previous feed optional with a setting
+
+owncloud-news (4.2.5)
+* **Bugfix**: Fix keep unread shortcut in compact view
+
+owncloud-news (4.2.4)
+* **Bugfix**: Clicking the button to open a website in compact view now marks the article read
+* **Bugfix**: Make read on scroll more sensitive in compact view to mark it read without having to completely scroll over the entry
+* **Enhancement**: Better explanation for reverse ordering setting
+* **Enhancement**: Do not expand entries in compact view when using the jump to next/previous article shortcuts since this makes it harder to keep an overview and the exact same behavior is available in expanded view anyways
+
+owncloud-news (4.2.3)
+* **Bugfix**: Fix cron update
+
+owncloud-news (4.2.2)
+* **Enhancement**: Use a light gradient at the bottom of the feed when no items are left to autopage
+
+owncloud-news (4.2.1)
+* **Bugfix**: Rewrite relative URLs
+
+owncloud-news (4.2.0)
+* **Security**: Fix [XEE](https://www.owasp.org/index.php/XML_External_Entity_(XXE)_Processing) vulnerability in picoFeed RSS library. All versions starting from 4.0.0 are affected
+* **Enhancement**: Add admin setting to set a custom explore service URL
+* **Enhancement**: Add explore button and show explore button on startup
+* **Enhancement**: Show a hint when no articles are available
+* **Enhancement**: Add spiegel.de enhancer
+* **Bugfix**: Fix compact view in firefox 34 and browsers using the new flexbox model
+* **Bugfix**: Show spinner when autopaging
+* **Bugfix**: Remove race condition when fetching articles that sometimes shows read articles if the user clicks show on only unread and the article request finishes first before the settings request is finished
+* **Bugfix**: Ignore Atom updated tag if it is earlier than the published tag
+* **Bugfix**: Do not log errors that a subscription could not be found when http cache says nothing changed
+
+owncloud-news (4.1.3)
+* **Enhancement**: Fade out folders and feeds instead of just hiding them when the unread count drops to 0 and only unread articles should be shown
+
+owncloud-news (4.1.2)
+* **Enhancement**: Order feeds and folder sorting by title and name rather than by id
+
+owncloud-news (4.1.1)
+* **Enhancement**: shortcut **a** scrolls to the currently active feed in the navigation
+* **Enhancement**: next/previous feed/folder shortcuts now scroll to the active entry if it is not fully in view
+
+owncloud-news (4.1.0)
+* **Backwards incompatible change**: Time used for updating when using the Python updater is now subtracted from the given interval meaning: if you specify 30 seconds as interval and the update takes 25 seconds, it will sleep for 5 seconds before running the next update
+* **Enhancement**: Show a message if ajax cron is used to inform people of improperly configured cron
+* **Enhancement**: Allow to specify configuration file for Python updater
+* **Enhancement**: Add short command line options for the Python updater
+ * -u, --user
+ * -p, --password
+ * -i, --interval
+ * -s, --timeout
+
+owncloud-news (4.0.4)
+* **Bugfix**: Do not indent slashdot.org italic elements
+* **Bugfix**: Hide folders when only showing unread articles after marking all articles as read
+
+owncloud-news (4.0.3)
+* **Bugfix**: Fix unstarring and starring articles added before 4.x
+
+owncloud-news (4.0.2)
+* **Bugfix**: Fix CORS headers for getting the version via the API
+* **Enhancement**: Transform YouTube urls to allow subscribing to channels and playlists
+
+owncloud-news (4.0.1)
+* **Bugfix**: Fix heise.de encoding issues
+
+owncloud-news (4.0.0)
+* **Backwards incompatible change**: Calculate item ids differently which leads to unpreventable readding of read articles
+* **Backwards incompatible change**: Get rid of simplePieCacheDuration setting, remove this setting from your data/news/config/config.ini after upgrading to 4.\*.*
+* **Backwards incompatible change**: Use three numbers for versioning because core bug with versions seems fixed
+* **Enhancement**: Add maxRedirects setting in config.ini
+* **Enhancement**: Add maxSize setting in config.ini
+* **Enhancement**: Get rid SimplePie feed parser library and switch to PicoFeed because SimplePie is unmaintained and full of bugs
+* **Enhancement**: Faster feed updates due to proper HTTP cache headers thanks to picoFeed
+* **Enhancement**: Use ownCloud internal proxy settings
+* **Enhancement**: Allow to turn off article purging by setting a negative number
+* **Enhancement**: Make article cleanup faster
+* **Bugfix**: Set the correct header for the FirefoxOS manifest.webapp
+* **Bugfix**: Fix article cleanup on sqlite
+
+owncloud-news (3.406)
+* **Enhancement**: Make config.ini editable in the admin interface
+
 owncloud-news (3.405)
 * **Bugfix**: Fix mobile view for ownCloud 7
 * **Enhancement**: Add shortcuts for jumping to next/previous folder

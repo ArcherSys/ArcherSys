@@ -4,7 +4,7 @@
 
 
 /* jshint unused: false */
-var app = angular.module('News', ['ngRoute', 'ngSanitize']);
+var app = angular.module('News', ['ngRoute', 'ngSanitize', 'ngAnimate']);
 app.config(["$routeProvider", "$provide", "$httpProvider", function ($routeProvider, $provide, $httpProvider) {
     'use strict';
 
@@ -13,7 +13,8 @@ app.config(["$routeProvider", "$provide", "$httpProvider", function ($routeProvi
         FOLDER: 1,
         STARRED: 2,
         SUBSCRIPTIONS: 3,
-        SHARED: 4
+        SHARED: 4,
+        EXPLORE: 5
     };
 
     // constants
@@ -27,10 +28,13 @@ app.config(["$routeProvider", "$provide", "$httpProvider", function ($routeProvi
     $provide.constant('SCROLL_TIMEOUT', 0.1);
 
     // make sure that the CSRF header is only sent to the ownCloud domain
-    $provide.factory('CSRFInterceptor', ["$q", "BASE_URL", function ($q, BASE_URL) {
+    $provide.factory('CSRFInterceptor', ["$q", "BASE_URL", "$window", function ($q, BASE_URL, $window) {
         return {
             request: function (config) {
-                if (config.url.indexOf(BASE_URL) === 0) {
+                var domain =
+                    $window.location.href.split($window.location.pathname)[0];
+                if (config.url.indexOf(BASE_URL) === 0 ||
+                    config.url.indexOf(domain) === 0) {
                     config.headers.requesttoken = csrfToken;
                 }
 
@@ -38,32 +42,115 @@ app.config(["$routeProvider", "$provide", "$httpProvider", function ($routeProvi
             }
         };
     }]);
+    var errorMessages = {
+        0: t('news', 'Request failed, network connection unavailable!'),
+        401: t('news', 'Request unauthorized. Are you logged in?'),
+        403: t('news', 'Request forbidden. Are you an admin?'),
+        412: t('news', 'Token expired or app not enabled! Reload the page!'),
+        500: t('news', 'Internal server error! Please check your ' +
+                       'data/owncloud.log file for additional ' +
+                       'information!'),
+        503: t('news', 'Request failed, ownCloud is in currently ' +
+                       'in maintenance mode!'),
+    };
+    $provide.factory('ConnectionErrorInterceptor', ["$q", "$timeout", function ($q, $timeout) {
+        var timer;
+        return {
+            responseError: function (response) {
+                // status 0 is a network error
+                if (response.status in errorMessages) {
+                    if (timer) {
+                        $timeout.cancel(timer);
+                    }
+                    OC.Notification.hide();
+                    OC.Notification.showHtml(errorMessages[response.status]);
+                    timer = $timeout(function () {
+                        OC.Notification.hide();
+                    }, 5000);
+                }
+                return $q.reject(response);
+            }
+        };
+    }]);
     $httpProvider.interceptors.push('CSRFInterceptor');
+    $httpProvider.interceptors.push('ConnectionErrorInterceptor');
 
     // routing
-    var getResolve = function (type) {
+    var getItemResolve = function (type) {
         return {
             // request to items also returns feeds
-            data: /* @ngInject */ ["$http", "$route", "$q", "BASE_URL", "ITEM_BATCH_SIZE", function (
-                $http, $route, $q, BASE_URL, ITEM_BATCH_SIZE) {
+            data: /* @ngInject */ ["$http", "$route", "$q", "BASE_URL", "ITEM_BATCH_SIZE", "FEED_TYPE", "SettingsResource", "FeedResource", function (
+            $http, $route, $q, BASE_URL, ITEM_BATCH_SIZE, FEED_TYPE,
+            SettingsResource, FeedResource) {
 
-                var parameters = {
-                    type: type,
-                    limit: ITEM_BATCH_SIZE
-                };
-
-                if ($route.current.params.id !== undefined) {
-                    parameters.id = $route.current.params.id;
-                }
+                var showAll = SettingsResource.get('showAll');
+                var oldestFirst = SettingsResource.get('oldestFirst');
 
                 var deferred = $q.defer();
 
-                $http({
-                    url:  BASE_URL + '/items',
-                    method: 'GET',
-                    params: parameters
-                }).success(function (data) {
-                    deferred.resolve(data);
+                // if those two values are null it means we did not receive
+                // the settings request from the server so dont query the server
+                if (showAll === null || oldestFirst === null) {
+                    deferred.resolve({});
+                } else {
+                    var parameters = {
+                        type: type,
+                        limit: ITEM_BATCH_SIZE,
+                        showAll: showAll,
+                        oldestFirst: oldestFirst
+                    };
+
+                    if ($route.current.params.id !== undefined) {
+                        parameters.id = $route.current.params.id;
+                    }
+
+                    // check if a custom ordering is set
+                    if (type === FEED_TYPE.FEED) {
+                        var feed = FeedResource.getById(parameters.id);
+                        if (feed.ordering === 1) {
+                            parameters.oldestFirst = true;
+                        } else if (feed.ordering === 2) {
+                            parameters.oldestFirst = false;
+                        }
+                    }
+
+                    $http({
+                        url:  BASE_URL + '/items',
+                        method: 'GET',
+                        params: parameters
+                    }).success(function (data) {
+                        deferred.resolve(data);
+                    });
+                }
+
+                return deferred.promise;
+            }]
+        };
+    };
+
+    var getExploreResolve = function () {
+        return {
+            sites: /* @ngInject */ ["$http", "$q", "BASE_URL", "Publisher", "SettingsResource", function (
+            $http, $q, BASE_URL, Publisher, SettingsResource) {
+                var deferred = $q.defer();
+
+                $http.get(BASE_URL + '/settings').then(function (data) {
+                    Publisher.publishAll(data);
+
+                    var url = SettingsResource.get('exploreUrl');
+                    var language = SettingsResource.get('language');
+                    return $http({
+                        url: url,
+                        method: 'GET',
+                        params: {
+                            lang: language
+                        }
+                    });
+
+                }).then(function (data) {
+                    deferred.resolve(data.data);
+                }).catch(function () {
+                    deferred.reject();
                 });
 
                 return deferred.promise;
@@ -75,26 +162,31 @@ app.config(["$routeProvider", "$provide", "$httpProvider", function ($routeProvi
         .when('/items', {
             controller: 'ContentController as Content',
             templateUrl: 'content.html',
-            resolve: getResolve(feedType.SUBSCRIPTIONS),
+            resolve: getItemResolve(feedType.SUBSCRIPTIONS),
             type: feedType.SUBSCRIPTIONS
         })
         .when('/items/starred', {
             controller: 'ContentController as Content',
             templateUrl: 'content.html',
-            resolve: getResolve(feedType.STARRED),
+            resolve: getItemResolve(feedType.STARRED),
             type: feedType.STARRED
         })
         .when('/items/feeds/:id', {
             controller: 'ContentController as Content',
             templateUrl: 'content.html',
-            resolve: getResolve(feedType.FEED),
+            resolve: getItemResolve(feedType.FEED),
             type: feedType.FEED
         })
         .when('/items/folders/:id', {
             controller: 'ContentController as Content',
             templateUrl: 'content.html',
-            resolve: getResolve(feedType.FOLDER),
+            resolve: getItemResolve(feedType.FOLDER),
             type: feedType.FOLDER
+        }).when('/explore', {
+            controller: 'ExploreController as Explore',
+            templateUrl: 'explore.html',
+            resolve: getExploreResolve(),
+            type: feedType.EXPLORE
         }).when('/shortcuts', {
             templateUrl: 'shortcuts.html',
             type: -1
@@ -103,7 +195,7 @@ app.config(["$routeProvider", "$provide", "$httpProvider", function ($routeProvi
 }]);
 
 
-app.run(["$rootScope", "$location", "$http", "$q", "$interval", "Loading", "ItemResource", "FeedResource", "FolderResource", "SettingsResource", "Publisher", "BASE_URL", "FEED_TYPE", "REFRESH_RATE", function ($rootScope, $location, $http, $q, $interval, Loading,
+app.run(["$rootScope", "$location", "$http", "$q", "$interval", "$route", "Loading", "ItemResource", "FeedResource", "FolderResource", "SettingsResource", "Publisher", "BASE_URL", "FEED_TYPE", "REFRESH_RATE", function ($rootScope, $location, $http, $q, $interval, $route, Loading,
          ItemResource, FeedResource, FolderResource, SettingsResource,
           Publisher, BASE_URL, FEED_TYPE, REFRESH_RATE) {
     'use strict';
@@ -145,28 +237,48 @@ app.run(["$rootScope", "$location", "$http", "$q", "$interval", "Loading", "Item
             url = '/items/starred';
             break;
 
+        case FEED_TYPE.EXPLORE:
+            url = '/explore';
+            break;
+
         default:
             url = '/items';
         }
 
         // only redirect if url is empty or faulty
-        if (!/^\/items(\/(starred|feeds\/\d+|folders\/\d+))?\/?$/.test(path)) {
+        if (!/^\/items(\/(starred|explore|feeds\/\d+|folders\/\d+))?\/?$/
+            .test(path)) {
             $location.path(url);
         }
 
         activeFeedDeferred.resolve();
     });
 
+    var feedDeferred = $q.defer();
+    var feeds;
+    $http.get(BASE_URL + '/feeds').success(function (data) {
+        feeds = data;
+        feedDeferred.resolve();
+    });
+
     var folderDeferred = $q.defer();
+    var folders;
     $http.get(BASE_URL + '/folders').success(function (data) {
-        Publisher.publishAll(data);
+        folders = data;
         folderDeferred.resolve();
     });
 
-    var feedDeferred = $q.defer();
-    $http.get(BASE_URL + '/feeds').success(function (data) {
-        Publisher.publishAll(data);
-        feedDeferred.resolve();
+    $q.all([
+        feedDeferred.promise,
+        folderDeferred.promise
+    ]).then(function () {
+        // first publish feeds to correctly update the folder resource unread
+        // cache
+        Publisher.publishAll(feeds);
+        Publisher.publishAll(folders);
+        if (feeds.feeds.length === 0 && folders.folders.length === 0) {
+            $location.path('/explore');
+        }
     });
 
     // disable loading if all initial requests finished
@@ -179,6 +291,7 @@ app.run(["$rootScope", "$location", "$http", "$q", "$interval", "Loading", "Item
         ]
     )
         .then(function () {
+            $route.reload();
             Loading.setLoading('global', false);
         });
 
@@ -219,11 +332,10 @@ app.controller('AppController',
 
 }]);
 app.controller('ContentController',
-["Publisher", "FeedResource", "ItemResource", "SettingsResource", "data", "$route", "$routeParams", "FEED_TYPE", function (Publisher, FeedResource, ItemResource, SettingsResource, data,
-    $route, $routeParams, FEED_TYPE) {
+["Publisher", "FeedResource", "ItemResource", "SettingsResource", "data", "$route", "$routeParams", "FEED_TYPE", "ITEM_AUTO_PAGE_SIZE", "Loading", function (Publisher, FeedResource, ItemResource, SettingsResource, data,
+    $route, $routeParams, FEED_TYPE, ITEM_AUTO_PAGE_SIZE, Loading) {
     'use strict';
 
-    // dont cache items across multiple route changes
     ItemResource.clear();
 
     // distribute data to models based on key
@@ -231,6 +343,14 @@ app.controller('ContentController',
 
 
     this.isAutoPagingEnabled = true;
+
+    // the interface should show a hint if there are not enough items sent so
+    // it's assumed that theres nothing to autpage
+    if (ItemResource.size() >= ITEM_AUTO_PAGE_SIZE) {
+        this.isNothingMoreToAutoPage = false;
+    } else {
+        this.isNothingMoreToAutoPage = true;
+    }
 
     this.getItems = function () {
         return ItemResource.getAll();
@@ -245,6 +365,10 @@ app.controller('ContentController',
         if (this.isCompactView()) {
             item.show = !item.show;
         }
+    };
+
+    this.isShowAll = function () {
+        return SettingsResource.get('showAll');
     };
 
     this.markRead = function (itemId) {
@@ -270,8 +394,24 @@ app.controller('ContentController',
         item.keepUnread = !item.keepUnread;
     };
 
+    var self = this;
+    var getOrdering = function () {
+        var ordering = SettingsResource.get('oldestFirst');
+
+        if (self.isFeed()) {
+            var feed = FeedResource.getById($routeParams.id);
+            if (feed && feed.ordering === 1) {
+                ordering = true;
+            } else if (feed && feed.ordering === 2) {
+                ordering = false;
+            }
+        }
+
+        return ordering;
+    };
+
     this.orderBy = function () {
-        if (SettingsResource.get('oldestFirst')) {
+        if (getOrdering()) {
             return 'id';
         } else {
             return '-id';
@@ -280,6 +420,10 @@ app.controller('ContentController',
 
     this.isCompactView = function () {
         return SettingsResource.get('compact');
+    };
+
+    this.isCompactExpand = function () {
+        return SettingsResource.get('compactExpand');
     };
 
     this.autoPagingEnabled = function () {
@@ -313,6 +457,10 @@ app.controller('ContentController',
     };
 
     this.autoPage = function () {
+        if (this.isNothingMoreToAutoPage) {
+            return;
+        }
+
         // in case a subsequent autopage request comes in wait until
         // the current one finished and execute a request immediately afterwards
         if (!this.isAutoPagingEnabled) {
@@ -325,14 +473,20 @@ app.controller('ContentController',
 
         var type = $route.current.$$route.type;
         var id = $routeParams.id;
-        var oldestFirst = SettingsResource.get('oldestFirst');
+        var oldestFirst = getOrdering();
+        var showAll = SettingsResource.get('showAll');
         var self = this;
 
-        ItemResource.autoPage(type, id, oldestFirst).success(function (data) {
+        Loading.setLoading('autopaging', true);
+
+        ItemResource.autoPage(type, id, oldestFirst, showAll)
+        .success(function (data) {
             Publisher.publishAll(data);
 
-            if (data.items.length > 0) {
+            if (data.items.length >= ITEM_AUTO_PAGE_SIZE) {
                 self.isAutoPagingEnabled = true;
+            } else {
+                self.isNothingMoreToAutoPage = true;
             }
 
             if (self.isAutoPagingEnabled && self.autoPageAgain) {
@@ -340,6 +494,8 @@ app.controller('ContentController',
             }
         }).error(function () {
             self.isAutoPagingEnabled = true;
+        }).finally(function () {
+            Loading.setLoading('autopaging', false);
         });
     };
 
@@ -356,6 +512,26 @@ app.controller('ContentController',
 
     this.refresh = function () {
         $route.reload();
+    };
+
+}]);
+app.controller('ExploreController', ["sites", "$rootScope", "FeedResource", function (sites, $rootScope, FeedResource) {
+    'use strict';
+
+    this.sites = sites;
+
+    this.feedExists = function (location) {
+    	return FeedResource.getByLocation(location) !== undefined;
+    };
+
+    this.subscribeTo = function (location) {
+        $rootScope.$broadcast('addFeed', location);
+    };
+
+    this.isCategoryShown = function (data) {
+        return data.filter(function (element) {
+            return FeedResource.getByLocation(element.feed) === undefined;
+        }).length > 0;
     };
 
 }]);
@@ -462,6 +638,11 @@ app.controller('NavigationController',
     this.isStarredActive = function () {
         return $route.current &&
             $route.current.$$route.type === FEED_TYPE.STARRED;
+    };
+
+    this.isExploreActive = function () {
+        return $route.current &&
+            $route.current.$$route.type === FEED_TYPE.EXPLORE;
     };
 
     this.isFolderActive = function (folderId) {
@@ -628,6 +809,11 @@ app.controller('NavigationController',
         FolderResource.delete(folder.name);
     };
 
+    this.setOrdering = function (feed, ordering) {
+        FeedResource.setOrdering(feed.id, ordering);
+        $route.reload();
+    };
+
     var self = this;
 
     $rootScope.$on('moveFeedToFolder', function (scope, data) {
@@ -764,6 +950,7 @@ app.factory('FeedResource', ["Resource", "$http", "BASE_URL", "$q", function (Re
     var FeedResource = function ($http, BASE_URL, $q) {
         Resource.call(this, $http, BASE_URL, 'url');
         this.ids = {};
+        this.locations = {};
         this.unreadCount = 0;
         this.folderUnreadCount = {};
         this.folderIds = {};
@@ -784,6 +971,7 @@ app.factory('FeedResource', ["Resource", "$http", "BASE_URL", "$q", function (Re
         this.folderUnreadCount = {};
         this.folderIds = {};
         this.ids = {};
+        this.locations = {};
     };
 
     FeedResource.prototype.updateUnreadCache = function () {
@@ -821,6 +1009,9 @@ app.factory('FeedResource', ["Resource", "$http", "BASE_URL", "$q", function (Re
         if (value.id !== undefined) {
             this.ids[value.id] = this.hashMap[value.url];
         }
+        if (value.location !== undefined) {
+            this.locations[value.location] = this.hashMap[value.url];
+        }
     };
 
 
@@ -829,8 +1020,7 @@ app.factory('FeedResource', ["Resource", "$http", "BASE_URL", "$q", function (Re
             feed.unreadCount = 0;
         });
 
-        this.unreadCount = 0;
-        this.folderUnreadCount = {};
+        this.updateUnreadCache();
     };
 
 
@@ -893,6 +1083,10 @@ app.factory('FeedResource', ["Resource", "$http", "BASE_URL", "$q", function (Re
     };
 
 
+    FeedResource.prototype.getByLocation = function (location) {
+        return this.locations[location];
+    };
+
     FeedResource.prototype.rename = function (id, title) {
         return this.http({
             method: 'POST',
@@ -925,7 +1119,7 @@ app.factory('FeedResource', ["Resource", "$http", "BASE_URL", "$q", function (Re
     FeedResource.prototype.create = function (url, folderId, title) {
         url = url.trim();
         if (!url.startsWith('http')) {
-            url = 'http://' + url;
+            url = 'https://' + url;
         }
 
         if (title !== undefined) {
@@ -1004,6 +1198,10 @@ app.factory('FeedResource', ["Resource", "$http", "BASE_URL", "$q", function (Re
             delete this.ids[feed.id];
         }
 
+        if (feed !== undefined && feed.location) {
+            delete this.locations[feed.location];
+        }
+
         Resource.prototype.delete.call(this, url);
 
         if (updateCache !== false) {
@@ -1053,6 +1251,19 @@ app.factory('FeedResource', ["Resource", "$http", "BASE_URL", "$q", function (Re
 
         var deferred = this.$q.all(promises);
         return deferred.promise;
+    };
+
+
+    FeedResource.prototype.setOrdering = function (feedId, ordering) {
+        var feed = this.getById(feedId);
+
+        if (feed) {
+            feed.ordering = ordering;
+            var url = this.BASE_URL + '/feeds/' + feedId + '/ordering';
+            return this.http.post(url, {
+                ordering: ordering
+            });
+        }
     };
 
 
@@ -1349,7 +1560,8 @@ app.factory('ItemResource', ["Resource", "$http", "BASE_URL", "ITEM_BATCH_SIZE",
     };
 
 
-    ItemResource.prototype.autoPage = function (type, id, oldestFirst) {
+    ItemResource.prototype.autoPage = function (type, id, oldestFirst,
+    showAll) {
         var offset;
 
         if (oldestFirst) {
@@ -1366,7 +1578,8 @@ app.factory('ItemResource', ["Resource", "$http", "BASE_URL", "ITEM_BATCH_SIZE",
                 id: id,
                 offset: offset,
                 limit: this.batchSize,
-                oldestFirst: oldestFirst
+                oldestFirst: oldestFirst,
+                showAll: showAll
             }
         });
     };
@@ -1686,10 +1899,12 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
 
     this.settings = {
         language: 'en',
-        showAll: false,
+        showAll: null,
         compact: false,
-        oldestFirst: false,
-        preventReadOnScroll: false
+        oldestFirst: null,
+        preventReadOnScroll: false,
+        compactExpand: false,
+        exploreUrl: ''
     };
     this.defaultLanguageCode = 'en';
     this.supportedLanguageCodes = [
@@ -1723,7 +1938,14 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
         return $http({
             url: BASE_URL + '/settings',
             method: 'PUT',
-            data: this.settings
+            data: {
+                language: this.settings.language,
+                showAll: this.settings.showAll,
+                compact: this.settings.compact,
+                oldestFirst: this.settings.oldestFirst,
+                compactExpand: this.settings.compactExpand,
+                preventReadOnScroll: this.settings.preventReadOnScroll
+            }
         });
     };
 
@@ -1768,18 +1990,54 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
         );
     };
 
-    /*var showShortcuts = function () {
-        $('*[data-apps-slide-toggle="#app-shortcuts"]').trigger('click');
-    };*/
+    var isInScrollView = function (elem, scrollArea) {
+        // offset().top adds the navigation bar too so we have to subract it
+        var elemTop = elem.offset().top - scrollArea.offset().top;
+        var elemBottom = elemTop + elem.height();
+
+        var areaBottom = scrollArea.height();
+
+        return elemTop >= 0 && elemBottom < areaBottom;
+    };
+
+    var scrollToNavigationElement = function (elem, scrollArea, toTop) {
+        if (elem.length === 0 || (!toTop && isInScrollView(elem, scrollArea))) {
+            return;
+        }
+        scrollArea.scrollTop(
+            elem.offset().top - scrollArea.offset().top + scrollArea.scrollTop()
+        );
+    };
+
+    var scrollToActiveNavigationEntry = function (navigationArea) {
+        var element = navigationArea.find('.active');
+        scrollToNavigationElement(element, navigationArea.children('ul'), true);
+    };
 
     var reloadFeed = function (navigationArea) {
         navigationArea.find('.active > a:visible').trigger('click');
     };
 
+    var tryReload = function (navigationArea, scrollArea) {
+        if (scrollArea.scrollTop() === 0) {
+            var pullToRefresh = scrollArea.find('.pull-to-refresh');
+            if (!pullToRefresh.hasClass('show-pull-to-refresh')) {
+                pullToRefresh.addClass('show-pull-to-refresh');
+            } else if (pullToRefresh.hasClass('done')) {
+                reloadFeed(navigationArea);
+            }
+        }
+    };
+
+    var activateNavigationEntry = function (element, navigationArea) {
+        element.children('a:visible').trigger('click');
+        scrollToNavigationElement(element, navigationArea.children('ul'));
+    };
 
     var nextFeed = function (navigationArea) {
         var current = navigationArea.find('.active');
-        var elements = navigationArea.find('.subscriptions-feed:visible,' +
+        var elements = navigationArea.find('.explore-feed,' +
+                                           '.subscriptions-feed:visible,' +
                                            '.starred-feed:visible,' +
                                            '.feed:visible');
 
@@ -1787,7 +2045,7 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
             while (current.length > 0) {
                 var subfeeds = current.find('.feed:visible');
                 if (subfeeds.length > 0) {
-                    $(subfeeds[0]).children('a:visible').trigger('click');
+                    activateNavigationEntry($(subfeeds[0]), navigationArea);
                     return;
                 }
                 current = current.next('.folder');
@@ -1804,7 +2062,7 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
 
             if (element === current[0]) {
                 var next = elements[i+1];
-                $(next).children('a:visible').trigger('click');
+                activateNavigationEntry($(next), navigationArea);
                 break;
             }
         }
@@ -1825,7 +2083,7 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
         }
 
         if (folders.length > 0) {
-            $(folders[index]).children('a').trigger('click');
+            activateNavigationEntry($(folders[index]), navigationArea);
         }
     };
 
@@ -1834,13 +2092,13 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
 
         // cases: folder active, subfeed active, feed active, none active
         if (current.hasClass('folder')) {
-            current.prevAll('.folder:visible').first()
-                .children('a').trigger('click');
+            activateNavigationEntry(current.prevAll('.folder:visible').first(),
+                navigationArea);
         } else if (current.hasClass('feed')) {
             var parentFolder = getParentFolder(current);
             if (parentFolder.length > 0) {
                 // first go to previous folder should select the parent folder
-                parentFolder.children('a').trigger('click');
+                activateNavigationEntry(parentFolder, navigationArea);
             } else {
                 selectFirstOrLastFolder(navigationArea, true);
             }
@@ -1854,13 +2112,15 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
 
         // cases: folder active, subfeed active, feed active, none active
         if (current.hasClass('folder')) {
-            current.nextAll('.folder:visible').first()
-                .children('a').trigger('click');
+            activateNavigationEntry(current.nextAll('.folder:visible').first(),
+                navigationArea);
         } else if (current.hasClass('feed')) {
             var parentFolder = getParentFolder(current);
             if (parentFolder.length > 0) {
-                parentFolder.nextAll('.folder:visible').first()
-                    .children('a').trigger('click');
+                activateNavigationEntry(
+                    parentFolder.nextAll('.folder:visible').first(),
+                    navigationArea
+                );
             } else {
                 selectFirstOrLastFolder(navigationArea);
             }
@@ -1871,7 +2131,8 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
 
     var previousFeed = function (navigationArea) {
         var current = navigationArea.find('.active');
-        var elements = navigationArea.find('.subscriptions-feed:visible,' +
+        var elements = navigationArea.find('.explore-feed,' +
+                                           '.subscriptions-feed:visible,' +
                                            '.starred-feed:visible,' +
                                            '.feed:visible');
 
@@ -1882,8 +2143,8 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
             while (previousFolder.length > 0) {
                 var subfeeds = previousFolder.find('.feed:visible');
                 if (subfeeds.length > 0) {
-                    $(subfeeds[subfeeds.length-1])
-                        .children('a:visible').trigger('click');
+                    activateNavigationEntry($(subfeeds[subfeeds.length-1]),
+                        navigationArea);
                     return;
                 }
                 previousFolder = previousFolder.prev('.folder');
@@ -1893,8 +2154,8 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
             var feeds = current.siblings('.feed');
 
             if (feeds.length > 0) {
-                (feeds[feeds.length-1])
-                    .children('a:visible').trigger('click');
+                activateNavigationEntry($(feeds[feeds.length-1]),
+                    navigationArea);
                 return;
             }
 
@@ -1902,7 +2163,7 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
             // no feed found, go to starred
             var starred = $('.starred-feed:visible');
             if (starred.length > 0) {
-                starred.children('a:visible').trigger('click');
+                activateNavigationEntry(starred, navigationArea);
             }
 
             return;
@@ -1915,7 +2176,7 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
 
             if (element === current[0]) {
                 var previous = elements[i-1];
-                $(previous).children('a:visible').trigger('click');
+                activateNavigationEntry($(previous), navigationArea);
                 break;
             }
         }
@@ -1962,14 +2223,14 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
         });
     };
 
-    var scrollToItem = function (scrollArea, item, isCompactMode) {
+    var scrollToItem = function (scrollArea, item, expandItemInCompact) {
         // if you go to the next article in compact view, it should
         // expand the current one
         scrollArea.scrollTop(
             item.offset().top - scrollArea.offset().top + scrollArea.scrollTop()
         );
 
-        if (isCompactMode) {
+        if (expandItemInCompact) {
             onActiveItem(scrollArea, function (item) {
                 if (!item.hasClass('open')) {
                     item.find('.utils').trigger('click');
@@ -1978,7 +2239,7 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
         }
     };
 
-    var scrollToNextItem = function (scrollArea, isCompactMode) {
+    var scrollToNextItem = function (scrollArea, expandItemInCompact) {
         var items = scrollArea.find('.item');
         var jumped = false;
 
@@ -1986,7 +2247,7 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
             item = $(item);
 
             if (item.position().top > 1) {
-                scrollToItem(scrollArea, item, isCompactMode);
+                scrollToItem(scrollArea, item, expandItemInCompact);
 
                 jumped = true;
 
@@ -2001,7 +2262,8 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
 
     };
 
-    var scrollToPreviousItem = function (scrollArea, isCompactMode) {
+    var scrollToPreviousItem = function (navigationArea, scrollArea,
+                                         expandItemInCompact) {
         var items = scrollArea.find('.item');
         var jumped = false;
 
@@ -2013,7 +2275,9 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
 
                 // if there are no items before the current one
                 if (previous.length > 0) {
-                    scrollToItem(scrollArea, previous, isCompactMode);
+                    scrollToItem(scrollArea, previous, expandItemInCompact);
+                } else {
+                    tryReload(navigationArea, scrollArea);
                 }
 
                 jumped = true;
@@ -2035,19 +2299,23 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
             var keyCode = event.keyCode;
             var scrollArea = $('#app-content');
             var navigationArea = $('#app-navigation');
-            var isCompactMode = $('#app-content-wrapper > .compact').length > 0;
+            var isCompactView = $('#articles.compact').length > 0;
+            var isExpandItem = $('#articles')
+                .attr('news-compact-expand') === 'true';
+            var expandItemInCompact = isCompactView && isExpandItem;
 
             // j, n, right arrow
             if ([74, 78, 39].indexOf(keyCode) >= 0) {
 
                 event.preventDefault();
-                scrollToNextItem(scrollArea, isCompactMode);
+                scrollToNextItem(scrollArea, expandItemInCompact);
 
             // k, p, left arrow
             } else if ([75, 80, 37].indexOf(keyCode) >= 0) {
 
                 event.preventDefault();
-                scrollToPreviousItem(scrollArea, isCompactMode);
+                scrollToPreviousItem(navigationArea, scrollArea,
+                                     expandItemInCompact);
 
             // u
             } else if ([85].indexOf(keyCode) >= 0) {
@@ -2104,18 +2372,46 @@ app.service('SettingsResource', ["$http", "BASE_URL", function ($http, BASE_URL)
                 event.preventDefault();
                 previousFolder(navigationArea);
 
+            // a
+            } else if ([65].indexOf(keyCode) >= 0) {
+
+                event.preventDefault();
+                scrollToActiveNavigationEntry(navigationArea);
+
             // v
             } else if ([86].indexOf(keyCode) >= 0) {
 
                 event.preventDefault();
                 nextFolder(navigationArea);
 
+            // page up
+            } else if ([33].indexOf(keyCode) >= 0) {
+                tryReload(navigationArea, scrollArea);
             }
 
         }
     });
 
 }(window, document, $));
+window.News = window.News || {};
+
+
+(function (window, document, $, exports, undefined) {
+    'use strict';
+
+    var articleActionPlugins = [];
+
+    exports.addArticleAction = function (action) {
+        articleActionPlugins.push(action);
+    };
+
+    exports.getArticleActionPlugins = function () {
+        return articleActionPlugins;
+    };
+
+})(window, document, jQuery, window.News);
+
+
 app.run(["$document", "$rootScope", function ($document, $rootScope) {
     'use strict';
     $document.click(function (event) {
@@ -2141,6 +2437,45 @@ app.directive('appNavigationEntryUtils', function () {
                     menu.removeClass('open');
                 }
             });
+        }
+    };
+});
+app.directive('newsAddFeed', ["$rootScope", "$timeout", function ($rootScope, $timeout) {
+    'use strict';
+
+    return {
+        restrict: 'A',
+        link: function (scope, elem) {
+            $rootScope.$on('addFeed', function (_, url) {
+
+                $timeout(function () {
+                    if (elem.is(':animated')) {
+                        elem.stop(true, true);
+                        elem.show();
+                    } else if (!elem.is(':visible')) {
+                        elem.slideDown();
+                    }
+                    elem.find('[ng-model="Navigation.feed.url"]').focus();
+                });
+
+                scope.Navigation.feed.url = url;
+            });
+        }
+    };
+}]);
+app.directive('newsArticleActions', function () {
+    'use strict';
+    return {
+        restrict: 'E',
+        scope: {
+            'article': '='
+        },
+        link: function (scope, elem) {
+            var plugins = News.getArticleActionPlugins();
+
+            for (var i=0; i<plugins.length; i+=1) {
+                plugins[i](elem, scope.article);
+            }
         }
     };
 });
@@ -2258,6 +2593,16 @@ app.directive('newsEnclosure', function () {
         }
     };
 });
+app.directive('newsFinishedTransition', function () {
+    'use strict';
+
+    return function (scope, elem, attrs) {
+        elem.on('transitionend', function () {
+            elem.addClass(attrs.newsFinishedTransition);
+        });
+    };
+
+});
 app.directive('newsFocus', ["$timeout", "$interpolate", function ($timeout, $interpolate) {
     'use strict';
 
@@ -2362,7 +2707,7 @@ app.directive('newsScroll', ["$timeout", "ITEM_AUTO_PAGE_SIZE", "MARK_READ_TIMEO
             articles.each(function(index, article) {
                 var item = $(article);
 
-                if (item.position().top <= -50) {
+                if (item.position().top <= -10) {
                     ids.push(parseInt(item.data('id'), 10));
                 } else {
                     return false;

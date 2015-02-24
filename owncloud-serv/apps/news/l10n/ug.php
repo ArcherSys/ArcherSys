@@ -1,7 +1,9 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Refresh" => "يېڭىلا",
 "by" => "سەنئەتكار",
 "Download" => "چۈشۈر",
+"Description" => "چۈشەندۈرۈش",
 "Web address" => "تور ئادرېسى",
 "Folder" => "قىسقۇچ",
 "New folder" => "يېڭى قىسقۇچ",
@@ -15,3 +17,4 @@
 "Import" => "ئەكىر",
 "Export" => "چىقار"
 );
+$PLURAL_FORMS = "nplurals=1; plural=0;";

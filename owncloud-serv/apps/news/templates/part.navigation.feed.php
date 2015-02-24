@@ -2,14 +2,20 @@
         active: Navigation.isFeedActive(feed.id),
         unread: Navigation.getFeedUnreadCount(feed.id) > 0
     }"
-    ng-repeat="feed in Navigation.getFeedsOfFolder(<?php p($_['folderId']); ?>) | orderBy:'id':true track by feed.url"
+    ng-repeat="feed in Navigation.getFeedsOfFolder(<?php p($_['folderId']); ?>)
+        | orderBy:'title.toLowerCase()' track by feed.url"
     ng-show="Navigation.getFeedUnreadCount(feed.id) > 0
             || Navigation.isShowAll()
             || Navigation.isFeedActive(feed.id)
             || !feed.id"
     data-id="{{ feed.id }}"
-    class="feed with-counter with-menu"
-    news-draggable-disable="{{ feed.error.length > 0 || !feed.id || feed.deleted || feed.editing}}"
+    class="feed with-counter with-menu animate-show"
+    news-draggable-disable="{{
+        feed.error.length > 0 ||
+        !feed.id ||
+        feed.deleted ||
+        feed.editing
+    }}"
     news-draggable="{
         stack: '> li',
         zIndex: 1000,
@@ -38,7 +44,9 @@
     <div ng-if="feed.deleted"
          class="app-navigation-entry-deleted"
          news-timeout="Navigation.deleteFeed(feed)">
-        <div class="app-navigation-entry-deleted-description"><?php p($l->t('Deleted feed')); ?>: {{ feed.title }}</div>
+        <div class="app-navigation-entry-deleted-description">
+            <?php p($l->t('Deleted feed')); ?>: {{ feed.title }}
+        </div>
         <button class="icon-history app-navigation-entry-deleted-button"
                 title="<?php p($l->t('Undo delete feed')); ?>"
                 ng-click="Navigation.undoDeleteFeed(feed)"></button>
@@ -64,7 +72,8 @@
             <li class="app-navigation-entry-utils-counter"
                 ng-show="feed.id && Navigation.getFeedUnreadCount(feed.id) > 0"
                 title="{{ Navigation.getFeedUnreadCount(feed.id) }}">
-                {{ Navigation.getFeedUnreadCount(feed.id) | unreadCountFormatter }}
+                {{ Navigation.getFeedUnreadCount(feed.id) |
+                    unreadCountFormatter }}
             </li>
             <li class="app-navigation-entry-utils-menu-button">
                 <button title="<?php p($l->t('Menu')); ?>"></button>
@@ -74,15 +83,41 @@
 
     <div class="app-navigation-entry-menu">
         <ul>
-            <li><button ng-click="feed.editing=true"
+            <li>
+                <button ng-click="Navigation.setOrdering(feed, 1)"
+                        ng-show="feed.ordering == 0"
+                        class="icon-caret-dark feed-no-ordering"
+                        title="<?php p($l->t('No feed ordering')); ?>">
+                </button>
+                <button ng-click="Navigation.setOrdering(feed, 2)"
+                        ng-show="feed.ordering == 1"
+                        class="icon-caret-dark feed-reverse-ordering"
+                        title="<?php p($l->t('Reversed feed ordering')); ?>">
+                </button>
+                <button ng-click="Navigation.setOrdering(feed, 0)"
+                        ng-show="feed.ordering == 2"
+                        class="icon-caret-dark feed-normal-ordering"
+                        title="<?php p($l->t('Normal feed ordering')); ?>">
+                </button>
+            </li>
+            <li>
+                <button ng-click="feed.editing=true"
                         class="icon-rename"
-                        title="<?php p($l->t('Rename feed')); ?>"></button></li>
-            <li><button ng-click="Navigation.reversiblyDeleteFeed(feed)"
+                        title="<?php p($l->t('Rename feed')); ?>">
+                </button>
+            </li>
+            <li>
+                <button ng-click="Navigation.reversiblyDeleteFeed(feed)"
                         class="icon-delete"
-                        title="<?php p($l->t('Delete feed')); ?>"></button></li>
-            <li ng-show="Navigation.getFeedUnreadCount(feed.id) > 0"><button class="icon-checkmark"
+                        title="<?php p($l->t('Delete feed')); ?>">
+                </button>
+            </li>
+            <li ng-show="Navigation.getFeedUnreadCount(feed.id) > 0">
+                <button class="icon-checkmark"
                         ng-click="Navigation.markFeedRead(feed.id)"
-                        title="<?php p($l->t('Read all')); ?>"></button></li>
+                        title="<?php p($l->t('Mark all articles read')); ?>">
+                </button>
+            </li>
         </ul>
     </div>
 

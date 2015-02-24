@@ -1,10 +1,12 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Can not add feed: Exists already" => "ფიდის დამატება შეუძლებელია: უკვე არსებობს",
 "Can not add folder: Exists already" => "ფოლდერის დამატება შეუძლებელია: უკვე არსებობს",
 "Refresh" => "განახლება",
 "by" => "მიერ",
 "from" => "დან",
 "Download" => "ჩამოტვირთვა",
+"Description" => "გვერდის დახასიათება",
 "Subscribe" => "გამოწერა",
 "Web address" => "Web მისამართი",
 "Folder" => "საქაღალდე",
@@ -20,8 +22,10 @@
 "Unread articles" => "წაუკითხავი არტიკლები",
 "All articles" => "ყველა არტიკლი",
 "Settings" => "პარამეტრები",
+"Keyboard shortcuts" => "ქიბორდის shortcut–ები",
 "Import" => "იმპორტი",
 "Export" => "ექსპორტი",
 "Error when importing: file does not contain valid OPML" => "შეცდომა იმპორტირების დროს: ფაილი არ უნდა შეიცავდეს მართებულ OPML–ს",
 "Error when importing: file does not contain valid JSON" => "შეცდომა იმპორტირებისას: ფაილი არ უნდა შეიცავდეს მართებულ  JSON–ს"
 );
+$PLURAL_FORMS = "nplurals=1; plural=0;";

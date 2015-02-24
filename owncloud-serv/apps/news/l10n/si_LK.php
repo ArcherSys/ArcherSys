@@ -1,8 +1,10 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Refresh" => "නැවුම් කරන්න",
 "by" => "විසින්",
 "from" => "වෙතින්",
 "Download" => "බාන්න",
+"Description" => "විස්තරය",
 "Subscribe" => "දායකවන්න",
 "Web address" => "අන්තර්ජාල ලිපිනය",
 "Folder" => "ෆෝල්ඩරය",
@@ -18,3 +20,4 @@
 "Import" => "ආයාත කරන්න",
 "Export" => "නිර්යාත කරන්න"
 );
+$PLURAL_FORMS = "nplurals=2; plural=(n != 1);";

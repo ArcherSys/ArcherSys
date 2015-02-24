@@ -1,10 +1,13 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Can not add feed: Exists already" => "خوراک خوان را نمی تواند اضافه کند: در حال حاضر موجود است.",
 "Can not add folder: Exists already" => "پوشه را نمی تواند اضافه کند: در حال حاضر وجود دارد.",
+"Saved" => "ذخیره شد",
 "Refresh" => "بازنمایی",
 "by" => "با",
 "from" => "از",
 "Download" => "دانلود",
+"Description" => "توضیحات",
 "Subscribe" => "اشتراک گذاری",
 "Web address" => "آدرس وب",
 "Folder" => "پوشه",
@@ -21,8 +24,10 @@
 "Unread articles" => "مطالب خوانده نشده",
 "All articles" => "تمام مطالب",
 "Settings" => "تنظیمات",
+"Keyboard shortcuts" => "میان بر صفحه ی کلید",
 "Import" => "وارد کردن",
 "Export" => "گرفتن خروجی",
 "Error when importing: file does not contain valid OPML" => "خطا هنگام وارد کردن: فایل حاوی OPML  معتبر نیست.",
 "Error when importing: file does not contain valid JSON" => "خطا هنگام وارد کردن: فایل حاوی JSON معتبر نیست."
 );
+$PLURAL_FORMS = "nplurals=1; plural=0;";

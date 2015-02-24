@@ -17,11 +17,11 @@ For further developer and user documentation please visit [the wiki](https://git
 are listed on the [ownCloud apps overview](https://github.com/owncloud/core/wiki/Apps)
 
 ## Dependencies
-* ownCloud >= 7.0.3
+* ownCloud >= 8.0.0
 * PHP >= 5.4
 * libxml >= 2.7.8 (2.9 recommended)
 * php-curl
-* zlib (if installed from the appstore)
+* iconv
 * SimpleXML
 
 ## Supported Operating Systems
@@ -54,11 +54,13 @@ check if:
 
 * it is a valid RSS by running it through the [W3C validator](http://validator.w3.org/feed/)
 * you are able to add the feed in other feed readers
-* it runs without error through [SimplePie demo](http://www.simplepie.org/demo/)
 
-In the case the third condition is not met, please file a bug on [SimplePie issue tracker](https://github.com/simplepie/simplepie).
 
 ### When reporting bugs
+
+* Enable debug mode by putting this at the bottom of **config/config.php**
+
+      DEFINE('DEBUG', true);
 
 * Turn on debug level debug by adding **"loglevel" => 0,** to your **config/config.php** and reproduce the problem
 * check **data/owncloud.log**
@@ -72,58 +74,56 @@ Please provide the following details so that your problem can be fixed:
 * PHP version
 * Distribution
 
-## Before you install the News app
-Before you install the app check that the following requirements are met:
+## Installation/Update
 
-* You can use a cron or webcron to call Background Jobs in ownCloud
-* Your **data/** directory is owned by your webserver user and write/readable
-* You have installed **php-curl** and activated it in the **php.ini**
-* You run **ownCloud 7**
+### Before you install/update the News app
+Before you install the app do the following:
+* Check that your **owncloud/data/** directory is owned by your webserver user and that it is write/readable
+* Check that your installation fullfills the [requirements listed in the README section](https://github.com/owncloud/news#dependencies)
+* [Set up ownCloud Background Jobs](http://doc.owncloud.org/server/8.0/admin_manual/configuration/background_jobs_configuration.html) to enable feed updates. A recommended timespan for feed updates is 15-30 Minutes.
+* If you are updating from a previous version read the [Update Notices](https://github.com/owncloud/news/blob/master/README.md#updating-notices)
 
-Should you have upgraded from a prior version, disable the CSS and JavaScript caching by adding this to **owncloud/config/config.php**:
+Then proceed to install the app either from an archive (zip/tar.gz) or clone it from the repository using git
 
-    DEFINE('DEBUG', true);
-
-You can remove the line after a page reload
-
-
-## App Store
-
-* Go to the ownCloud apps page
+### Installing from archive
+* Go to the [ownCloud News GitHub releases page](https://github.com/owncloud/news/releases) and download the latest release/archive to your server
+* On your server, check if there is a folder called **owncloud/apps/news**. If there is one, delete it.
+* Extract the downloaded archive to the **owncloud/apps/** folder.
+* Remove the version from the extracted folder (e.g. rename **owncloud/apps/news-4.0.3/** to **owncloud/apps/news/**
 * Activate the **News** app in the apps menu
-* If the app fails to install, add this at the bottom of the file **config/config.php**:
 
-	  $CONFIG["appcodechecker"] = false;
-
-* [Set up ownCloud Background Jobs](http://doc.owncloud.org/server/7.0/admin_manual/configuration/background_jobs.html) to enable feed updates. A recommended timespan for feed updates is 15-30 Minutes.
-
-The **News** App can be updated through the ownCloud apps page.
-
-
-### Git (development version)
+### Installing from Git (development version)
 * The master branch will always be stable in conjunction with the latest master branch from ownCloud
-* Clone the **News** app into the **/var/www/owncloud/apps/** directory:
+* In your terminal go into the **owncloud/apps/** directory and then run the following command:
 
 	git clone https://github.com/owncloud/news.git
 
-* If the app fails to install, add this at the bottom of the file **config/config.php**:
-
-	  $CONFIG["appcodechecker"] = false;
-
 * Activate the **News** app in the apps menu
 
-* [Set up ownCloud Background Jobs](http://doc.owncloud.org/server/7.0/admin_manual/configuration/background_jobs.html) to enable feed updates. A recommended timespan for feed updates is 15-30 Minutes.
+To update the News app use change into the **owncloud/apps/news/** directory using your terminal and then run:
 
-To update the News app use:
-
-    cd /var/www/owncloud/apps/news
     git pull --rebase origin master
-
 
 ## Performance Notices
 * Use MySQL or PostgreSQL for better database performance
-* Use the [updater script to thread and speed up the update](https://github.com/owncloud/news/wiki/Cron-1.2)
+* Use the [updater script to thread and speed up the update](https://github.com/owncloud/news/wiki/Custom-Updater)
 * Feed updates on plattforms using **php-fpm are significantly slower** due to workarounds which are needed to deal with [libxml not being threadsafe](https://bugs.php.net/bug.php?id=64938)
+
+## Updating Notices
+
+To receive notifications when a new News app version was released, simply add the following Atom feed in your currently installed News app:
+
+    https://github.com/owncloud/news/releases.atom
+
+
+### Updating from versions prior to 4
+
+You need to do the following:
+
+* Get rid of **simplePieCacheDuration** setting by removing this setting from your **owncloud/data/news/config/config.ini**.
+
+### After updating from a version prior to 4 all my read articles reappear as unread and there are duplicates
+We switched to a different feed parsing library which creates article ids differently than before. This means that the same article is not found in the database because it was generated with a different id and is thus readded. This should happen only once for each feed after the upgrade and there is no data loss. Unfortunately there is no fix for this since the id is a hash which can not be reversed, so a smooth transition is not possible.
 
 ## FAQ
 
@@ -146,7 +146,7 @@ Check the **owncloud/data/owncloud.log** for hints why it failed. After the issu
 ### All feeds are not updated anymore
 [This is a bug in the core backgroundjob system](https://github.com/owncloud/core/issues/3221) deleting the **owncloud/data/cron.lock** file gets the cron back up running
 
-Another way to fix this is to run a custom [updater script](https://github.com/owncloud/news/wiki/Cron-1.2)
+Another way to fix this is to run a custom [updater script](https://github.com/owncloud/news/wiki/Custom-Updater)
 
 ### All feeds are not updated and theres no cron.lock
 * Check if the cronjob exists with **crontab -u www-data -e** (replace www-data with your httpd user)
@@ -154,29 +154,33 @@ Another way to fix this is to run a custom [updater script](https://github.com/o
 * Check if the cronjob is ever executed by placing an **error_log('updating')** in the [background job file](https://github.com/owncloud/news/blob/master/backgroundjob/task.php#L37). If the cronjob runs, there should be an updating log statement in your httpd log.
 * If there is no **updating** statement in your logs check if your cronjob is executed by executing a different script
 * If your cron works fine but owncloud's cronjobs are never executed, file a bug in [core](https://github.com/owncloud/core/)
-* Try the [updater script](https://github.com/owncloud/news/wiki/Cron-1.2)
+* Try the [updater script](https://github.com/owncloud/news/wiki/Custom-Updater)
 
 
 Configuration
 -------------
-All configuration values are set inside **owncloud/data/news/config/config.ini**
+All configuration values are set inside **owncloud/data/news/config/config.ini** and can be edited in the admin panel.
 
 The configuration is in **INI** format and looks like this:
 
 ```ini
 autoPurgeMinimumInterval = 60
 autoPurgeCount = 200
-simplePieCacheDuration = 1800
+maxRedirects = 10
+maxSize = 104857600
 feedFetcherTimeout = 60
 useCronUpdates = true
+exploreUrl =
 ```
 
 
 * **autoPurgeMinimumInterval**: Minimum amount of seconds after deleted feeds and folders are removed from the database. Values below 60 seconds are ignored
-* **autoPurgeCount**: Defines the minimum amount of articles that can be unread per feed before they get deleted
-* **simplePieCacheDuration**: Amount of seconds to cache feeds
+* **autoPurgeCount**: Defines the minimum amount of articles that can be unread per feed before they get deleted, a negative value will turn off deleting articles completely
+* **maxRedirects**: How many redirects the updater should follow
+* **maxSize**: Maximum feed size in bytes. If the RSS/Atom page is bigger than this value, the update will be aborted
 * **feedFetcherTimeout**: Maximum number of seconds to wait for an RSS or Atom feed to load. If a feed takes longer than that number of seconds to update, the update will be aborted
 * **useCronUpdates**: To use a custom update/cron script you need to disable the cronjob which is run by ownCloud by default by setting this to false
+* **exploreUrl**: If given that url will be contacted for fetching content for the explore feed
 
 Translations
 ------------

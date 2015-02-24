@@ -1,9 +1,14 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Can not add folder: Exists already" => "Nu se poate adăuga director : Exista deja",
+"Saved" => "Salvat",
 "Refresh" => "Împrospătare",
 "by" => "după",
 "from" => "de la",
 "Download" => "Descarcă",
+"Description" => "Descriere",
+"right" => "dreapta",
+"left" => "stânga",
 "Subscribe" => "Abonare",
 "Web address" => "Adresă web",
 "Folder" => "Dosar",
@@ -19,9 +24,11 @@
 "Unread articles" => "Articole necitite",
 "All articles" => "Toate articolele",
 "Settings" => "Setări",
+"Keyboard shortcuts" => "Scurtături din tastatură",
 "Subscriptions (OPML)" => "Subscripţii (OPLM)",
 "Import" => "Importă",
 "Export" => "Exportă",
 "Error when importing: file does not contain valid OPML" => "Eroare în timpul importării : fişierul nu conţine OPLM valid",
 "Error when importing: file does not contain valid JSON" => "Eroare în timpul importării : fişierul nu conţine  JSON valid"
 );
+$PLURAL_FORMS = "nplurals=3; plural=(n==1?0:(((n%100>19)||((n%100==0)&&(n!=0)))?2:1));";

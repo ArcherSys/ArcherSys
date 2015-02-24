@@ -1,8 +1,10 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Refresh" => "Làm mới",
 "by" => "bởi",
 "from" => "từ",
 "Download" => "Tải về",
+"Description" => "Mô tả",
 "Subscribe" => "Theo dõi",
 "Web address" => "Địa chỉ Web",
 "Feed exists already!" => "Nguồn đã tồn tại",
@@ -21,6 +23,8 @@
 "Unread articles" => "Bài chưa đọc",
 "All articles" => "Mọi bài viết",
 "Settings" => "Cài đặt",
+"Keyboard shortcuts" => "Phím tắt",
 "Import" => "Nhập vào",
 "Export" => "Xuất ra"
 );
+$PLURAL_FORMS = "nplurals=1; plural=0;";

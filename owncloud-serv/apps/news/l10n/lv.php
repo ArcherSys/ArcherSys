@@ -1,7 +1,9 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Refresh" => "Atsvaidzināt",
 "by" => "līdz",
 "Download" => "Lejupielādēt",
+"Description" => "Apraksts",
 "Subscribe" => "Abonēt",
 "Web address" => "Tīmekļa adrese",
 "Feed exists already!" => "Plūsma jau eksistē!",
@@ -20,6 +22,8 @@
 "Unread articles" => "Nelasītie raksti",
 "All articles" => "Visi raksti",
 "Settings" => "Iestatījumi",
+"Keyboard shortcuts" => "Tastatūras saīsnes",
 "Import" => "Importēt",
 "Export" => "Eksportēt"
 );
+$PLURAL_FORMS = "nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n != 0 ? 1 : 2);";

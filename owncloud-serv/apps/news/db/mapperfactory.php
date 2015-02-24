@@ -14,23 +14,23 @@
 namespace OCA\News\Db;
 
 use \OCP\IDb;
-use \OCA\News\Db\Postgres\ItemMapper as PostgresItemMapper;
+use \OCA\News\Db\Mysql\ItemMapper as MysqlItemMapper;
 
 class MapperFactory {
 
 	private $dbType;
 	private $db;
 
-	public function __construct($dbType, IDb $db) {
-		$this->dbType = $dbType;
+	public function __construct($DatabaseType, IDb $db) {
+		$this->dbType = $DatabaseType;
 		$this->db = $db;
 	}
 
 
 	public function getItemMapper() {
 		switch($this->dbType) {
-			case 'pgsql':
-				return new PostgresItemMapper($this->db);
+			case 'mysql':
+				return new MysqlItemMapper($this->db);
 			default:
 				return new ItemMapper($this->db);
 		}

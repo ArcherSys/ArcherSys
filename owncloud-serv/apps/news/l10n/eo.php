@@ -1,10 +1,15 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Can not add feed: Exists already" => "Ne eblas aldoni fluon: ĝi jam ekzistas",
 "Can not add folder: Exists already" => "Ne eblas aldoni dosierujon: ĝi jam ekzistas",
+"Saved" => "Konservita",
 "Refresh" => "Refreŝigi",
 "by" => "de",
 "from" => "el",
 "Download" => "Elŝuti",
+"Description" => "Priskribo",
+"right" => "dekstro",
+"left" => "maldekstro",
 "Subscribe" => "Aboni",
 "Web address" => "TTT-adreso",
 "Folder" => "Dosierujo",
@@ -21,8 +26,10 @@
 "Unread articles" => "Nelegitaj artikoloj",
 "All articles" => "Ĉiuj artikoloj",
 "Settings" => "Agordo",
+"Keyboard shortcuts" => "Fulmoklavoj",
 "Import" => "Enporti",
 "Export" => "Elporti",
 "Error when importing: file does not contain valid OPML" => "La enporto eraris: la dosiero ne enhavas validan OPML-on",
 "Error when importing: file does not contain valid JSON" => "La enporto eraris: la dosiero ne enhavas validan JSON-on"
 );
+$PLURAL_FORMS = "nplurals=2; plural=(n != 1);";

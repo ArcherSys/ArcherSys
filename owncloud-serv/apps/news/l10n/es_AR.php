@@ -1,11 +1,14 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Can not add feed: Exists already" => "No es posible agregar fuente: Ya existe",
 "Articles without feed" => "Artículos sin redifusión",
 "Can not add folder: Exists already" => "No es posible agregar carpeta: Ya existe",
+"Saved" => "Guardado",
 "Refresh" => "Recargar",
 "by" => "por",
 "from" => "de",
 "Download" => "Descargar",
+"Description" => "Descripción",
 "Subscribe" => "Subscribirse",
 "Web address" => "Dirección web",
 "Feed exists already!" => "¡La fuente ya existe!",
@@ -25,6 +28,7 @@
 "Unread articles" => "Articulos sin leer",
 "All articles" => "Todos los articulos",
 "Settings" => "Configuración",
+"Keyboard shortcuts" => "Atajos de teclado",
 "Subscriptions (OPML)" => "Suscripciones (OPML)",
 "Import" => "Importar",
 "Export" => "Exportar",
@@ -32,3 +36,4 @@
 "Unread/Starred Articles" => "Artículos No leídos/Favoritos",
 "Error when importing: file does not contain valid JSON" => "Error al importar: el archivo no contiene JSON válido"
 );
+$PLURAL_FORMS = "nplurals=2; plural=(n != 1);";

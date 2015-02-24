@@ -19,49 +19,65 @@ use \OCP\AppFramework\ApiController;
 use \OCP\AppFramework\Http;
 
 use \OCA\News\Utility\Updater;
+use \OCA\News\Service\StatusService;
 
 
 class UtilityApiController extends ApiController {
 
-	private $updater;
-	private $settings;
+    private $updater;
+    private $settings;
+    private $statusService;
 
-	public function __construct($appName,
-	                            IRequest $request,
-	                            Updater $updater,
-	                            IConfig $settings){
-		parent::__construct($appName, $request);
-		$this->updater = $updater;
-		$this->settings = $settings;
-	}
-
-
-	/**
-	 * @NoAdminRequired
-	 * @NoCSRFRequired
-	 * @API
-	 */
-	public function version() {
-		$version = $this->settings->getAppValue($this->appName,
-			'installed_version');
-		return ['version' => $version];
-	}
+    public function __construct($AppName,
+                                IRequest $request,
+                                Updater $updater,
+                                IConfig $settings,
+                                StatusService $statusService){
+        parent::__construct($AppName, $request);
+        $this->updater = $updater;
+        $this->settings = $settings;
+        $this->statusService = $statusService;
+    }
 
 
-	/**
-	 * @NoCSRFRequired
-	 */
-	public function beforeUpdate() {
-		$this->updater->beforeUpdate();
-	}
+    /**
+     * @NoAdminRequired
+     * @NoCSRFRequired
+     * @CORS
+     */
+    public function version() {
+        $version = $this->settings->getAppValue($this->appName,
+            'installed_version');
+        return ['version' => $version];
+    }
 
 
-	/**
-	 * @NoCSRFRequired
-	 */
-	public function afterUpdate() {
-		$this->updater->afterUpdate();
-	}
+    /**
+     * @NoCSRFRequired
+     * @CORS
+     */
+    public function beforeUpdate() {
+        $this->updater->beforeUpdate();
+    }
+
+
+    /**
+     * @NoCSRFRequired
+     * @CORS
+     */
+    public function afterUpdate() {
+        $this->updater->afterUpdate();
+    }
+
+
+    /**
+     * @CORS
+     * @NoCSRFRequired
+     * @NoAdminRequired
+     */
+    public function status() {
+        return $this->statusService->getStatus();
+    }
 
 
 }

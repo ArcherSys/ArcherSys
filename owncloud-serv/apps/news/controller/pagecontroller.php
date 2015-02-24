@@ -13,81 +13,134 @@
 
 namespace OCA\News\Controller;
 
-use \OCP\AppFramework\Http\TemplateResponse;
-use \OCP\IRequest;
-use \OCP\IConfig;
-use \OCP\IL10N;
-use \OCP\IURLGenerator;
-use \OCP\AppFramework\Controller;
+use OCP\AppFramework\Http\TemplateResponse;
+use OCP\AppFramework\Http\JSONResponse;
+use OCP\IRequest;
+use OCP\IConfig;
+use OCP\IL10N;
+use OCP\IURLGenerator;
+use OCP\AppFramework\Controller;
 
-use \OCA\News\Config\AppConfig;
+use OCA\News\Service\StatusService;
+use OCA\News\Config\AppConfig;
+use OCA\News\Config\Config;
+use OCA\News\Explore\RecommendedSites;
+use OCA\News\Db\FeedType;
 
 class PageController extends Controller {
 
-	private $settings;
-	private $l10n;
-	private $userId;
-	private $appConfig;
-	private $urlGenerator;
+    private $settings;
+    private $l10n;
+    private $userId;
+    private $appConfig;
+    private $urlGenerator;
+    private $config;
+    private $recommendedSites;
+    private $statusService;
 
-	public function __construct($appName,
-	                            IRequest $request,
-	                            IConfig $settings,
-	                            IURLGenerator $urlGenerator,
+    public function __construct($AppName,
+                                IRequest $request,
+                                IConfig $settings,
+                                IURLGenerator $urlGenerator,
                                 AppConfig $appConfig,
-	                            IL10N $l10n,
-	                            $userId){
-		parent::__construct($appName, $request);
-		$this->settings = $settings;
-		$this->urlGenerator = $urlGenerator;
-		$this->appConfig = $appConfig;
-		$this->l10n = $l10n;
-		$this->userId = $userId;
-	}
+                                Config $config,
+                                IL10N $l10n,
+                                RecommendedSites $recommendedSites,
+                                StatusService $statusService,
+                                $UserId){
+        parent::__construct($AppName, $request);
+        $this->settings = $settings;
+        $this->urlGenerator = $urlGenerator;
+        $this->appConfig = $appConfig;
+        $this->l10n = $l10n;
+        $this->userId = $UserId;
+        $this->config = $config;
+        $this->recommendedSites = $recommendedSites;
+        $this->statusService = $statusService;
+    }
 
 
-	/**
-	 * @NoAdminRequired
-	 * @NoCSRFRequired
-	 */
-	public function index() {
-		return new TemplateResponse($this->appName, 'index');
-	}
+    /**
+     * @NoAdminRequired
+     * @NoCSRFRequired
+     */
+    public function index() {
+        $status = $this->statusService->getStatus();
+        $response = new TemplateResponse($this->appName, 'index', [
+            'cronWarning' => $status['warnings']['improperlyConfiguredCron']
+        ]);
+
+        // set csp rules for ownCloud 8.1
+        if (class_exists('OCP\AppFramework\Http\ContentSecurityPolicy')) {
+            $csp = new \OCP\AppFramework\Http\ContentSecurityPolicy();
+            $csp->addAllowedImageDomain('*');
+            $csp->addAllowedMediaDomain('*');
+            $csp->addAllowedFrameDomain('https://youtube.com');
+            $csp->addAllowedFrameDomain('https://www.youtube.com');
+            $csp->addAllowedFrameDomain('https://player.vimeo.com');
+            $csp->addAllowedFrameDomain('https://www.player.vimeo.com');
+            $response->setContentSecurityPolicy($csp);
+        }
+
+        return $response;
+    }
 
 
-	/**
-	 * @NoAdminRequired
-	 */
-	public function settings() {
-		$settings = ['showAll', 'compact', 'preventReadOnScroll', 'oldestFirst'];
+    /**
+     * @NoAdminRequired
+     */
+    public function settings() {
+        $settings = [
+            'showAll',
+            'compact',
+            'preventReadOnScroll',
+            'oldestFirst',
+            'compactExpand'
+        ];
 
-		$result = ['language' => $this->l10n->getLanguageCode()];
+        $exploreUrl = $this->config->getExploreUrl();
+        if (trim($exploreUrl) === '') {
+            $exploreUrl = $this->urlGenerator->getAbsoluteURL(
+                '/index.php/apps/news/explore'
+            );
+        }
 
-		foreach ($settings as $setting) {
-			$result[$setting] = $this->settings->getUserValue(
-				$this->userId, $this->appName, $setting
-			) === '1';
-		}
-		return ['settings' => $result];
-	}
+        $result = [
+            'language' => $this->l10n->getLanguageCode(),
+            'exploreUrl' => $exploreUrl
+        ];
+
+        foreach ($settings as $setting) {
+            $result[$setting] = $this->settings->getUserValue(
+                $this->userId, $this->appName, $setting
+            ) === '1';
+        }
+        return ['settings' => $result];
+    }
 
 
-	/**
-	 * @NoAdminRequired
-	 *
-	 * @param bool $showAll
-	 * @param bool $compact
-	 * @param bool $preventReadOnScroll
-	 * @param bool $oldestFirst
-	 */
-	public function updateSettings($showAll, $compact, $preventReadOnScroll, $oldestFirst) {
-		$settings = ['showAll', 'compact', 'preventReadOnScroll', 'oldestFirst'];
+    /**
+     * @NoAdminRequired
+     *
+     * @param bool $showAll
+     * @param bool $compact
+     * @param bool $preventReadOnScroll
+     * @param bool $oldestFirst
+     */
+    public function updateSettings($showAll, $compact, $preventReadOnScroll,
+                                   $oldestFirst, $compactExpand) {
+        $settings = ['showAll',
+            'compact',
+            'preventReadOnScroll',
+            'oldestFirst',
+            'compactExpand'
+        ];
 
-		foreach ($settings as $setting) {
-			$this->settings->setUserValue($this->userId, $this->appName,
-			                              $setting, ${$setting});
-		}
-	}
+        foreach ($settings as $setting) {
+            $this->settings->setUserValue($this->userId, $this->appName,
+                                          $setting, ${$setting});
+        }
+    }
 
 
     /**
@@ -114,24 +167,43 @@ class PageController extends Controller {
             }
         }
 
-        $authors = [];
-        foreach ($config['authors'] as $author) {
-            $authors[] = $author['name'];
-        }
 
-        return [
+        $data = [
             "name" => $config['name'],
             "type" => 'web',
             "default_locale" => $locale,
             "description" => $config['description'],
             "launch_path" => $this->urlGenerator->linkToRoute(
-                $config['id'] . '.page.index'),
+                $config['navigation']['route']),
             "icons" => $icons,
             "developer" => [
-                "name" => implode(', ', $authors),
+                "name" => $config['author'],
                 "url" => $config['homepage']
             ]
         ];
+
+        $response = new JSONResponse($data);
+        $response->addHeader('Content-Type',
+            'application/x-web-app-manifest+json');
+
+        return $response;
     }
+
+    /**
+     * @NoAdminRequired
+     *
+     * @param string $lang
+     */
+    public function explore($lang='en') {
+        $default = 'en';
+
+        $this->settings->setUserValue($this->userId, $this->appName,
+            'lastViewedFeedId', 0);
+        $this->settings->setUserValue($this->userId, $this->appName,
+            'lastViewedFeedType', FeedType::EXPLORE);
+
+        return $this->recommendedSites->forLanguage($lang, $default);
+    }
+
 
 }

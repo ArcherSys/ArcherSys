@@ -1,3 +1,5 @@
+<?php print_unescaped($this->inc('part.content.cronwarning')) ?>
+
 <div id="app-shortcuts">
     <div>
         <table>
@@ -19,11 +21,15 @@
             </tr>
             <tr>
                 <td>h</td>
-                <td><?php p($l->t('Star article and jump to next one')); ?></td>
+                <td>
+                    <?php p($l->t('Star article and jump to next one')); ?>
+                </td>
             </tr>
             <tr>
                 <td>u</td>
-                <td><?php p($l->t('Toggle keep current article unread')); ?></td>
+                <td>
+                    <?php p($l->t('Toggle keep current article unread')); ?>
+                </td>
             </tr>
             <tr>
                 <td>o</td>
@@ -31,7 +37,9 @@
             </tr>
             <tr>
                 <td>e</td>
-                <td><?php p($l->t('Expand article in compact view')); ?></td>
+                <td>
+                    <?php p($l->t('Toggle expand article in compact view')); ?>
+                </td>
             </tr>
             <tr>
                 <td>r</td>
@@ -52,6 +60,10 @@
             <tr>
                 <td>v</td>
                 <td><?php p($l->t('Load previous folder')); ?></td>
+            </tr>
+            <tr>
+                <td>a</td>
+                <td><?php p($l->t('Scroll to active navigation entry')); ?></td>
             </tr>
         </table>
     </div>

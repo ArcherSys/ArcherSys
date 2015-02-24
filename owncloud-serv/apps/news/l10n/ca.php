@@ -1,12 +1,15 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
 "Can not add feed: Exists already" => "No es pot afegir la font: ja existeix",
 "Can not add feed: URL does not exist, SSL Certificate can not be validated or feed has invalid xml" => "No es pot afegir la font: la URL no existeix, el certificat SLL no es pot validar o la xml de la font no és vàlida",
 "Articles without feed" => "Articles sense font",
 "Can not add folder: Exists already" => "No es pot afegir la carpeta: ja existeix",
+"Saved" => "Desat",
 "Refresh" => "Refresca",
 "by" => "per",
 "from" => "des de",
 "Download" => "Baixa",
+"Description" => "Descripció",
 "Subscribe" => "Subscriu",
 "Web address" => "Adreça web",
 "Feed exists already!" => "La font ja existeix!",
@@ -26,6 +29,7 @@
 "Unread articles" => "Articles sense llegir",
 "All articles" => "Tots els articles",
 "Settings" => "Arranjament",
+"Keyboard shortcuts" => "Dreceres de teclat",
 "Subscriptions (OPML)" => "Subscripcions (OPML)",
 "Import" => "Importa",
 "Export" => "Exporta",
@@ -33,3 +37,4 @@
 "Unread/Starred Articles" => "Articles no llegits/amb estrelles",
 "Error when importing: file does not contain valid JSON" => "Error en importar: el fitxer no conté un JSON vàlid"
 );
+$PLURAL_FORMS = "nplurals=2; plural=(n != 1);";

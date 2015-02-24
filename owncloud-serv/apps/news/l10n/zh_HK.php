@@ -1,4 +1,6 @@
-<?php $TRANSLATIONS = array(
+<?php
+$TRANSLATIONS = array(
+"Saved" => "已儲存",
 "Refresh" => "重新整理",
 "Download" => "下載",
 "Web address" => "網絡地址",
@@ -11,3 +13,4 @@
 "Import" => "導入",
 "Export" => "輸出"
 );
+$PLURAL_FORMS = "nplurals=1; plural=0;";
