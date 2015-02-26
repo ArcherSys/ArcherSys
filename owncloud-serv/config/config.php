@@ -20,5 +20,5 @@ $CONFIG = array (
   'customclient_ios' => 'https://itunes.apple.com/us/app/owncloud/id543672169?mt=8',
   'user_webdavauth_url' => 'https://localhost/webdav',
   'theme' => '',
-  'maintenance' => true,
+  'maintenance' => false,
 );
