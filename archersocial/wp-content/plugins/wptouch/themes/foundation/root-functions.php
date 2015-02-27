@@ -136,7 +136,7 @@ function foundation_setting_defaults( $settings ) {
 	$settings->webapp_mode_enabled = false;
 	$settings->webapp_enable_persistence = true;
 	$settings->webapp_show_notice = true;
-	$settings->webapp_notice_message = __( 'Install this Web-App on your homescreen: tap [icon] then "Add to Home Screen"', 'wptouch-pro' );
+	$settings->webapp_notice_message = __( 'Install this Web-App on your home screen: tap [icon] then "Add to Home Screen"', 'wptouch-pro' );
 	$settings->webapp_ignore_urls = '';
 	$settings->webapp_notice_expiry_days = 30;
 
@@ -180,6 +180,7 @@ function foundation_setting_defaults( $settings ) {
 	$settings->social_vimeo_url = '';
 	$settings->social_youtube_url = '';
 	$settings->social_linkedin_url = '';
+	$settings->social_yelp_url = '';
 	$settings->social_email_url = '';
 	$settings->social_rss_url = '';
 
@@ -195,6 +196,7 @@ function foundation_setting_defaults( $settings ) {
 	$settings->featured_type = 'latest';
 	$settings->featured_tag = '';
 	$settings->featured_category = '';
+	$settings->featured_post_type = '';
 	$settings->featured_post_ids = '';
 	$settings->featured_speed = 'normal';
 	$settings->featured_max_number_of_posts = '5';
@@ -623,7 +625,7 @@ function foundation_init_data() {
 	$foundation_data = new stdClass;
 
 	// The base module is always loaded; don't change this or horrible things will happen!
-	$foundation_data->theme_support = apply_filters(  'wptouch_theme_support', array( 'base' ) );
+	$foundation_data->theme_support = array( 'base' );
 }
 
 function foundation_get_theme_data() {
@@ -642,6 +644,9 @@ function foundation_load_theme_modules() {
 	$settings = foundation_get_settings();
 
 	$theme_data = foundation_get_theme_data();
+
+	$theme_data->theme_support = apply_filters(  'wptouch_theme_support', $theme_data->theme_support );
+
 	if ( count( $theme_data->theme_support ) ) {
 		foreach( $theme_data->theme_support as $module ) {
 
@@ -991,6 +996,116 @@ function wptouch_fdn_ordered_cat_list( $num, $include_count = true, $taxonomy = 
 		}
 	}
 	echo $closing_tag;
+}
+
+function wptouch_fdn_hierarchical_cat_list( $num, $include_count = true, $taxonomy = 'category', $opening_tag = '<ul>', $closing_tag = '</ul>' ) {
+	$walker = new WPtouchProMainNavMenuWalker;
+	$defaults = array(
+		'number' => $num,
+		'show_option_all' => false,
+		'show_option_none' => false,
+		'orderby' => 'name',
+		'order' => 'ASC',
+		'style' => 'list',
+		'show_count' => $include_count,
+		'hide_empty' => 1,
+		'use_desc_for_title' => 1,
+		'child_of' => 0,
+		'feed' => '',
+		'feed_type' => '',
+		'feed_image' => '',
+		'exclude' => '',
+		'exclude_tree' => '',
+		'current_category' => 0,
+		'hierarchical' => true,
+		'title_li' => false,
+		'echo' => 1,
+		'depth' => 0,
+		'taxonomy' => $taxonomy,
+		'walker' => new WPtouchProCategoryWalker
+	);
+
+	if ( isset( $args ) ) {
+		$r = wp_parse_args( $args, $defaults );
+	} else {
+		$r = $defaults;
+	}
+
+	if ( !isset( $r['pad_counts'] ) && $r['show_count'] && $r['hierarchical'] )
+		$r['pad_counts'] = true;
+
+	if ( true == $r['hierarchical'] ) {
+		$r['exclude_tree'] = $r['exclude'];
+		$r['exclude'] = '';
+	}
+
+	if ( ! isset( $r['class'] ) )
+		$r['class'] = ( 'category' == $r['taxonomy'] ) ? 'categories' : $r['taxonomy'];
+
+	if ( ! taxonomy_exists( $r['taxonomy'] ) ) {
+		return false;
+	}
+
+	$show_option_all = $r['show_option_all'];
+	$show_option_none = $r['show_option_none'];
+
+	$categories = get_categories( $r );
+
+	$output = '';
+
+	if ( empty( $categories ) ) {
+		if ( ! empty( $show_option_none ) ) {
+			if ( 'list' == $r['style'] ) {
+				$output .= '<li class="cat-item-none">' . $show_option_none . '</li>';
+			} else {
+				$output .= $show_option_none;
+			}
+		}
+	} else {
+		$output = $opening_tag;
+
+		if ( ! empty( $show_option_all ) ) {
+			$posts_page = ( 'page' == get_option( 'show_on_front' ) && get_option( 'page_for_posts' ) ) ? get_permalink( get_option( 'page_for_posts' ) ) : home_url( '/' );
+			$posts_page = esc_url( $posts_page );
+			if ( 'list' == $r['style'] ) {
+				$output .= "<li class='cat-item-all'><a href='$posts_page'>$show_option_all</a></li>";
+			} else {
+				$output .= "<a href='$posts_page'>$show_option_all</a>";
+			}
+		}
+
+		if ( empty( $r['current_category'] ) && ( is_category() || is_tax() || is_tag() ) ) {
+			$current_term_object = get_queried_object();
+			if ( $current_term_object && $r['taxonomy'] === $current_term_object->taxonomy ) {
+				$r['current_category'] = get_queried_object_id();
+			}
+		}
+
+		if ( $r['hierarchical'] ) {
+			$depth = $r['depth'];
+		} else {
+			$depth = -1; // Flat.
+		}
+		$output .= walk_category_tree( $categories, $depth, $r );
+
+		$output .= '</ul>';
+	}
+
+	/**
+	 * Filter the HTML output of a taxonomy list.
+	 *
+	 * @since 2.1.0
+	 *
+	 * @param string $output HTML output.
+	 * @param array  $args   An array of taxonomy-listing arguments.
+	 */
+	$html = apply_filters( 'wp_list_categories', $output, $r );
+
+	if ( $r['echo'] ) {
+		echo $html;
+	} else {
+		return $html;
+	}
 }
 
 function wptouch_fdn_ordered_tag_list( $num ) {

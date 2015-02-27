@@ -1,9 +1,9 @@
 === Plugin Name ===
-Contributors: bravenewcode, duanestorey, dalemugford, martin kuplens-ewart
+Contributors: bravenewcode, duanestorey, dalemugford, mkuplens
 Tags: wptouch, iphone, ipod, bravenewcode, mobile, android, blackberry, smartphone, responsive, design, mobile plugin, ios, mobile theme
-Requires at least: 3.6
-Stable tag: 3.5.4
-Tested up to: 4.0
+Requires at least: 3.8
+Stable tag: 3.7
+Tested up to: 4.1
 License: GPLv2
 
 Create a slick mobile WordPress website with just a few clicks.
@@ -40,9 +40,75 @@ For more information visit [WPtouch.com](http://www.wptouch.com/?utm_campaign=wp
 
 == Changelog ==
 
-= Version 3.5.4 (October 27th, 2014) =
+= Version 3.7 (February 25, 2015) =
 
-* Fixed: Directory structure issues
+* Added: Overhauled support for shortcodes provided by desktop themes. WPtouch Pro can now optionally load content from WordPress with shortcodes processed. (Pro Only)
+* Fixed: Bug in URL-based filtering
+* Fixed: Possible hidden redirect exploit on mobile/desktop switcher
+
+= Version 3.6.6 (January 29, 2015) =
+
+* Added: The ability for themes and extensions to disable Web-App Mode. (Pro Only)
+* Added: If you set a custom excerpt for your posts, WPtouch will use it when it displays related posts. (Pro Only)
+* Changed: More localization updates (German, Greek, Hindi, and Indonesian)
+* Changed: More robust category listing
+* Changed: We moved support to the Freshdesk platform. All links have been updated to point to our new ticket & knowledgebase and the new My Account page. (Pro Only)
+* Changed: Web-App Mode is not compatible with off-site payment gateways. MobileStore no longer allows Web-App Mode to be used when no compatible gateways are found. (Pro Only)
+* Changed: MobileStore now allows selecting a custom latest posts page. (Pro Only)
+* Fixed: Bug in MobileStore where it was not possible to completely disable product filters once any had been selected. (Pro Only)
+* Fixed: Layout bug in menu on sites with sequential nested menu items.
+
+= Version 3.6.5 (January 8, 2015) =
+
+* Added: Better support for Nextgen Gallery for sites using the Responsive Images extension. (Pro Only)
+* Changed: Updated localizations – Arabic, Chinese (Simplified & Traditional), Danish, Dutch, French, German, Greek, Hindi, Indonesian, Italian, Japanese, Korean, Russian, Swedish, Thai, Turkish, Vietnamese
+* Changed: Change spaces in uploaded logo & startup image filenames to dashes to prevent display issues
+* Changed: Removed festive icons
+* Fixed: Spelling of devanagari in Advanced Type (Pro Only)
+
+= Version 3.6.3 (December 18, 2014) =
+
+* Tested for compatibility with WordPress 4.1
+* Added: WPtouch Pro now auto-updates installed themes and extensions, ensuring your site is always completely up-to-date. Changes made to the theme will be saved (WPtouch Pro will create a new child theme with your changes) and custom themes are left unchanged. (Pro Only)
+
+= Version 3.6.2 (December 11, 2014) =
+
+* Added: Upgrade your WPtouch Pro license from inside the plugin with instant upgrade activation if your site is web-accessible. (Pro Only)
+* Added: A little festive spirit!
+* Changed: Slimmed down plugin by moving screenshots out of the package.
+* Fixed: Typo in our URL - oops!
+* Fixed: Updated icon font with new icon & a new name to avoid conflicts with another plugin
+
+
+= Version 3.6.1 (November 20, 2014) =
+
+* Added: Automatically disable WPtouch when activating WPtouch Pro
+* Added: Highlight available theme & extension updates (Pro Only)
+* Added: Better support for Shortcodes Ultimate
+* Added: Back-to-top links, and multilingual improvements in MobileStore (Pro Only)
+* Added: Minimum character count for mid-content ads in MultiAds (Pro Only)
+* Changed: Improved Custom Latest Posts Page pagination handling
+* Changed: Switch from WP_CONTENT_URL to content_url()
+* Fixed: PHP error on WPEngine when debug mode was enabled (Pro Only)
+* Fixed: Eliminated some warnings and notices
+* Fixed: Arrow directions for next/previous posts in RTL mode
+* Fixed: Custom Latest Posts page now uses WPtouch posts-per-page setting
+
+
+= Version 3.6 (November 6, 2014) =
+
+* Added: New extension: Advanced Type (Pro Only)
+* Added: Ability to ignore tags when identifying related content
+* Added: Ability to have WPtouch work on specific URLs/pages only
+* Added: Ability to have the featured slider show the latest posts from a specific post type
+* Added: Prose theme now allows site owners to disable use of featured images as header background on single posts (Pro Only)
+* Added: Yelp option for footer social links
+* Changed: Improved appearance of Web App Notice Message on the WordPress login page (Pro Only)
+* Changed: When viewing a WordPress media gallery item, the item's post parent is linked
+* Changed: Share links adjust order and icon placement when the site is in an RTL language
+* Changed: Updated add to home scripts to latest version (3.0.8)
+* Fixed: WPtouch Pro can now disable certain Jetpack components that duplicate WPtouch functionality (Related Posts, Sharing Buttons, Like Box)
+
 
 = Version 3.5.3 (October 10th, 2014) =
 

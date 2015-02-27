@@ -275,7 +275,9 @@ function wptouch_get_mobile_switch_link() {
 			break;
 	}
 
-	return apply_filters( 'wptouch_mobile_switch_link', get_bloginfo( 'url' ) . '?wptouch_switch=desktop&amp;redirect=' . urlencode( $link_target ) );
+	$nonce = wp_create_nonce( 'wptouch_switch' );
+
+	return apply_filters( 'wptouch_mobile_switch_link', get_bloginfo( 'url' ) . '?wptouch_switch=desktop&amp;redirect=' . urlencode( $link_target ) . '&amp;nonce=' . $nonce );
 }
 
 function wptouch_use_mobile_switch_link() {

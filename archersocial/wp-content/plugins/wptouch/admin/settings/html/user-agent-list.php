@@ -13,9 +13,13 @@
 			$new_agents = array();
 
 			foreach( $agents as $agent ) {
-				if ( is_array( $agent ) ) {
-					$new_agents[] = $agent[0] . ' &amp; ' . $agent[1];
-				} else {
+				if ( is_array( $agent ) && count( $agent ) > 0 ) {
+					$new_agent = $agent[0];
+					if ( count( $agent ) > 1 ) {
+						$new_agent .= ' &amp; ' . $agent[1];
+					}
+					$new_agents[] = $new_agent;
+				} elseif( !is_array( $agent ) ) {
 					$new_agents[] = $agent;
 				}
 			}

@@ -4,7 +4,7 @@ Donate link: http://www.chatme.im
 Tags: chat, converse, xmpp, jabber, chatme, irc
 Requires at least: 3.8
 Tested up to: 4.1
-Stable tag: 1.5.8
+Stable tag: 2.0
 
 Converse.js is an open source webchat client, that runs in the browser and can be integrated into any website.
 
@@ -65,6 +65,12 @@ This section describes how to install the plugin and get it working.
 2. The chat admin panel
 
 == Changelog ==
+
+= 2.0 =
+* More HTML5
+* Rewrited Object PHP
+* Require PHP 5
+* ConverseJS [0.8.5](https://github.com/jcbrand/converse.js/releases/tag/v0.8.5) and [0.8.6](https://github.com/jcbrand/converse.js/releases/tag/v0.8.6)
 
 = 1.5.8 =
 * Converse [0.8.4](https://github.com/jcbrand/converse.js/releases/tag/v0.8.4)
@@ -127,6 +133,12 @@ This section describes how to install the plugin and get it working.
 * First stable version
 
 == Upgrade Notice ==
+
+= 2.0 =
+* More HTML5
+* Rewrited Object PHP
+* Require PHP 5
+* ConverseJS [0.8.5](https://github.com/jcbrand/converse.js/releases/tag/v0.8.5) and [0.8.6](https://github.com/jcbrand/converse.js/releases/tag/v0.8.6)
 
 = 1.5.8 =
 * Converse [0.8.4](https://github.com/jcbrand/converse.js/releases/tag/v0.8.4)

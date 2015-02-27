@@ -18,7 +18,7 @@
 /** The name of the database for WordPress */
 @ini_set("max_execution_time", 18000);
 define('WP_CACHE', true); //Added by WP-Cache Manager
-define( 'WPCACHEHOME', 'K:\ArcherVMPeridot\htdocs\archersocial\wp-content\plugins\wp-super-cache/' ); //Added by WP-Cache Manager
+define( 'WPCACHEHOME', 'C:\xampp\htdocs\archersocial\wp-content\plugins\wp-super-cache/' ); //Added by WP-Cache Manager
 define('DB_NAME', 'acoserver_acoserver');
 
 /** MySQL database username */
