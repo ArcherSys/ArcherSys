@@ -290,9 +290,7 @@ $(function(){
 			current = 1;
 			loc = 0;
 		}
-               $( "#tags" ).autocomplete({});
-
-		transition(sliderUL, loc, direction);
+               		transition(sliderUL, loc, direction);
 
 	});
        
