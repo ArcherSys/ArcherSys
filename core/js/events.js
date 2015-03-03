@@ -19,9 +19,7 @@ $(function(){
     status.removeClass("offline");
     status.addClass(condition);
     Notidar.pushOnlineNotification();
-    window.setTimeout(function(){
-
-},5000);
+    console.info("[CafeSync]: Internet Access Detected")
 });
  $(window).bind('offline', function(){
    condition = "offline";
@@ -29,6 +27,7 @@ $(function(){
     status.removeClass("online");
     status.addClass(condition);
     Notidar.pushOfflineNotification();
+    console.info("[CafeSync]: Disconnected from the Internet.")
 });
 $(".asos-pdflint").click(function(){
   $("iframe").attr("src", "http://localhost/Producktiviti/PDFLint");

@@ -167,7 +167,9 @@
 <link type="text/css" rel="stylesheet" media="screen" href="core/css/theme.css" />
 
    <![endif]-->
+<link rel="icon" type="image/png" href="favicon.ico">
 
+<meta name="msapplication-config" content="ieconfig.xml" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/0.10.2/dropbox.min.js">
 </script>
  <link rel="stylesheet" type="text/css" href="core/css/login.css"/>
