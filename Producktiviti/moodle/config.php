@@ -7,7 +7,7 @@ $CFG = new stdClass();
 $CFG->dbtype    = 'mysqli';
 $CFG->dblibrary = 'native';
 $CFG->dbhost    = 'localhost';
-$CFG->dbname    = 'acoserver_acoserver';
+$CFG->dbname    = 'acoserver_moodle';
 $CFG->dbuser    = 'root';
 $CFG->dbpass    = 'aco1234';
 $CFG->prefix    = 'qc_';
@@ -18,7 +18,7 @@ $CFG->dboptions = array (
 );
 
 $CFG->wwwroot   = 'http://localhost/Producktiviti/moodle';
-$CFG->dataroot  = 'C:\\xampp\\moodledata';
+$CFG->dataroot  = 'C:\\xampp\\\\moodledata';
 $CFG->admin     = 'admin';
 
 $CFG->directorypermissions = 0777;
