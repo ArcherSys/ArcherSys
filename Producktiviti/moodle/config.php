@@ -6,7 +6,7 @@ $CFG = new stdClass();
 
 $CFG->dbtype    = 'mysqli';
 $CFG->dblibrary = 'native';
-$CFG->dbhost    = 'localhost';
+$CFG->dbhost    = '127.0.0.1';
 $CFG->dbname    = 'acoserver_moodle';
 $CFG->dbuser    = 'root';
 $CFG->dbpass    = 'aco1234';
