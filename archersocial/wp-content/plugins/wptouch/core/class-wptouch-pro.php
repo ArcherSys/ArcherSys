@@ -301,16 +301,18 @@ class WPtouchProThree {
 
 	function handle_desktop_shortcode() {
 		$post = get_post( $this->post[ 'post_id' ] );
+		$post_content = $this->post[ 'post_content' ];
+
 		if ( $post ) {
 			// Save data for later
 			$shortcode_data = new stdClass;
 
 			$pattern = get_shortcode_regex();
-			if ( preg_match_all( '/'. $pattern .'/s', $post->post_content, $matches ) ) {
+			if ( preg_match_all( '/'. $pattern .'/s', $post_content, $matches ) ) {
 				// Has a valid shortcode
 				$shortcode_data->has_desktop_shortcode = 1;
 
-				$content = apply_filters( 'the_content', $post->post_content );
+				$content = apply_filters( 'the_content', $post_content );
 
 				$shortcode_data->valid_until = time() + 3600*24;
 				$shortcode_data->shortcode_content = $content;

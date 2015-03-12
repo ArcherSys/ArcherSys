@@ -18,5 +18,8 @@ class ViewManager{
     static function addNg(){
       echo "<script src='/core/js/angularjs/angular.min.js'></script>";
     }
+    static function addReCAPTCHA(){
+        echo '<div class="g-recaptcha" data-sitekey="6Le2XAMTAAAAAAikuUTjtmxheTdJxn0cebzQ2MQI"></div>';
+    }
 }
 ?>

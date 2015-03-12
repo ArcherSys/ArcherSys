@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["FILE_ATTRIBUTE_DIRECTORY",""],["FILE_ATTRIBUTE_READONLY",""],["WSAPROTOCOL_LEN",""]],"type":[["GROUP",""]],"mod":[["compat",""]],"struct":[["GUID",""],["WSAPROTOCOLCHAIN",""]]});

@@ -1,6 +1,6 @@
 <?php
 
-define( 'FOUNDATION_VERSION', '2.2' );
+define( 'FOUNDATION_VERSION', '2.3' );
 
 define( 'FOUNDATION_DIR', WPTOUCH_DIR . '/themes/foundation' );
 define( 'FOUNDATION_URL', WPTOUCH_URL . '/themes/foundation' );
@@ -972,10 +972,13 @@ function wptouch_fdn_ordered_cat_list( $num, $include_count = true, $taxonomy = 
 		}
 	}
 
+
 	echo $opening_tag;
 	$sql = $wpdb->get_results("SELECT * FROM {$wpdb->prefix}term_taxonomy INNER JOIN {$wpdb->prefix}terms ON {$wpdb->prefix}term_taxonomy.term_id = {$wpdb->prefix}terms.term_id WHERE taxonomy = '{$taxonomy}' AND {$wpdb->prefix}term_taxonomy.term_id NOT IN ($excluded_cats) AND count >= 1 ORDER BY count DESC LIMIT 0, $num");
 
 	if ( $sql ) {
+		$sql = apply_filters( 'wptouch_ordered_cat_list_categories', $sql );
+
 		foreach ( $sql as $result ) {
 			if ( $result ) {
 				$link = get_term_link( (int) $result->term_id, $taxonomy );

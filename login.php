@@ -1,7 +1,9 @@
 
      <?php
-
-
+require_once "includes\ViewManager.php";
+require_once "includes\LogicManager.php";
+ use ArcherSys\Viewer\ViewManager;
+ use ArcherSys\Viewer\LogicManager;
 
  // Connects to your Database
 
@@ -175,7 +177,9 @@
  <link rel="stylesheet" type="text/css" href="core/css/login.css"/>
 
     <meta name="Content-Type" content="text/html;charset=utf-8">
-        <script type="text/javascript" src="http://www.google.com/recaptcha/api/js/recaptcha_ajax.js"></script>
+        <?php
+        LogicManager::addReCAPTCHA();
+        ?>
     <title>Login to the ArcherVM</title>
     <script type="text/javascript">
    if(confirm("Use Dropbox")){
@@ -227,8 +231,9 @@
 <button class="logout"><i class="icon-off"></i></button>
 </div>
     </div>
-
-
+    <?php
+ViewManager::addReCAPTCHA();
+?>
    <script type="text/javascript">
       (function() {
        var po = document.createElement('script'); po.type = 'text/javascript'; po.async = true;

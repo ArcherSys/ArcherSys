@@ -3,7 +3,7 @@
 -- http://www.phpmyadmin.net
 --
 -- Host: 127.0.0.1
--- Generation Time: Mar 12, 2015 at 02:58 AM
+-- Generation Time: Mar 12, 2015 at 05:40 AM
 -- Server version: 5.6.21
 -- PHP Version: 5.6.3
 
@@ -587,7 +587,7 @@ CREATE TABLE IF NOT EXISTS `qc_block_instances` (
   `defaultregion` varchar(16) COLLATE utf8_unicode_ci NOT NULL DEFAULT '',
   `defaultweight` bigint(10) NOT NULL,
   `configdata` longtext COLLATE utf8_unicode_ci
-) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='This table stores block instances. The type of block this is';
+) ENGINE=InnoDB AUTO_INCREMENT=18 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='This table stores block instances. The type of block this is';
 
 --
 -- Dumping data for table `qc_block_instances`
@@ -609,7 +609,8 @@ INSERT INTO `qc_block_instances` (`id`, `blockname`, `parentcontextid`, `showins
 (13, 'search_forums', 20, 0, 'course-view-*', NULL, 'side-post', 0, ''),
 (14, 'news_items', 20, 0, 'course-view-*', NULL, 'side-post', 1, ''),
 (15, 'calendar_upcoming', 20, 0, 'course-view-*', NULL, 'side-post', 2, ''),
-(16, 'recent_activity', 20, 0, 'course-view-*', NULL, 'side-post', 3, '');
+(16, 'recent_activity', 20, 0, 'course-view-*', NULL, 'side-post', 3, ''),
+(17, 'quiz_results', 20, 0, 'course-view-*', NULL, 'side-pre', 2, '');
 
 -- --------------------------------------------------------
 
@@ -642,7 +643,14 @@ CREATE TABLE IF NOT EXISTS `qc_block_recent_activity` (
   `userid` bigint(10) NOT NULL,
   `action` tinyint(1) NOT NULL,
   `modname` varchar(20) COLLATE utf8_unicode_ci DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Recent activity block';
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Recent activity block';
+
+--
+-- Dumping data for table `qc_block_recent_activity`
+--
+
+INSERT INTO `qc_block_recent_activity` (`id`, `courseid`, `cmid`, `timecreated`, `userid`, `action`, `modname`) VALUES
+(1, 2, 2, 1426133992, 2, 0, NULL);
 
 -- --------------------------------------------------------
 
@@ -764,7 +772,7 @@ CREATE TABLE IF NOT EXISTS `qc_cache_flags` (
 --
 
 INSERT INTO `qc_cache_flags` (`id`, `flagtype`, `name`, `timemodified`, `value`, `expiry`) VALUES
-(1, 'userpreferenceschanged', '2', 1426123958, '1', 1426131158),
+(1, 'userpreferenceschanged', '2', 1426133918, '1', 1426141118),
 (2, 'accesslib/dirtycontexts', '/1/5/20', 1426125218, '1', 1426132418);
 
 -- --------------------------------------------------------
@@ -3938,7 +3946,7 @@ CREATE TABLE IF NOT EXISTS `qc_context` (
   `instanceid` bigint(10) NOT NULL DEFAULT '0',
   `path` varchar(255) COLLATE utf8_unicode_ci DEFAULT NULL,
   `depth` tinyint(2) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB AUTO_INCREMENT=26 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='one of these must be set';
+) ENGINE=InnoDB AUTO_INCREMENT=28 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='one of these must be set';
 
 --
 -- Dumping data for table `qc_context`
@@ -3967,7 +3975,9 @@ INSERT INTO `qc_context` (`id`, `contextlevel`, `instanceid`, `path`, `depth`) V
 (22, 80, 14, '/1/5/20/22', 4),
 (23, 80, 15, '/1/5/20/23', 4),
 (24, 80, 16, '/1/5/20/24', 4),
-(25, 70, 1, '/1/5/20/25', 4);
+(25, 70, 1, '/1/5/20/25', 4),
+(26, 80, 17, '/1/5/20/26', 4),
+(27, 70, 2, '/1/5/20/27', 4);
 
 -- --------------------------------------------------------
 
@@ -4026,7 +4036,7 @@ CREATE TABLE IF NOT EXISTS `qc_course` (
 
 INSERT INTO `qc_course` (`id`, `category`, `sortorder`, `fullname`, `shortname`, `idnumber`, `summary`, `summaryformat`, `format`, `showgrades`, `newsitems`, `startdate`, `marker`, `maxbytes`, `legacyfiles`, `showreports`, `visible`, `visibleold`, `groupmode`, `groupmodeforce`, `defaultgroupingid`, `lang`, `calendartype`, `theme`, `timecreated`, `timemodified`, `requested`, `enablecompletion`, `completionnotify`, `cacherev`) VALUES
 (1, 0, 1, 'Quiz Center', 'QuizC', '', '<p>Place for Taking Practice Tests</p>', 0, 'site', 1, 3, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, '', '', '', 1426123602, 1426124097, 0, 0, 0, 1426123802),
-(2, 1, 10001, 'The Gilded Age', 'APUSHTGA', 'QC-0001', '', 1, 'weeks', 1, 5, 1426201200, 0, 0, 0, 0, 1, 1, 2, 0, 0, '', '', '', 1426125217, 1426125217, 0, 0, 0, 1426125259);
+(2, 1, 10001, 'The Gilded Age', 'APUSHTGA', 'QC-0001', '', 1, 'weeks', 1, 5, 1426201200, 0, 0, 0, 0, 1, 1, 2, 0, 0, '', '', '', 1426125217, 1426125217, 0, 0, 0, 1426133993);
 
 -- --------------------------------------------------------
 
@@ -4174,14 +4184,15 @@ CREATE TABLE IF NOT EXISTS `qc_course_modules` (
   `completionexpected` bigint(10) NOT NULL DEFAULT '0',
   `showdescription` tinyint(1) NOT NULL DEFAULT '0',
   `availability` longtext COLLATE utf8_unicode_ci
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='course_modules table retrofitted from MySQL';
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='course_modules table retrofitted from MySQL';
 
 --
 -- Dumping data for table `qc_course_modules`
 --
 
 INSERT INTO `qc_course_modules` (`id`, `course`, `module`, `instance`, `section`, `idnumber`, `added`, `score`, `indent`, `visible`, `visibleold`, `groupmode`, `groupingid`, `completion`, `completiongradeitemnumber`, `completionview`, `completionexpected`, `showdescription`, `availability`) VALUES
-(1, 2, 9, 1, 1, NULL, 1426125258, 0, 0, 1, 1, 0, 0, 0, NULL, 0, 0, 0, NULL);
+(1, 2, 9, 1, 1, NULL, 1426125258, 0, 0, 1, 1, 0, 0, 0, NULL, 0, 0, 0, NULL),
+(2, 2, 16, 1, 1, '', 1426133990, 0, 0, 1, 1, 2, 0, 0, NULL, 0, 0, 0, NULL);
 
 -- --------------------------------------------------------
 
@@ -4249,14 +4260,24 @@ CREATE TABLE IF NOT EXISTS `qc_course_sections` (
   `sequence` longtext COLLATE utf8_unicode_ci,
   `visible` tinyint(1) NOT NULL DEFAULT '1',
   `availability` longtext COLLATE utf8_unicode_ci
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='to define the sections for each course';
+) ENGINE=InnoDB AUTO_INCREMENT=12 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='to define the sections for each course';
 
 --
 -- Dumping data for table `qc_course_sections`
 --
 
 INSERT INTO `qc_course_sections` (`id`, `course`, `section`, `name`, `summary`, `summaryformat`, `sequence`, `visible`, `availability`) VALUES
-(1, 2, 0, NULL, '', 1, '1', 1, NULL);
+(1, 2, 0, NULL, '', 1, '1,2', 1, NULL),
+(2, 2, 1, NULL, '', 1, '', 1, NULL),
+(3, 2, 2, NULL, '', 1, '', 1, NULL),
+(4, 2, 3, NULL, '', 1, '', 1, NULL),
+(5, 2, 4, NULL, '', 1, '', 1, NULL),
+(6, 2, 5, NULL, '', 1, '', 1, NULL),
+(7, 2, 6, NULL, '', 1, '', 1, NULL),
+(8, 2, 7, NULL, '', 1, '', 1, NULL),
+(9, 2, 8, NULL, '', 1, '', 1, NULL),
+(10, 2, 9, NULL, '', 1, '', 1, NULL),
+(11, 2, 10, NULL, '', 1, '', 1, NULL);
 
 -- --------------------------------------------------------
 
@@ -4373,7 +4394,7 @@ CREATE TABLE IF NOT EXISTS `qc_editor_atto_autosave` (
   `draftid` bigint(10) DEFAULT NULL,
   `pageinstance` varchar(64) COLLATE utf8_unicode_ci NOT NULL DEFAULT '',
   `timemodified` bigint(10) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Draft text that is auto-saved every 5 seconds while an edito';
+) ENGINE=InnoDB AUTO_INCREMENT=39 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Draft text that is auto-saved every 5 seconds while an edito';
 
 -- --------------------------------------------------------
 
@@ -5138,7 +5159,7 @@ CREATE TABLE IF NOT EXISTS `qc_forum` (
 --
 
 INSERT INTO `qc_forum` (`id`, `course`, `type`, `name`, `intro`, `introformat`, `assessed`, `assesstimestart`, `assesstimefinish`, `scale`, `maxbytes`, `maxattachments`, `forcesubscribe`, `trackingtype`, `rsstype`, `rssarticles`, `timemodified`, `warnafter`, `blockafter`, `blockperiod`, `completiondiscussions`, `completionreplies`, `completionposts`, `displaywordcount`) VALUES
-(1, 2, 'news', 'News forum', 'General news and announcements', 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1426125258, 0, 0, 0, 0, 0, 0, 0);
+(1, 2, 'news', 'News forum', 'General news and announcements', 0, 0, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1426125258, 0, 0, 0, 0, 0, 0, 0);
 
 -- --------------------------------------------------------
 
@@ -5416,7 +5437,14 @@ CREATE TABLE IF NOT EXISTS `qc_grade_categories` (
   `timecreated` bigint(10) NOT NULL,
   `timemodified` bigint(10) NOT NULL,
   `hidden` tinyint(1) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='This table keeps information about categories, used for grou';
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='This table keeps information about categories, used for grou';
+
+--
+-- Dumping data for table `qc_grade_categories`
+--
+
+INSERT INTO `qc_grade_categories` (`id`, `courseid`, `parent`, `depth`, `path`, `fullname`, `aggregation`, `keephigh`, `droplow`, `aggregateonlygraded`, `aggregateoutcomes`, `timecreated`, `timemodified`, `hidden`) VALUES
+(1, 2, NULL, 1, '/1/', '?', 13, 0, 0, 1, 0, 1426125600, 1426125600, 0);
 
 -- --------------------------------------------------------
 
@@ -5443,7 +5471,15 @@ CREATE TABLE IF NOT EXISTS `qc_grade_categories_history` (
   `aggregateoutcomes` tinyint(1) NOT NULL DEFAULT '0',
   `aggregatesubcats` tinyint(1) NOT NULL DEFAULT '0',
   `hidden` tinyint(1) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='History of grade_categories';
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='History of grade_categories';
+
+--
+-- Dumping data for table `qc_grade_categories_history`
+--
+
+INSERT INTO `qc_grade_categories_history` (`id`, `action`, `oldid`, `source`, `timemodified`, `loggeduser`, `courseid`, `parent`, `depth`, `path`, `fullname`, `aggregation`, `keephigh`, `droplow`, `aggregateonlygraded`, `aggregateoutcomes`, `aggregatesubcats`, `hidden`) VALUES
+(1, 1, 1, 'system', 1426125600, 2, 2, NULL, 0, NULL, '?', 13, 0, 0, 1, 0, 0, 0),
+(2, 2, 1, 'system', 1426125600, 2, 2, NULL, 1, '/1/', '?', 13, 0, 0, 1, 0, 0, 0);
 
 -- --------------------------------------------------------
 
@@ -5475,7 +5511,15 @@ CREATE TABLE IF NOT EXISTS `qc_grade_grades` (
   `timemodified` bigint(10) DEFAULT NULL,
   `aggregationstatus` varchar(10) COLLATE utf8_unicode_ci NOT NULL DEFAULT 'unknown',
   `aggregationweight` decimal(10,5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='grade_grades  This table keeps individual grades for each us';
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='grade_grades  This table keeps individual grades for each us';
+
+--
+-- Dumping data for table `qc_grade_grades`
+--
+
+INSERT INTO `qc_grade_grades` (`id`, `itemid`, `userid`, `rawgrade`, `rawgrademax`, `rawgrademin`, `rawscaleid`, `usermodified`, `finalgrade`, `hidden`, `locked`, `locktime`, `exported`, `overridden`, `excluded`, `feedback`, `feedbackformat`, `information`, `informationformat`, `timecreated`, `timemodified`, `aggregationstatus`, `aggregationweight`) VALUES
+(1, 2, 2, NULL, '10.00000', '0.00000', NULL, 2, NULL, 0, 0, 0, 0, 0, 0, NULL, 0, NULL, 0, NULL, NULL, 'novalue', '0.00000'),
+(2, 1, 2, NULL, '100.00000', '0.00000', NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, 0, NULL, 0, NULL, NULL, 'unknown', NULL);
 
 -- --------------------------------------------------------
 
@@ -5508,7 +5552,15 @@ CREATE TABLE IF NOT EXISTS `qc_grade_grades_history` (
   `feedbackformat` bigint(10) NOT NULL DEFAULT '0',
   `information` longtext COLLATE utf8_unicode_ci,
   `informationformat` bigint(10) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='History table';
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='History table';
+
+--
+-- Dumping data for table `qc_grade_grades_history`
+--
+
+INSERT INTO `qc_grade_grades_history` (`id`, `action`, `oldid`, `source`, `timemodified`, `loggeduser`, `itemid`, `userid`, `rawgrade`, `rawgrademax`, `rawgrademin`, `rawscaleid`, `usermodified`, `finalgrade`, `hidden`, `locked`, `locktime`, `exported`, `overridden`, `excluded`, `feedback`, `feedbackformat`, `information`, `informationformat`) VALUES
+(1, 1, 1, 'mod/quiz', 1426134823, 2, 2, 2, NULL, '10.00000', '0.00000', NULL, 2, NULL, 0, 0, 0, 0, 0, 0, NULL, 0, NULL, 0),
+(2, 1, 2, 'system', 1426134823, 2, 1, 2, NULL, '100.00000', '0.00000', NULL, NULL, NULL, 0, 0, 0, 0, 0, 0, NULL, 0, NULL, 0);
 
 -- --------------------------------------------------------
 
@@ -5578,7 +5630,15 @@ CREATE TABLE IF NOT EXISTS `qc_grade_items` (
   `weightoverride` tinyint(1) NOT NULL DEFAULT '0',
   `timecreated` bigint(10) DEFAULT NULL,
   `timemodified` bigint(10) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='This table keeps information about gradeable items (ie colum';
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='This table keeps information about gradeable items (ie colum';
+
+--
+-- Dumping data for table `qc_grade_items`
+--
+
+INSERT INTO `qc_grade_items` (`id`, `courseid`, `categoryid`, `itemname`, `itemtype`, `itemmodule`, `iteminstance`, `itemnumber`, `iteminfo`, `idnumber`, `calculation`, `gradetype`, `grademax`, `grademin`, `scaleid`, `outcomeid`, `gradepass`, `multfactor`, `plusfactor`, `aggregationcoef`, `aggregationcoef2`, `sortorder`, `display`, `decimals`, `hidden`, `locked`, `locktime`, `needsupdate`, `weightoverride`, `timecreated`, `timemodified`) VALUES
+(1, 2, NULL, NULL, 'course', NULL, 1, NULL, NULL, NULL, NULL, 1, '10.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '0.00000', 1, 0, NULL, 0, 0, 0, 0, 0, 1426125600, 1426133992),
+(2, 2, 1, 'Overview', 'mod', 'quiz', 1, 0, NULL, '', NULL, 1, '10.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '1.00000', 2, 0, NULL, 0, 0, 0, 0, 0, 1426133991, 1426134823);
 
 -- --------------------------------------------------------
 
@@ -5621,7 +5681,20 @@ CREATE TABLE IF NOT EXISTS `qc_grade_items_history` (
   `display` bigint(10) NOT NULL DEFAULT '0',
   `decimals` tinyint(1) DEFAULT NULL,
   `weightoverride` tinyint(1) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='History of grade_items';
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='History of grade_items';
+
+--
+-- Dumping data for table `qc_grade_items_history`
+--
+
+INSERT INTO `qc_grade_items_history` (`id`, `action`, `oldid`, `source`, `timemodified`, `loggeduser`, `courseid`, `categoryid`, `itemname`, `itemtype`, `itemmodule`, `iteminstance`, `itemnumber`, `iteminfo`, `idnumber`, `calculation`, `gradetype`, `grademax`, `grademin`, `scaleid`, `outcomeid`, `gradepass`, `multfactor`, `plusfactor`, `aggregationcoef`, `aggregationcoef2`, `sortorder`, `hidden`, `locked`, `locktime`, `needsupdate`, `display`, `decimals`, `weightoverride`) VALUES
+(1, 1, 1, 'system', 1426125600, 2, 2, NULL, NULL, 'course', NULL, 1, NULL, NULL, NULL, NULL, 1, '100.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '0.00000', 1, 0, 0, 0, 1, 0, NULL, 0),
+(2, 2, 1, 'aggregation', 1426133991, 2, 2, NULL, NULL, 'course', NULL, 1, NULL, NULL, NULL, NULL, 1, '0.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '0.00000', 1, 0, 0, 0, 1, 0, NULL, 0),
+(3, 1, 2, NULL, 1426133991, 2, 2, 1, 'Overview', 'mod', 'quiz', 1, 0, NULL, '', NULL, 1, '10.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '0.00000', 2, 0, 0, 0, 1, 0, NULL, 0),
+(4, 2, 2, NULL, 1426133992, 2, 2, 1, 'Overview', 'mod', 'quiz', 1, 0, NULL, '', NULL, 1, '10.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '0.00000', 2, 0, 0, 0, 1, 0, NULL, 0),
+(5, 2, 2, NULL, 1426133992, 2, 2, 1, 'Overview', 'mod', 'quiz', 1, 0, NULL, '', NULL, 1, '10.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '1.00000', 2, 0, 0, 0, 1, 0, NULL, 0),
+(6, 2, 1, 'aggregation', 1426133992, 2, 2, NULL, NULL, 'course', NULL, 1, NULL, NULL, NULL, NULL, 1, '10.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '0.00000', 1, 0, 0, 0, 1, 0, NULL, 0),
+(7, 2, 2, NULL, 1426134823, 2, 2, 1, 'Overview', 'mod', 'quiz', 1, 0, NULL, '', NULL, 1, '10.00000', '0.00000', NULL, NULL, '0.00000', '1.00000', '0.00000', '0.00000', '1.00000', 2, 0, 0, 0, 0, 0, NULL, 0);
 
 -- --------------------------------------------------------
 
@@ -6207,7 +6280,7 @@ CREATE TABLE IF NOT EXISTS `qc_logstore_standard_log` (
   `origin` varchar(10) COLLATE utf8_unicode_ci DEFAULT NULL,
   `ip` varchar(45) COLLATE utf8_unicode_ci DEFAULT NULL,
   `realuserid` bigint(10) DEFAULT NULL
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Standard log table';
+) ENGINE=InnoDB AUTO_INCREMENT=40 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Standard log table';
 
 --
 -- Dumping data for table `qc_logstore_standard_log`
@@ -6219,7 +6292,40 @@ INSERT INTO `qc_logstore_standard_log` (`id`, `eventname`, `component`, `action`
 (3, '\\core\\event\\user_updated', 'core', 'updated', 'user', 'user', 2, 'u', 0, 7, 30, 2, 2, 0, 2, 0, 'N;', 1426123958, 'web', '0:0:0:0:0:0:0:1', NULL),
 (4, '\\core\\event\\course_viewed', 'core', 'viewed', 'course', NULL, NULL, 'r', 2, 4, 50, 1, 2, 1, NULL, 0, 'N;', 1426124099, 'web', '0:0:0:0:0:0:0:1', NULL),
 (5, '\\core\\event\\course_created', 'core', 'created', 'course', 'course', 2, 'c', 1, 20, 50, 2, 2, 2, NULL, 0, 'a:2:{s:9:"shortname";s:8:"APUSHTGA";s:8:"fullname";s:14:"The Gilded Age";}', 1426125218, 'web', '0:0:0:0:0:0:0:1', NULL),
-(6, '\\core\\event\\user_list_viewed', 'core', 'viewed', 'user_list', 'course', 2, 'r', 0, 20, 50, 2, 2, 2, NULL, 0, 'a:2:{s:15:"courseshortname";s:8:"APUSHTGA";s:14:"coursefullname";s:14:"The Gilded Age";}', 1426125258, 'web', '0:0:0:0:0:0:0:1', NULL);
+(6, '\\core\\event\\user_list_viewed', 'core', 'viewed', 'user_list', 'course', 2, 'r', 0, 20, 50, 2, 2, 2, NULL, 0, 'a:2:{s:15:"courseshortname";s:8:"APUSHTGA";s:14:"coursefullname";s:14:"The Gilded Age";}', 1426125258, 'web', '0:0:0:0:0:0:0:1', NULL),
+(7, '\\core\\event\\course_viewed', 'core', 'viewed', 'course', NULL, NULL, 'r', 2, 20, 50, 2, 2, 2, NULL, 0, 'N;', 1426125548, 'web', '0:0:0:0:0:0:0:1', NULL),
+(8, '\\core\\event\\course_viewed', 'core', 'viewed', 'course', NULL, NULL, 'r', 2, 20, 50, 2, 2, 2, NULL, 0, 'N;', 1426125572, 'web', '0:0:0:0:0:0:0:1', NULL),
+(9, '\\core\\event\\course_viewed', 'core', 'viewed', 'course', NULL, NULL, 'r', 2, 20, 50, 2, 2, 2, NULL, 0, 'N;', 1426125893, 'web', '0:0:0:0:0:0:0:1', NULL),
+(10, '\\core\\event\\user_login_failed', 'core', 'failed', 'user_login', NULL, NULL, 'r', 0, 1, 10, 0, 0, 0, NULL, 0, 'a:2:{s:8:"username";s:5:"admin";s:6:"reason";i:1;}', 1426133892, 'web', '0:0:0:0:0:0:0:1', NULL),
+(11, '\\core\\event\\user_loggedin', 'core', 'loggedin', 'user', 'user', 2, 'r', 0, 1, 10, 0, 2, 0, NULL, 0, 'a:1:{s:8:"username";s:7:"qcadmin";}', 1426133918, 'web', '0:0:0:0:0:0:0:1', NULL),
+(12, '\\core\\event\\course_viewed', 'core', 'viewed', 'course', NULL, NULL, 'r', 2, 20, 50, 2, 2, 2, NULL, 0, 'N;', 1426133923, 'web', '0:0:0:0:0:0:0:1', NULL),
+(13, '\\core\\event\\course_viewed', 'core', 'viewed', 'course', NULL, NULL, 'r', 2, 20, 50, 2, 2, 2, NULL, 0, 'N;', 1426133951, 'web', '0:0:0:0:0:0:0:1', NULL),
+(14, '\\core\\event\\course_module_created', 'core', 'created', 'course_module', 'course_modules', 2, 'c', 1, 27, 70, 2, 2, 2, NULL, 0, 'a:3:{s:10:"modulename";s:4:"quiz";s:10:"instanceid";i:1;s:4:"name";s:8:"Overview";}', 1426133992, 'web', '0:0:0:0:0:0:0:1', NULL),
+(15, '\\mod_quiz\\event\\course_module_viewed', 'mod_quiz', 'viewed', 'course_module', 'quiz', 1, 'r', 2, 27, 70, 2, 2, 2, NULL, 0, 'N;', 1426133995, 'web', '0:0:0:0:0:0:0:1', NULL),
+(16, '\\mod_quiz\\event\\edit_page_viewed', 'mod_quiz', 'viewed', 'edit_page', NULL, NULL, 'r', 1, 27, 70, 2, 2, 2, NULL, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134011, 'web', '0:0:0:0:0:0:0:1', NULL),
+(17, '\\mod_quiz\\event\\edit_page_viewed', 'mod_quiz', 'viewed', 'edit_page', NULL, NULL, 'r', 1, 27, 70, 2, 2, 2, NULL, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134213, 'web', '0:0:0:0:0:0:0:1', NULL),
+(18, '\\mod_quiz\\event\\edit_page_viewed', 'mod_quiz', 'viewed', 'edit_page', NULL, NULL, 'r', 1, 27, 70, 2, 2, 2, NULL, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134215, 'web', '0:0:0:0:0:0:0:1', NULL),
+(19, '\\mod_quiz\\event\\course_module_viewed', 'mod_quiz', 'viewed', 'course_module', 'quiz', 1, 'r', 2, 27, 70, 2, 2, 2, NULL, 0, 'N;', 1426134226, 'web', '0:0:0:0:0:0:0:1', NULL),
+(20, '\\mod_quiz\\event\\attempt_preview_started', 'mod_quiz', 'started', 'attempt_preview', 'quiz_attempts', 1, 'r', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134233, 'web', '0:0:0:0:0:0:0:1', NULL),
+(21, '\\mod_quiz\\event\\attempt_viewed', 'mod_quiz', 'viewed', 'attempt', 'quiz_attempts', 1, 'r', 2, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134235, 'web', '0:0:0:0:0:0:0:1', NULL),
+(22, '\\mod_quiz\\event\\attempt_summary_viewed', 'mod_quiz', 'viewed', 'attempt_summary', 'quiz_attempts', 1, 'r', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134247, 'web', '0:0:0:0:0:0:0:1', NULL),
+(23, '\\mod_quiz\\event\\course_module_viewed', 'mod_quiz', 'viewed', 'course_module', 'quiz', 1, 'r', 2, 27, 70, 2, 2, 2, NULL, 0, 'N;', 1426134259, 'web', '0:0:0:0:0:0:0:1', NULL),
+(24, '\\mod_quiz\\event\\edit_page_viewed', 'mod_quiz', 'viewed', 'edit_page', NULL, NULL, 'r', 1, 27, 70, 2, 2, 2, NULL, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134297, 'web', '0:0:0:0:0:0:0:1', NULL),
+(25, '\\mod_quiz\\event\\edit_page_viewed', 'mod_quiz', 'viewed', 'edit_page', NULL, NULL, 'r', 1, 27, 70, 2, 2, 2, NULL, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134823, 'web', '0:0:0:0:0:0:0:1', NULL),
+(26, '\\mod_quiz\\event\\attempt_deleted', 'mod_quiz', 'deleted', 'attempt', 'quiz_attempts', 1, 'd', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134823, 'web', '0:0:0:0:0:0:0:1', NULL),
+(27, '\\mod_quiz\\event\\edit_page_viewed', 'mod_quiz', 'viewed', 'edit_page', NULL, NULL, 'r', 1, 27, 70, 2, 2, 2, NULL, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134824, 'web', '0:0:0:0:0:0:0:1', NULL),
+(28, '\\mod_quiz\\event\\course_module_viewed', 'mod_quiz', 'viewed', 'course_module', 'quiz', 1, 'r', 2, 27, 70, 2, 2, 2, NULL, 0, 'N;', 1426134836, 'web', '0:0:0:0:0:0:0:1', NULL),
+(29, '\\mod_quiz\\event\\attempt_preview_started', 'mod_quiz', 'started', 'attempt_preview', 'quiz_attempts', 2, 'r', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134840, 'web', '0:0:0:0:0:0:0:1', NULL),
+(30, '\\mod_quiz\\event\\attempt_viewed', 'mod_quiz', 'viewed', 'attempt', 'quiz_attempts', 2, 'r', 2, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134841, 'web', '0:0:0:0:0:0:0:1', NULL),
+(31, '\\mod_quiz\\event\\attempt_viewed', 'mod_quiz', 'viewed', 'attempt', 'quiz_attempts', 2, 'r', 2, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134850, 'web', '0:0:0:0:0:0:0:1', NULL),
+(32, '\\mod_quiz\\event\\attempt_summary_viewed', 'mod_quiz', 'viewed', 'attempt_summary', 'quiz_attempts', 2, 'r', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134889, 'web', '0:0:0:0:0:0:0:1', NULL),
+(33, '\\mod_quiz\\event\\attempt_reviewed', 'mod_quiz', 'reviewed', 'attempt', 'quiz_attempts', 2, 'r', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134903, 'web', '0:0:0:0:0:0:0:1', NULL),
+(34, '\\mod_quiz\\event\\attempt_deleted', 'mod_quiz', 'deleted', 'attempt', 'quiz_attempts', 2, 'd', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134924, 'web', '0:0:0:0:0:0:0:1', NULL),
+(35, '\\mod_quiz\\event\\attempt_preview_started', 'mod_quiz', 'started', 'attempt_preview', 'quiz_attempts', 3, 'r', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134925, 'web', '0:0:0:0:0:0:0:1', NULL),
+(36, '\\mod_quiz\\event\\attempt_viewed', 'mod_quiz', 'viewed', 'attempt', 'quiz_attempts', 3, 'r', 2, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134926, 'web', '0:0:0:0:0:0:0:1', NULL),
+(37, '\\mod_quiz\\event\\attempt_viewed', 'mod_quiz', 'viewed', 'attempt', 'quiz_attempts', 3, 'r', 2, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134937, 'web', '0:0:0:0:0:0:0:1', NULL),
+(38, '\\mod_quiz\\event\\attempt_summary_viewed', 'mod_quiz', 'viewed', 'attempt_summary', 'quiz_attempts', 3, 'r', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134969, 'web', '0:0:0:0:0:0:0:1', NULL),
+(39, '\\mod_quiz\\event\\attempt_reviewed', 'mod_quiz', 'reviewed', 'attempt', 'quiz_attempts', 3, 'r', 1, 27, 70, 2, 2, 2, 2, 0, 'a:1:{s:6:"quizid";s:1:"1";}', 1426134981, 'web', '0:0:0:0:0:0:0:1', NULL);
 
 -- --------------------------------------------------------
 
@@ -7433,7 +7539,14 @@ CREATE TABLE IF NOT EXISTS `qc_qtype_shortanswer_options` (
 `id` bigint(10) NOT NULL,
   `questionid` bigint(10) NOT NULL DEFAULT '0',
   `usecase` tinyint(2) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Options for short answer questions';
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Options for short answer questions';
+
+--
+-- Dumping data for table `qc_qtype_shortanswer_options`
+--
+
+INSERT INTO `qc_qtype_shortanswer_options` (`id`, `questionid`, `usecase`) VALUES
+(1, 2, 1);
 
 -- --------------------------------------------------------
 
@@ -7461,7 +7574,15 @@ CREATE TABLE IF NOT EXISTS `qc_question` (
   `timemodified` bigint(10) NOT NULL DEFAULT '0',
   `createdby` bigint(10) DEFAULT NULL,
   `modifiedby` bigint(10) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='The questions themselves';
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='The questions themselves';
+
+--
+-- Dumping data for table `qc_question`
+--
+
+INSERT INTO `qc_question` (`id`, `category`, `parent`, `name`, `questiontext`, `questiontextformat`, `generalfeedback`, `generalfeedbackformat`, `defaultmark`, `penalty`, `qtype`, `length`, `stamp`, `version`, `hidden`, `timecreated`, `timemodified`, `createdby`, `modifiedby`) VALUES
+(1, 2, 0, 'Coiner', 'Mark Twain Coned The Term "Gilded Age"', 1, '', 1, '1.0000000', '1.0000000', 'truefalse', 1, 'localhost+150312042213+CNwgRl', 'localhost+150312042332+gRGcqO', 0, 1426134133, 1426134212, 2, 2),
+(2, 2, 0, 'Gilded Definition', '<p>What Does Gilded Mean?</p>', 1, '', 1, '1.0000000', '0.3333333', 'shortanswer', 1, 'localhost+150312043341+CWi3uL', 'localhost+150312043341+kWsf0P', 0, 1426134821, 1426134821, 2, 2);
 
 -- --------------------------------------------------------
 
@@ -7477,7 +7598,16 @@ CREATE TABLE IF NOT EXISTS `qc_question_answers` (
   `fraction` decimal(12,7) NOT NULL DEFAULT '0.0000000',
   `feedback` longtext COLLATE utf8_unicode_ci NOT NULL,
   `feedbackformat` tinyint(2) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Answers, with a fractional grade (0-1) and feedback';
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Answers, with a fractional grade (0-1) and feedback';
+
+--
+-- Dumping data for table `qc_question_answers`
+--
+
+INSERT INTO `qc_question_answers` (`id`, `question`, `answer`, `answerformat`, `fraction`, `feedback`, `feedbackformat`) VALUES
+(1, 1, 'True', 0, '1.0000000', '<p>Corrrect!</p>', 1),
+(2, 1, 'False', 0, '0.0000000', 'Nope!&nbsp;', 1),
+(3, 2, 'A term used to define a cheap metal that is covered with gold to emulate quality', 0, '1.0000000', '<p>Good start if you got this one right!</p>', 1);
 
 -- --------------------------------------------------------
 
@@ -7500,7 +7630,15 @@ CREATE TABLE IF NOT EXISTS `qc_question_attempts` (
   `rightanswer` longtext COLLATE utf8_unicode_ci,
   `responsesummary` longtext COLLATE utf8_unicode_ci,
   `timemodified` bigint(10) NOT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Each row here corresponds to an attempt at one question, as ';
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Each row here corresponds to an attempt at one question, as ';
+
+--
+-- Dumping data for table `qc_question_attempts`
+--
+
+INSERT INTO `qc_question_attempts` (`id`, `questionusageid`, `slot`, `behaviour`, `questionid`, `variant`, `maxmark`, `minfraction`, `maxfraction`, `flagged`, `questionsummary`, `rightanswer`, `responsesummary`, `timemodified`) VALUES
+(4, 3, 1, 'deferredfeedback', 1, 1, '1.0000000', '0.0000000', '1.0000000', 0, 'Mark Twain Coned The Term "Gilded Age"', 'True', 'True', 1426134979),
+(5, 3, 2, 'deferredfeedback', 2, 1, '1.0000000', '0.0000000', '1.0000000', 0, 'What Does Gilded Mean?', 'A term used to define a cheap metal that is covered with gold to emulate quality', 'A term used to define a cheap metal covered with gold to emulate quality', 1426134979);
 
 -- --------------------------------------------------------
 
@@ -7516,7 +7654,19 @@ CREATE TABLE IF NOT EXISTS `qc_question_attempt_steps` (
   `fraction` decimal(12,7) DEFAULT NULL,
   `timecreated` bigint(10) NOT NULL,
   `userid` bigint(10) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Stores one step in in a question attempt. As well as the dat';
+) ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Stores one step in in a question attempt. As well as the dat';
+
+--
+-- Dumping data for table `qc_question_attempt_steps`
+--
+
+INSERT INTO `qc_question_attempt_steps` (`id`, `questionattemptid`, `sequencenumber`, `state`, `fraction`, `timecreated`, `userid`) VALUES
+(9, 4, 0, 'todo', NULL, 1426134925, 2),
+(10, 5, 0, 'todo', NULL, 1426134925, 2),
+(11, 4, 1, 'complete', NULL, 1426134936, 2),
+(12, 5, 1, 'complete', NULL, 1426134967, 2),
+(13, 4, 2, 'gradedright', '1.0000000', 1426134979, 2),
+(14, 5, 2, 'gradedwrong', '0.0000000', 1426134979, 2);
 
 -- --------------------------------------------------------
 
@@ -7529,7 +7679,17 @@ CREATE TABLE IF NOT EXISTS `qc_question_attempt_step_data` (
   `attemptstepid` bigint(10) NOT NULL,
   `name` varchar(32) COLLATE utf8_unicode_ci NOT NULL DEFAULT '',
   `value` longtext COLLATE utf8_unicode_ci
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Each question_attempt_step has an associative array of the d';
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Each question_attempt_step has an associative array of the d';
+
+--
+-- Dumping data for table `qc_question_attempt_step_data`
+--
+
+INSERT INTO `qc_question_attempt_step_data` (`id`, `attemptstepid`, `name`, `value`) VALUES
+(6, 11, 'answer', '1'),
+(7, 12, 'answer', 'A term used to define a cheap metal covered with gold to emulate quality'),
+(8, 13, '-finish', '1'),
+(9, 14, '-finish', '1');
 
 -- --------------------------------------------------------
 
@@ -7584,7 +7744,17 @@ CREATE TABLE IF NOT EXISTS `qc_question_categories` (
   `stamp` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '',
   `parent` bigint(10) NOT NULL DEFAULT '0',
   `sortorder` bigint(10) NOT NULL DEFAULT '999'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Categories are for grouping questions';
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Categories are for grouping questions';
+
+--
+-- Dumping data for table `qc_question_categories`
+--
+
+INSERT INTO `qc_question_categories` (`id`, `name`, `contextid`, `info`, `infoformat`, `stamp`, `parent`, `sortorder`) VALUES
+(1, 'Default for Overview', 27, 'The default category for questions shared in context ''Overview''.', 0, 'localhost+150312042010+9O54Mm', 0, 999),
+(2, 'Default for APUSHTGA', 20, 'The default category for questions shared in context ''APUSHTGA''.', 0, 'localhost+150312042011+3tV2Sc', 0, 999),
+(3, 'Default for Miscellaneous', 5, 'The default category for questions shared in context ''Miscellaneous''.', 0, 'localhost+150312042011+4moa6R', 0, 999),
+(4, 'Default for System', 1, 'The default category for questions shared in context ''System''.', 0, 'localhost+150312042011+GmPv23', 0, 999);
 
 -- --------------------------------------------------------
 
@@ -7765,7 +7935,14 @@ CREATE TABLE IF NOT EXISTS `qc_question_truefalse` (
   `question` bigint(10) NOT NULL DEFAULT '0',
   `trueanswer` bigint(10) NOT NULL DEFAULT '0',
   `falseanswer` bigint(10) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Options for True-False questions';
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Options for True-False questions';
+
+--
+-- Dumping data for table `qc_question_truefalse`
+--
+
+INSERT INTO `qc_question_truefalse` (`id`, `question`, `trueanswer`, `falseanswer`) VALUES
+(1, 1, 1, 2);
 
 -- --------------------------------------------------------
 
@@ -7778,7 +7955,14 @@ CREATE TABLE IF NOT EXISTS `qc_question_usages` (
   `contextid` bigint(10) NOT NULL,
   `component` varchar(255) COLLATE utf8_unicode_ci NOT NULL DEFAULT '',
   `preferredbehaviour` varchar(32) COLLATE utf8_unicode_ci NOT NULL DEFAULT ''
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='This table''s main purpose it to assign a unique id to each a';
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='This table''s main purpose it to assign a unique id to each a';
+
+--
+-- Dumping data for table `qc_question_usages`
+--
+
+INSERT INTO `qc_question_usages` (`id`, `contextid`, `component`, `preferredbehaviour`) VALUES
+(3, 27, 'mod_quiz', 'deferredfeedback');
 
 -- --------------------------------------------------------
 
@@ -7827,7 +8011,14 @@ CREATE TABLE IF NOT EXISTS `qc_quiz` (
   `showblocks` smallint(4) NOT NULL DEFAULT '0',
   `completionattemptsexhausted` tinyint(1) DEFAULT '0',
   `completionpass` tinyint(1) DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='The settings for each quiz.';
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='The settings for each quiz.';
+
+--
+-- Dumping data for table `qc_quiz`
+--
+
+INSERT INTO `qc_quiz` (`id`, `course`, `name`, `intro`, `introformat`, `timeopen`, `timeclose`, `timelimit`, `overduehandling`, `graceperiod`, `preferredbehaviour`, `attempts`, `attemptonlast`, `grademethod`, `decimalpoints`, `questiondecimalpoints`, `reviewattempt`, `reviewcorrectness`, `reviewmarks`, `reviewspecificfeedback`, `reviewgeneralfeedback`, `reviewrightanswer`, `reviewoverallfeedback`, `questionsperpage`, `navmethod`, `shufflequestions`, `shuffleanswers`, `sumgrades`, `grade`, `timecreated`, `timemodified`, `password`, `subnet`, `browsersecurity`, `delay1`, `delay2`, `showuserpicture`, `showblocks`, `completionattemptsexhausted`, `completionpass`) VALUES
+(1, 2, 'Overview', '', 1, 0, 0, 0, 'autosubmit', 0, 'deferredfeedback', 0, 0, 1, 2, -1, 69904, 4368, 4368, 4368, 4368, 4368, 4368, 1, 'free', 0, 1, '2.00000', '10.00000', 0, 1426133991, '', '', '-', 0, 0, 0, 0, 0, 0);
 
 -- --------------------------------------------------------
 
@@ -7850,7 +8041,14 @@ CREATE TABLE IF NOT EXISTS `qc_quiz_attempts` (
   `timemodified` bigint(10) NOT NULL DEFAULT '0',
   `timecheckstate` bigint(10) DEFAULT '0',
   `sumgrades` decimal(10,5) DEFAULT NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Stores users attempts at quizzes.';
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Stores users attempts at quizzes.';
+
+--
+-- Dumping data for table `qc_quiz_attempts`
+--
+
+INSERT INTO `qc_quiz_attempts` (`id`, `quiz`, `userid`, `attempt`, `uniqueid`, `layout`, `currentpage`, `preview`, `state`, `timestart`, `timefinish`, `timemodified`, `timecheckstate`, `sumgrades`) VALUES
+(3, 1, 2, 1, 3, '1,0,2,0', 1, 1, 'finished', 1426134925, 1426134979, 1426134979, NULL, '1.00000');
 
 -- --------------------------------------------------------
 
@@ -7865,7 +8063,14 @@ CREATE TABLE IF NOT EXISTS `qc_quiz_feedback` (
   `feedbacktextformat` tinyint(2) NOT NULL DEFAULT '0',
   `mingrade` decimal(10,5) NOT NULL DEFAULT '0.00000',
   `maxgrade` decimal(10,5) NOT NULL DEFAULT '0.00000'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Feedback given to students based on which grade band their o';
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Feedback given to students based on which grade band their o';
+
+--
+-- Dumping data for table `qc_quiz_feedback`
+--
+
+INSERT INTO `qc_quiz_feedback` (`id`, `quizid`, `feedbacktext`, `feedbacktextformat`, `mingrade`, `maxgrade`) VALUES
+(1, 1, '', 1, '0.00000', '11.00000');
 
 -- --------------------------------------------------------
 
@@ -7951,7 +8156,15 @@ CREATE TABLE IF NOT EXISTS `qc_quiz_slots` (
   `page` bigint(10) NOT NULL,
   `questionid` bigint(10) NOT NULL DEFAULT '0',
   `maxmark` decimal(12,7) NOT NULL DEFAULT '0.0000000'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Stores the question used in a quiz, with the order, and for ';
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Stores the question used in a quiz, with the order, and for ';
+
+--
+-- Dumping data for table `qc_quiz_slots`
+--
+
+INSERT INTO `qc_quiz_slots` (`id`, `slot`, `quizid`, `page`, `questionid`, `maxmark`) VALUES
+(1, 1, 1, 1, 1, '1.0000000'),
+(2, 2, 1, 2, 2, '1.0000000');
 
 -- --------------------------------------------------------
 
@@ -9525,7 +9738,14 @@ CREATE TABLE IF NOT EXISTS `qc_scale` (
   `description` longtext COLLATE utf8_unicode_ci NOT NULL,
   `descriptionformat` tinyint(2) NOT NULL DEFAULT '0',
   `timemodified` bigint(10) NOT NULL DEFAULT '0'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Defines grading scales';
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Defines grading scales';
+
+--
+-- Dumping data for table `qc_scale`
+--
+
+INSERT INTO `qc_scale` (`id`, `courseid`, `userid`, `name`, `scale`, `description`, `descriptionformat`, `timemodified`) VALUES
+(1, 0, 0, 'Separate and Connected ways of knowing', 'Mostly separate knowing,Separate and connected,Mostly connected knowing', 'The scale based on the theory of separate and connected knowing. This theory describes two different ways that we can evaluate and learn about the things we see and hear.<ul><li><strong>Separate knowers</strong> remain as objective as possible without including feelings and emotions. In a discussion with other people, they like to defend their own ideas, using logic to find holes in opponent''s ideas.</li><li><strong>Connected knowers</strong> are more sensitive to other people. They are skilled at empathy and tends to listen and ask questions until they feel they can connect and "understand things from their point of view". They learn by trying to share the experiences that led to the knowledge they find in other people.</li></ul>', 0, 1426125599);
 
 -- --------------------------------------------------------
 
@@ -9774,14 +9994,14 @@ CREATE TABLE IF NOT EXISTS `qc_sessions` (
   `timemodified` bigint(10) NOT NULL,
   `firstip` varchar(45) COLLATE utf8_unicode_ci DEFAULT NULL,
   `lastip` varchar(45) COLLATE utf8_unicode_ci DEFAULT NULL
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Database based session storage - now recommended';
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci COMMENT='Database based session storage - now recommended';
 
 --
 -- Dumping data for table `qc_sessions`
 --
 
 INSERT INTO `qc_sessions` (`id`, `state`, `sid`, `userid`, `sessdata`, `timecreated`, `timemodified`, `firstip`, `lastip`) VALUES
-(2, 0, 'm0ga1fafejfqoranom39fqgq26', 2, NULL, 1426123813, 1426125413, '0:0:0:0:0:0:0:1', '0:0:0:0:0:0:0:1');
+(4, 0, '229uvfo9uqpi5c8076ikghlt33', 2, NULL, 1426133918, 1426134967, '0:0:0:0:0:0:0:1', '0:0:0:0:0:0:0:1');
 
 -- --------------------------------------------------------
 
@@ -11468,7 +11688,7 @@ CREATE TABLE IF NOT EXISTS `qc_user` (
 
 INSERT INTO `qc_user` (`id`, `auth`, `confirmed`, `policyagreed`, `deleted`, `suspended`, `mnethostid`, `username`, `password`, `idnumber`, `firstname`, `lastname`, `email`, `emailstop`, `icq`, `skype`, `yahoo`, `aim`, `msn`, `phone1`, `phone2`, `institution`, `department`, `address`, `city`, `country`, `lang`, `calendartype`, `theme`, `timezone`, `firstaccess`, `lastaccess`, `lastlogin`, `currentlogin`, `lastip`, `secret`, `picture`, `url`, `description`, `descriptionformat`, `mailformat`, `maildigest`, `maildisplay`, `autosubscribe`, `trackforums`, `timecreated`, `timemodified`, `trustbitmask`, `imagealt`, `lastnamephonetic`, `firstnamephonetic`, `middlename`, `alternatename`) VALUES
 (1, 'manual', 1, 0, 0, 0, 1, 'guest', '$2y$10$Jc7XmNir5bTXNYHfYIL71e3ktKNf4XzIuT3Z9J/iFL1BJpoqsOOqS', '', 'Guest user', ' ', 'root@localhost', 0, '', '', '', '', '', '', '', '', '', '', '', '', 'en', 'gregorian', '', '99', 0, 0, 0, 0, '', '', 0, '', 'This user is a special user that allows read-only access to some courses.', 1, 1, 0, 2, 1, 0, 0, 1426123604, 0, NULL, NULL, NULL, NULL, NULL),
-(2, 'manual', 1, 0, 0, 0, 1, 'qcadmin', '$2y$10$7QJiSyZLJptSqvHh2oXU2O26SkLjxegN01PjBBzx1s8/K8/RNa2hK', '', 'Admin', 'User', 'acosf2014.pdflint@gmail.com', 0, '', '', '', '', '', '', '', '', '', '', '', '', 'en', 'gregorian', '', '99', 1426123813, 1426125414, 0, 1426123813, '0:0:0:0:0:0:0:1', '', 0, '', '', 1, 1, 0, 1, 1, 0, 0, 1426123957, 0, NULL, '', '', '', '');
+(2, 'manual', 1, 0, 0, 0, 1, 'qcadmin', '$2y$10$7QJiSyZLJptSqvHh2oXU2O26SkLjxegN01PjBBzx1s8/K8/RNa2hK', '', 'Admin', 'User', 'acosf2014.pdflint@gmail.com', 0, '', '', '', '', '', '', '', '', '', '', '', '', 'en', 'gregorian', '', '99', 1426123813, 1426134967, 1426123813, 1426133918, '0:0:0:0:0:0:0:1', '', 0, '', '', 1, 1, 0, 1, 1, 0, 0, 1426123957, 0, NULL, '', '', '', '');
 
 -- --------------------------------------------------------
 
@@ -11581,7 +11801,7 @@ CREATE TABLE IF NOT EXISTS `qc_user_lastaccess` (
 --
 
 INSERT INTO `qc_user_lastaccess` (`id`, `userid`, `courseid`, `timeaccess`) VALUES
-(1, 2, 2, 1426125293);
+(1, 2, 2, 1426134967);
 
 -- --------------------------------------------------------
 
@@ -14312,7 +14532,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_block_instances`
 --
 ALTER TABLE `qc_block_instances`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=17;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=18;
 --
 -- AUTO_INCREMENT for table `qc_block_positions`
 --
@@ -14322,7 +14542,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_block_recent_activity`
 --
 ALTER TABLE `qc_block_recent_activity`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
 --
 -- AUTO_INCREMENT for table `qc_block_rss_client`
 --
@@ -14432,7 +14652,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=1096;
 -- AUTO_INCREMENT for table `qc_context`
 --
 ALTER TABLE `qc_context`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=26;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=28;
 --
 -- AUTO_INCREMENT for table `qc_course`
 --
@@ -14472,7 +14692,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=5;
 -- AUTO_INCREMENT for table `qc_course_modules`
 --
 ALTER TABLE `qc_course_modules`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=3;
 --
 -- AUTO_INCREMENT for table `qc_course_modules_completion`
 --
@@ -14492,7 +14712,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_course_sections`
 --
 ALTER TABLE `qc_course_sections`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=12;
 --
 -- AUTO_INCREMENT for table `qc_data`
 --
@@ -14517,7 +14737,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_editor_atto_autosave`
 --
 ALTER TABLE `qc_editor_atto_autosave`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=4;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=39;
 --
 -- AUTO_INCREMENT for table `qc_enrol`
 --
@@ -14732,22 +14952,22 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=8;
 -- AUTO_INCREMENT for table `qc_grade_categories`
 --
 ALTER TABLE `qc_grade_categories`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
 --
 -- AUTO_INCREMENT for table `qc_grade_categories_history`
 --
 ALTER TABLE `qc_grade_categories_history`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=3;
 --
 -- AUTO_INCREMENT for table `qc_grade_grades`
 --
 ALTER TABLE `qc_grade_grades`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=3;
 --
 -- AUTO_INCREMENT for table `qc_grade_grades_history`
 --
 ALTER TABLE `qc_grade_grades_history`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=3;
 --
 -- AUTO_INCREMENT for table `qc_grade_import_newitem`
 --
@@ -14762,12 +14982,12 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_grade_items`
 --
 ALTER TABLE `qc_grade_items`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=3;
 --
 -- AUTO_INCREMENT for table `qc_grade_items_history`
 --
 ALTER TABLE `qc_grade_items_history`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=8;
 --
 -- AUTO_INCREMENT for table `qc_grade_letters`
 --
@@ -14927,7 +15147,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_logstore_standard_log`
 --
 ALTER TABLE `qc_logstore_standard_log`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=7;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=40;
 --
 -- AUTO_INCREMENT for table `qc_log_display`
 --
@@ -15167,32 +15387,32 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_qtype_shortanswer_options`
 --
 ALTER TABLE `qc_qtype_shortanswer_options`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
 --
 -- AUTO_INCREMENT for table `qc_question`
 --
 ALTER TABLE `qc_question`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=3;
 --
 -- AUTO_INCREMENT for table `qc_question_answers`
 --
 ALTER TABLE `qc_question_answers`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=4;
 --
 -- AUTO_INCREMENT for table `qc_question_attempts`
 --
 ALTER TABLE `qc_question_attempts`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=6;
 --
 -- AUTO_INCREMENT for table `qc_question_attempt_steps`
 --
 ALTER TABLE `qc_question_attempt_steps`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=15;
 --
 -- AUTO_INCREMENT for table `qc_question_attempt_step_data`
 --
 ALTER TABLE `qc_question_attempt_step_data`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=10;
 --
 -- AUTO_INCREMENT for table `qc_question_calculated`
 --
@@ -15207,7 +15427,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_question_categories`
 --
 ALTER TABLE `qc_question_categories`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=5;
 --
 -- AUTO_INCREMENT for table `qc_question_datasets`
 --
@@ -15267,27 +15487,27 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_question_truefalse`
 --
 ALTER TABLE `qc_question_truefalse`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
 --
 -- AUTO_INCREMENT for table `qc_question_usages`
 --
 ALTER TABLE `qc_question_usages`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=4;
 --
 -- AUTO_INCREMENT for table `qc_quiz`
 --
 ALTER TABLE `qc_quiz`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
 --
 -- AUTO_INCREMENT for table `qc_quiz_attempts`
 --
 ALTER TABLE `qc_quiz_attempts`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=4;
 --
 -- AUTO_INCREMENT for table `qc_quiz_feedback`
 --
 ALTER TABLE `qc_quiz_feedback`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
 --
 -- AUTO_INCREMENT for table `qc_quiz_grades`
 --
@@ -15312,7 +15532,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=5;
 -- AUTO_INCREMENT for table `qc_quiz_slots`
 --
 ALTER TABLE `qc_quiz_slots`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=3;
 --
 -- AUTO_INCREMENT for table `qc_quiz_statistics`
 --
@@ -15402,7 +15622,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_scale`
 --
 ALTER TABLE `qc_scale`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=2;
 --
 -- AUTO_INCREMENT for table `qc_scale_history`
 --
@@ -15467,7 +15687,7 @@ MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT;
 -- AUTO_INCREMENT for table `qc_sessions`
 --
 ALTER TABLE `qc_sessions`
-MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=3;
+MODIFY `id` bigint(10) NOT NULL AUTO_INCREMENT,AUTO_INCREMENT=5;
 --
 -- AUTO_INCREMENT for table `qc_stats_daily`
 --

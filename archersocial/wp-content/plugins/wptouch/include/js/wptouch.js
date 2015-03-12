@@ -23,10 +23,12 @@ jQuery( '#footer .back-to-top' ).click( function( e ) {
 function doWPtouchReady() {
 	// Shortcode
 	var shortcodeDiv = jQuery( '.wptouch-sc-content' );
+
 	if ( shortcodeDiv.length ) {
 		// We have a shortcode
 		var params = {
-			post_id: shortcodeDiv.attr( 'data-post-id' )
+			post_id: shortcodeDiv.attr( 'data-post-id' ),
+			post_content: jQuery( '.wptouch-orig-content' ).html()
 		};
 
 		WPtouchAjax( 'handle_shortcode', params, function( response ) {
