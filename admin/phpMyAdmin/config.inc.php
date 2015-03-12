@@ -20,7 +20,7 @@ $cfg['Servers'][$i]['auth_type'] = 'config';
 $cfg['Servers'][$i]['user'] = 'root';
 $cfg['Servers'][$i]['password'] = 'aco1234';
 $cfg['Servers'][$i]['extension'] = 'mysqli';
-$cfg['Servers'][$i]['AllowNoPassword'] = true;
+$cfg['Servers'][$i]['AllowNoPassword'] = false;
 $cfg['Lang'] = '';
 
 /* Bind to the localhost ipv4 address and tcp */
@@ -53,5 +53,5 @@ $cfg['Servers'][$i]['savedsearches'] = 'pma_savedsearches';
 /*
  * End of servers configuration
  */
-
+$cfg['CaptchaLoginPublicKey'] = '6Le2XAMTAAAAAAikuUTjtmxheTdJxn0cebzQ2MQI'
 ?>
