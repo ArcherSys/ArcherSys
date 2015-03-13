@@ -1,7 +1,7 @@
 <?php
-#Vars - written at 2015-03-12
+#Vars - written at 2015-03-13
 $dbhost="localhost";
-$dbname="acoserver_moodle";
+$dbname="acoserver_acoserver";
 $dbuser="root";
 $dbpass="aco1234";
 $dbport=3306;
