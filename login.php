@@ -231,16 +231,13 @@ require_once "includes\LogicManager.php";
 <button class="logout"><i class="icon-off"></i></button>
 </div>
     </div>
+    <div class="g-page" data-width="276" data-href="//plus.google.com/114657577319697970021" data-theme="dark" data-rel="publisher"></div>
+
     <?php
 ViewManager::addReCAPTCHA();
+LogicManager::addGPlus();
 ?>
-   <script type="text/javascript">
-      (function() {
-       var po = document.createElement('script'); po.type = 'text/javascript'; po.async = true;
-       po.src = 'https://apis.google.com/js/client:plusone.js';
-       var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(po, s);
-     })();
-    </script>
+   
 
  
   </body>
