@@ -15,6 +15,8 @@ $(function(){
 
  $(window).bind('online', function(){
     condition = "online";
+      $("span.number").text(Notidar.Notidex.length);
+
     status.html(condition);
     status.removeClass("offline");
     status.addClass(condition);
@@ -22,6 +24,8 @@ $(function(){
     console.info("[CafeSync]: Internet Access Detected")
 });
  $(window).bind('offline', function(){
+       $("span.number").text(Notidar.Notidex.length);
+
    condition = "offline";
     status.html(condition);
     status.removeClass("online");

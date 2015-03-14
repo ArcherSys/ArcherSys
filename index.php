@@ -245,7 +245,7 @@ img.prof{
 <script src="core/js/jquery.js"></script>
 <script type="text/javascript">
 $(function(){
-  $(".number").text(Notidar.Notidex.length);
+  $("span.number").text(Notidar.Notidex.length);
   $("title").text("VM Home - "+localStorage.getItem("os-name"));
  
        
@@ -341,18 +341,19 @@ $(function(){
       <p class="title">PDFLint</p>
     </a>
     </div>
-					<div class="module yellow double img not">
-						<p class="title">Notifications</p>
-						<div class="img msg">
-							<p class="sub-heading">View your notifications (<div class="number"></div>)</p>
-						</div>
-					</div>
   <div class="module red single img birds">
 <a href="http://localhost/entertainment/games/index.php"><p class="title">Games</p></a>
 					</div>
 
 
 </li>
+<li>
+					<div class="module yellow double img not">
+						<p class="title">Notifications</p>
+						<div class="img msg">
+							<p class="sub-heading"> your notifications:<span class="number"></span></p>
+						</div>
+					</div></li>
 <li>
 <div class="module blue double img ps">
 <p class="title">CanvasShoppe</p>
