@@ -3,7 +3,7 @@
 Plugin Name: WP Cloud
 Plugin URI: http://wpgov.it
 Description: Give every user a personal web-space with WP Cloud, the most advanced plugin to make WordPress a cloud platform!
-Version: 0.2.3
+Version: 0.3.1
 Author: Marco Milesi
 Author Email: milesimarco@outlook.com
 Author URI: http://marcomilesi.ml
@@ -35,7 +35,7 @@ function register_wpcloud_menu_page(){
 add_action('admin_init', 'wpcloud_reg');
 function wpcloud_reg() {
     register_setting( 'wpcloud_options_group', 'wpcloud_version');
-    update_option( 'wpcloud_version', '0.2.3' );
+    update_option( 'wpcloud_version', '0.3' );
 	
 }
 

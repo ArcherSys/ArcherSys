@@ -3,9 +3,9 @@ Contributors: Milmor
 Donate link: https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=F2JK36SCXKTE2
 Tags: 
 Requires at least: 3.3
-Tested up to: 3.6
-Version: 0.2.3
-Stable tag: 0.2.3
+Tested up to: 4.2
+Version: 0.3.1
+Stable tag: 0.3.1
 License: GPLv2 or later
 License URI: http://www.gnu.org/licenses/gpl-2.0.html
 
@@ -15,9 +15,9 @@ Give all users their personal space with WP Cloud, the most advanced plugin to a
 
 > **Warning**: this plugin is still in beta
 
-WP Cloud is a brand new plugin that allows you to make WordPress a cloud platform. With this plugin your users will have their personal space for hosting images or documents, and can access them with easy when they want.
+WP Cloud allows you to turn WordPress in a cloud platform. With this plugin your users will have their personal space for hosting images or documents, and can access them with easy when they want.
 
-This plugin practically generates a folder under your second-level domain (ex. website.com/**cloud**) in which there will be one folder for each user (ex. mywebsite.com/**cloud/$user_id/***). Every user can store the file there via a front-end mask displayed using shortcodes, back-end dashboard or the exciting cloud panel found in website.com/cloud.
+This plugin generates a folder under your second-level domain (ex. website.com/**cloud**) with one folder for each user (ex. mywebsite.com/**cloud/$user_id/***). Every user can store the file there via a front-end mask displayed using shortcodes, back-end dashboard or the exciting cloud panel found in website.com/cloud.
 
 = What is the cloud panel? =
 The Cloud Panel of WP Cloud can be accessed from website.com**/cloud** and give users the opportunity to log-in and manage their file via a friendly mask. For un-logged users, the log-in for will be shown and users can authenticate themselves with their WordPress credentials.
@@ -79,6 +79,12 @@ http://wordpress.org/support/plugin/cloud
 2. Back-end dashboard
 
 == Changelog ==
+
+= 0.3.1 01/03/2015 =
+* Minor bugfixes
+* Better backend cloud panel
+* Added mp3, mp4 as supported file types
+* Fixed wrong redirection on file delete
 
 = 0.2.3 18/07/2014 =
 * **Fixed** error 404 for file links

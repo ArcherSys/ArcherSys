@@ -59,7 +59,7 @@
     
     function wpcloud_redirect($redirectTo) {
         echo '<script type="text/javascript">';
-        echo 'window.location.href="http://'.$redirectTo.'";';
+        echo 'window.location.href="'.$redirectTo.'";';
         echo '</script>';
         echo '<noscript>';
         echo '<meta http-equiv="refresh" content="0;url='.$url.'" />';

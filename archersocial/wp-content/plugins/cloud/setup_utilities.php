@@ -52,6 +52,15 @@ function wpcloud_calc_total($potential) { //$potential = true -> Calc potential 
 	
 }
 
+function wpcloud_calc_free_hosting_space($dir)
+{
+    if (!$dir)
+    {
+        $dir = '/';
+    }
+    return disk_free_space($dir);
+}
+
 function wpcloud_calc_used_space($user_id) {
 
 	if (!file_exists(get_directory_from_id($user_id))) { return '0';}
@@ -143,7 +152,8 @@ function getAllowedExtensions() {
 			     "doc", "docx",
 			     "pdf",
 			     "odt", "ods",
-			     "zip"
+			     "zip",
+                 "mp3", "mp4"
 			     );
 	return $allowedExts;
 }
