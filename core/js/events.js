@@ -1,43 +1,81 @@
 $(function(){
-  window.Notification.requestPermission(function(status){
-  var status = $("#status");
 
-    var condition = (window.navigator.onLine) ? "online" : "offline";
-     if(condition === "online"){
-       status.removeClass("offline");
+  $("span.number").text(Notidar.Notidex.length);
+  $("title").text("VM Home - "+localStorage.getItem("os-name"));
+       
+ 
+  var sliderUL = $('div.slider').children('ul'),
+  	screens = sliderUL.find('li'),
+		screenWidth = screens.width(),
+		screenLength = screens.length,
+		current = 1,
+		totalScreenWidth = screenLength * screenWidth;
+   $("#silverdrive-starter").click(function(){
+      var sd = ActivityManager.SilverDriveActivity();
+      sd.start();
+   });
+	var h1 = $('div.header').children('h1');
+
+	$('#screen-nav').find('button').on('click', function() {
+		var direction = $(this).data('dir'),
+			loc = screenWidth;
+
+		(direction === 'next') ? ++current : --current;
+
+		if(current === 0) {
+			current = screenLength;
+			loc = totalScreenWidth - screenWidth;
+			direction = 'next';
+		} else if (current - 1 === screenLength) {
+			current = 1;
+			loc = 0;
+		}
+               		transition(sliderUL, loc, direction);
+
+	});
+     $(".header h1").click(function(){
+           window.location.assign("http://localhost/settings");
+           });
+});
+       
       
-     }else if(condition === "online"){
-       status.removeClass("online");
-     }
-     status.addClass(condition);
-    status.html(condition.toUpperCase());
+	function transition(container, loc, direction) {
+		var unit;
 
+		if(direction && loc !== 0) {
+			unit = (direction === 'next') ? '-=' : '+=';
+		}
 
- $(window).bind('online', function(){
-    condition = "online";
-      $("span.number").text(Notidar.Notidex.length);
+		container.animate({
 
-    status.html(condition);
-    status.removeClass("offline");
-    status.addClass(condition);
-    Notidar.pushOnlineNotification();
-    console.info("[CafeSync]: Internet Access Detected")
-});
- $(window).bind('offline', function(){
-       $("span.number").text(Notidar.Notidex.length);
+			'margin-left': unit ? (unit + loc) : loc
+		});
+       }
+       
+    window.Notification.requestPermission(function(status) {
+        var istatus = $("#status");
 
-   condition = "offline";
-    status.html(condition);
-    status.removeClass("online");
-    status.addClass(condition);
-    Notidar.pushOfflineNotification();
-    console.info("[CafeSync]: Disconnected from the Internet.")
-});
-$(".asos-pdflint").click(function(){
-  $("iframe").attr("src", "http://localhost/Producktiviti/PDFLint");
-});
-$(".asos-owncloud").click(function(){
-  $("iframe").attr("src", "http://localhost/owncloud-serv");
-});
-});
-});
+        var condition = (window.navigator.onLine) ? "online" : "offline";
+        if (condition === "online") {
+            istatus.removeClass("offline");
+
+        }
+        else if (condition === "online") {
+            istatus.removeClass("online");
+        }
+
+        $(window).bind('online', function() {
+            condition = "online";
+            $("span.number").text(Notidar.Notidex.length);
+            Notidar.pushOnlineNotification();
+            console.info("[CafeSync]: Internet Access Detected");
+        });
+        $(window).bind('offline', function() {
+            $("span.number").text(Notidar.Notidex.length);
+
+            Notidar.pushOfflineNotification();
+            console.info("[CafeSync]: Disconnected from the Internet.");
+        });
+
+    });
+    

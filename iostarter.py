@@ -29,8 +29,39 @@ class IOStarter(Cmd):
        self.close()
    def do_EOF(self,arg):
        self.close()
-	    
+   def do_get_interest(self, arg):
+       P = 10000
+       r = 0.08
+       n = 12
+       t = int(input("Years:"))
+       print((P*(1 + (r/n))**n*t))
+   def do_get_mpg(self, arg):
+       odometer = int(input("Miles:"))
+       gallons_used = int(input("Gallons:"))
+       print(odometer/gallons_used)
+   def do_ctf(self,arg):
+       deg_c = int(input("What is the temperature in Celsius? "))
+       deg_f = deg_c * (9 / 5) + 32
+       print(deg_c, " degrees Celsius is", deg_f, " degrees Farenheit.")
+   def do_ftc(self,arg):
+       deg_f = int(input("What is the temperature in Fahrenheit? "))
+       deg_c = (deg_f - 32)/(5/9)
+       print(deg_f, " degrees Farenheit  is", deg_c, " degrees Celsius.")
+   def do_wait_time(self, arg):
+       current_time_int = input("What is the current time (in hours 0-23)?")
+       wait_time_int = input("How many hours do you want to wait")
 
-if __name__ == '__main__':  
-   iostart = IOStarter() 
+       current_time_int = int(current_time_int)
+       wait_time_int = int(wait_time_int)
+
+       final_time_int = current_time_int + wait_time_int
+
+       final_answer = final_time_int % 24
+
+       print("The time after waiting is: ", final_answer)
+
+
+
+if __name__ == '__main__':
+   iostart = IOStarter()
    iostart.cmdloop()

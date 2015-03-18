@@ -1,11 +1,5 @@
 
-
-
 <?php
-
- 
-
-
   require_once "config.php";
   require_once "includes/component-functions.php";
   require_once "includes/ViewManager.php";
@@ -54,202 +48,76 @@ if(isset($_COOKIE['ID_my_site']))
  	else
 
  			{
-$_SESSION["gravatar"] = asos_fetch_gravatar($info["username"]);
 
   
 ?>
-	<!DOCTYPE HTML>
+	<!DOCTYPE html>
 		
-<html  i18n-values="bookmarkbarattached:bookmarkbarattached" bookmarbarattached="true" xmlns:fb="http://ogp.me/ns/fb#">
+<html>
 <head>
 <meta charset="utf-8">
-<?php
-  ViewManager::setupFavicons();
-  ?>
+
 <title>VM Home</title>
 
-<link rel="manifest" href="manifest.json">
 <?php
+  ViewManager::setupFavicons();
  ViewManager::addMSAppConfig();
  ViewManager::addAppleAppConfig();
-?><meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
-<script  src="/core/require.js"></script>
+ addStartScreen();
+?>
+<meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
+
 
 <script src="/core/js/jquery.js"></script>
-<script src="/core/js/events.js"></script>
+
+<script src="core/js/notidar-amd.js"></script>
+<script src="/core/js/activity-amd.js"></script>
+
+<link rel="manifest" href="manifest.json">
+
+
 
 <meta http-equiv="X-UA-Compatible" content="IE=Edge">
 <link href='http://fonts.googleapis.com/css?family=Droid+Sans|Open+Sans:700,600' rel='stylesheet' type='text/css'>
 
-    <?php addStartScreen(); ?>
-  
-<style>
-@import url(http://netdna.bootstrapcdn.com/font-awesome/2.0/css/font-awesome.css);
-@import url(http://fonts.googleapis.com/css?family=Open+Sans:400,300);
+    
+<link rel="stylesheet"  href="/core/css/start2.css">
 
 
+<script>
+     window.Notification.requestPermission(function(status) {
+      
 
-h1{
-	font-family: "Open Sans", arial;
-	font-weight:300;
-	float: left;
-	width: 55%;
-	margin-left: 5px;
-	font-size: 40px;
-	margin-bottom: 40px;
-}
-h2{
-	margin:0px;
-	font-family: "Open Sans", arial;
-	font-weight:300;
-}
+        var condition = (window.navigator.onLine) ? "online" : "offline";
+        if (condition === "online") {
+           
+            Notidar.pushOnlineNotification();
 
-a.wide, a.box{
-	text-decoration:none;
-	color:#fff;
-	-webkit-transition: -webkit-transform 0.1s;
-	position:relative;
-	overflow:hidden;
-}
+        }
+        else if (condition === "online") {
+            Notidar.pushfflineNotification();
+        }
 
-a.wide h2, a.box h2{
-	position:absolute;
-	bottom:5px;
-	font-size:14px;
-}
-
-a.wide h2.top, a.box h2.top{
-	position:static;
-
-	font-size:14px;
-}
-a.wide i, a.box i{
-font-size: 60px;
-text-align: center;
-display: block;
-margin-top: 10px; /* outside Codepen is actually 30px */
-}
-a.wide:hover, a.box:hover{
-	-webkit-transform: scale(1.05);
-}
-
-a.wide:active, a.box:active{
-	-webkit-transform: scale(1);
-}
-.wide{
-	width:270px;
-	height:120px;
-	overflow:hidden;
-	font-size:13px;
-	padding:10px;
-	display:block;
-	float:left;
-	margin:5px;
-}
-
-.box{
-	width:120px;
-	height:120px;
-	overflow:hidden;
-	font-size:13px;
-	padding:10px;
-	display:block;
-	float:left;
-	margin:5px;
-}
-.lime{background:#61b812;}
-.orange{background:#e76022;}
-.blue{background:#1E90FF;}
-.redgay{background:#DA312E;}
-.yellow{background:#dbb701;}
-.bluefish{background:#02b9e3;}
-.magenta{background:#d22a4e;}
-.spacer{
-	width:770px;
-	margin-right: 50px;
-	float:left;
-}
-.spacer3x{
-	width:300px;
-}
-
-@-webkit-keyframes galeri
-{
-1% {background-position: 0px 0px;}
-10%{background-position: 0px 140px;}
-20%{background-position: 0px 140px;}
-30%{background-position: 0px 280px;}
-40%{background-position: 0px 280px;}
-50%{background-position: 0px 420px;}
-60%{background-position: 0px 420px;}
-70%{background-position: 0px 560px;}
-80%{background-position: 0px 560px;}
-100% {background-position: 0px 560px;}
-}
-
-.gallery{
-	background: url(/core/media/img/Desert.png);
-	-webkit-animation: galeri 15s infinite;
-}
-.right{
-	float:right;
-	text-align:right;
-	margin-top: 30px;
-}
-.right p{
-	margin: 5px 0px;
-}
-img.prof{
-	float: right;
-	margin: 10px;
-	margin-top: 40px;
-}
-.i_bot{
-	font-size: 30px;
-	text-align: left;
-	position: absolute;
-	bottom: 0px;
-}
-.cal_i{
-	margin-top: 20px;
-	margin-left: 15px;
-	width: 155px;
-}
-.cal_e h1{
-	position: absolute;
-	right: 0px;
-	width: 115px;
-	text-align: center;
-	margin: 0px;
-	font-size: 60px;
-}
-.cal_e p{
-	position: absolute;
-	right: 0px;
-	width: 115px;
-	text-align: center;
-	margin-top: 75px;
-	text-transform: uppercase;
-}
-.cal_e i{
-	text-align: left;
-	font-size: 25px !important;
-	position: absolute;
-	bottom: 0px;
-}
-</style>
-
-<script src="core/js/beximal.js"></script>
-<script src="/core/js/activity-amd.js"></script>
-<script src="core/js/notidar-amd.js"></script>
-<script src="core/js/jquery.js"></script>
-<script type="text/javascript">
+        $(window).bind('online', function() {
+            condition = "online";
+            $(".number").text(Notidar.Notidex.length);
+            Notidar.pushOnlineNotification();
+            console.info("[CafeSync]: Internet Access Detected");
+        });
+        $(window).bind('offline', function() {
+            $(".not").prepend();
+             $("li:nth-child(3)").append('<div class="module yellow double img not"><p class="title">Notifications</p><div class="img msg"><p class="sub-heading"> your notifications:<span class="number">'+ Notidar.Notidex.length+'</span></p></div></div></li>');
+            Notidar.pushOfflineNotification();
+            console.info("[CafeSync]: Disconnected from the Internet.");
+        });
+        });
+</script>
+<script>
 $(function(){
   $("span.number").text(Notidar.Notidex.length);
   $("title").text("VM Home - "+localStorage.getItem("os-name"));
- 
        
-  
+ 
   var sliderUL = $('div.slider').children('ul'),
   	screens = sliderUL.find('li'),
 		screenWidth = screens.width(),
@@ -280,10 +148,11 @@ $(function(){
 
 	});
        
+       
       $(".header h1").click(function(){
            window.location.assign("http://localhost/settings");
            });
-     
+
 	function transition(container, loc, direction) {
 		var unit;
 

@@ -1,4 +1,4 @@
-#!K:\ArcherVMPeridot\htdocs\Scripts\python.exe
+#!C:\xampp\htdocs\Scripts\python.exe
 from django.core import management
 
 if __name__ == "__main__":

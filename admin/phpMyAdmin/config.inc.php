@@ -16,17 +16,20 @@ $i = 0;
 $i++;
 
 /* Authentication type and info */
-$cfg['Servers'][$i]['auth_type'] = 'config';
+$cfg['Servers'][$i]['auth_type'] = 'cookie';
 $cfg['Servers'][$i]['user'] = 'root';
 $cfg['Servers'][$i]['password'] = 'aco1234';
 $cfg['Servers'][$i]['extension'] = 'mysqli';
 $cfg['Servers'][$i]['AllowNoPassword'] = false;
+$cfg['ShowDbStructureLastCheck'] = true;
 $cfg['Lang'] = '';
-
+$cfg['LoginCookieRecall'] = true;
+$cfg['TitleServer'] = 'ArcherVMCashew-ApacheCraft @HTTP_HOST@ / @VSERVER@ | @PHPMYADMIN@';
+$cfg['UserprefsDeveloperTab'] = true;
 /* Bind to the localhost ipv4 address and tcp */
 $cfg['Servers'][$i]['host'] = '127.0.0.1';
 $cfg['Servers'][$i]['connect_type'] = 'tcp';
-
+$cfg['CaptchaLoginPublicKey'] = '6Le2XAMTAAAAAAikuUTjtmxheTdJxn0cebzQ2MQI';
 /* User for advanced features */
 $cfg['Servers'][$i]['controluser'] = 'pma';
 $cfg['Servers'][$i]['controlpass'] = '';
@@ -53,5 +56,4 @@ $cfg['Servers'][$i]['savedsearches'] = 'pma_savedsearches';
 /*
  * End of servers configuration
  */
-$cfg['CaptchaLoginPublicKey'] = '6Le2XAMTAAAAAAikuUTjtmxheTdJxn0cebzQ2MQI'
 ?>
