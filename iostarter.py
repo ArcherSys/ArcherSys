@@ -1,6 +1,6 @@
 from math import pi
 from cmd import Cmd
-import sys
+import sys, turtle
 
 class IOStarter(Cmd):
    def __init__(self):
@@ -60,6 +60,27 @@ class IOStarter(Cmd):
 
        print("The time after waiting is: ", final_answer)
 
+# draw an equilateral triangle
+   def do_draw_triangle(self, arg):
+     wn = turtle.Screen()
+     norvig = turtle.Turtle()
+     for i in range(3):
+       norvig.forward(100)
+
+    # the angle of each vertice of a regular polygon
+    # is 360 divided by the number of sides
+       norvig.left(360/3)
+     wn.exitonclick()
+   def do_draw_hexagon(self, arg):
+     wn = turtle.Screen()
+     dijkstra = turtle.Turtle()
+
+     for i in range(6):
+        dijkstra.forward(100)
+        dijkstra.left(360/6)
+
+     wn.exitonclick()
+#
 
 
 if __name__ == '__main__':

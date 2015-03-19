@@ -100,13 +100,11 @@ if(isset($_COOKIE['ID_my_site']))
 
         $(window).bind('online', function() {
             condition = "online";
-            $(".number").text(Notidar.Notidex.length);
             Notidar.pushOnlineNotification();
             console.info("[CafeSync]: Internet Access Detected");
         });
         $(window).bind('offline', function() {
-            $(".not").prepend();
-             $("li:nth-child(3)").append('<div class="module yellow double img not"><p class="title">Notifications</p><div class="img msg"><p class="sub-heading"> your notifications:<span class="number">'+ Notidar.Notidex.length+'</span></p></div></div></li>');
+            
             Notidar.pushOfflineNotification();
             console.info("[CafeSync]: Disconnected from the Internet.");
         });

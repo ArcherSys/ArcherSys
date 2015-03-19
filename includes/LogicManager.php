@@ -2,7 +2,7 @@
   namespace ArcherSys\Viewer;
  class LogicManager {
    static function addReCAPTCHA(){
-     echo "<script src='https://www.google.com/recaptcha/api.js'></script>";
+     echo "<script src='https://www.google.com/recaptcha/api.js?fallback=true'></script>";
  }
  static function addGPlus(){
    echo '<script type="text/javascript">(function() {
