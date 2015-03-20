@@ -179,6 +179,7 @@ require_once "includes\LogicManager.php";
     <meta name="Content-Type" content="text/html;charset=utf-8">
         <?php
         LogicManager::addReCAPTCHA();
+    
         ?>
     <title>Login to the ArcherVM</title>
     <script type="text/javascript">
@@ -216,7 +217,9 @@ require_once "includes\LogicManager.php";
 <input type="password" placeholder="password" name="pass"/>
 <input type="submit" name="submit"class="login"><i class="icon-ok"></i></button>
 
-<a href="register.php"  class="register-button">Register</a>
+<a href="register.php" class="archersys-registration">Create an ArcherSys Account</a>
+
+
 </form>
 
 
