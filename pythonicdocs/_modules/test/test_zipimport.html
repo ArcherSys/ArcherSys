@@ -1,0 +1,599 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_zipimport &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_zipimport</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">marshal</span>
+<span class="kn">import</span> <span class="nn">importlib.util</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">support</span>
+
+<span class="kn">from</span> <span class="nn">zipfile</span> <span class="kn">import</span> <span class="n">ZipFile</span><span class="p">,</span> <span class="n">ZipInfo</span><span class="p">,</span> <span class="n">ZIP_STORED</span><span class="p">,</span> <span class="n">ZIP_DEFLATED</span>
+
+<span class="kn">import</span> <span class="nn">zipimport</span>
+<span class="kn">import</span> <span class="nn">linecache</span>
+<span class="kn">import</span> <span class="nn">doctest</span>
+<span class="kn">import</span> <span class="nn">inspect</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">from</span> <span class="nn">traceback</span> <span class="kn">import</span> <span class="n">extract_tb</span><span class="p">,</span> <span class="n">extract_stack</span><span class="p">,</span> <span class="n">print_tb</span>
+
+<span class="n">test_src</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s">def get_name():</span>
+<span class="s">    return __name__</span>
+<span class="s">def get_file():</span>
+<span class="s">    return __file__</span>
+<span class="s">&quot;&quot;&quot;</span>
+<span class="n">test_co</span> <span class="o">=</span> <span class="nb">compile</span><span class="p">(</span><span class="n">test_src</span><span class="p">,</span> <span class="s">&quot;&lt;???&gt;&quot;</span><span class="p">,</span> <span class="s">&quot;exec&quot;</span><span class="p">)</span>
+<span class="n">raise_src</span> <span class="o">=</span> <span class="s">&#39;def do_raise(): raise TypeError</span><span class="se">\n</span><span class="s">&#39;</span>
+
+<div class="viewcode-block" id="make_pyc"><a class="viewcode-back" href="../../test.html#test.test_zipimport.make_pyc">[docs]</a><span class="k">def</span> <span class="nf">make_pyc</span><span class="p">(</span><span class="n">co</span><span class="p">,</span> <span class="n">mtime</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">marshal</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">co</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">mtime</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">type</span><span class="p">(</span><span class="mf">0.0</span><span class="p">):</span>
+        <span class="c"># Mac mtimes need a bit of special casing</span>
+        <span class="k">if</span> <span class="n">mtime</span> <span class="o">&lt;</span> <span class="mh">0x7fffffff</span><span class="p">:</span>
+            <span class="n">mtime</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">mtime</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mtime</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="o">-</span><span class="mh">0x100000000</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">mtime</span><span class="p">))</span>
+    <span class="n">pyc</span> <span class="o">=</span> <span class="p">(</span><span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">MAGIC_NUMBER</span> <span class="o">+</span>
+        <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&quot;&lt;ii&quot;</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">mtime</span><span class="p">),</span> <span class="n">size</span> <span class="o">&amp;</span> <span class="mh">0xFFFFFFFF</span><span class="p">)</span> <span class="o">+</span> <span class="n">data</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">pyc</span>
+</div>
+<div class="viewcode-block" id="module_path_to_dotted_name"><a class="viewcode-back" href="../../test.html#test.test_zipimport.module_path_to_dotted_name">[docs]</a><span class="k">def</span> <span class="nf">module_path_to_dotted_name</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">path</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">sep</span><span class="p">,</span> <span class="s">&#39;.&#39;</span><span class="p">)</span>
+</div>
+<span class="n">NOW</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+<span class="n">test_pyc</span> <span class="o">=</span> <span class="n">make_pyc</span><span class="p">(</span><span class="n">test_co</span><span class="p">,</span> <span class="n">NOW</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">test_src</span><span class="p">))</span>
+
+
+<span class="n">TESTMOD</span> <span class="o">=</span> <span class="s">&quot;ziptestmodule&quot;</span>
+<span class="n">TESTPACK</span> <span class="o">=</span> <span class="s">&quot;ziptestpackage&quot;</span>
+<span class="n">TESTPACK2</span> <span class="o">=</span> <span class="s">&quot;ziptestpackage2&quot;</span>
+<span class="n">TEMP_ZIP</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="s">&quot;junk95142.zip&quot;</span><span class="p">)</span>
+
+<span class="n">pyc_file</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">cache_from_source</span><span class="p">(</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&#39;.py&#39;</span><span class="p">)</span>
+<span class="n">pyc_ext</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;.pyc&#39;</span> <span class="k">if</span> <span class="n">__debug__</span> <span class="k">else</span> <span class="s">&#39;.pyo&#39;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ImportHooksBaseTestCase"><a class="viewcode-back" href="../../test.html#test.test_zipimport.ImportHooksBaseTestCase">[docs]</a><span class="k">class</span> <span class="nc">ImportHooksBaseTestCase</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="ImportHooksBaseTestCase.setUp"><a class="viewcode-back" href="../../test.html#test.test_zipimport.ImportHooksBaseTestCase.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">path</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">[:]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">meta_path</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">meta_path</span><span class="p">[:]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">path_hooks</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">path_hooks</span><span class="p">[:]</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path_importer_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">modules_before</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">modules_setup</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ImportHooksBaseTestCase.tearDown"><a class="viewcode-back" href="../../test.html#test.test_zipimport.ImportHooksBaseTestCase.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">[:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">meta_path</span><span class="p">[:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">meta_path</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path_hooks</span><span class="p">[:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">path_hooks</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path_importer_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">modules_cleanup</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">modules_before</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase">[docs]</a><span class="k">class</span> <span class="nc">UncompressedZipImportTestCase</span><span class="p">(</span><span class="n">ImportHooksBaseTestCase</span><span class="p">):</span>
+
+    <span class="n">compression</span> <span class="o">=</span> <span class="n">ZIP_STORED</span>
+
+<div class="viewcode-block" id="UncompressedZipImportTestCase.setUp"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># We&#39;re reusing the zip archive path, so we must clear the</span>
+        <span class="c"># cached directory info and linecache</span>
+        <span class="n">linecache</span><span class="o">.</span><span class="n">clearcache</span><span class="p">()</span>
+        <span class="n">zipimport</span><span class="o">.</span><span class="n">_zip_directory_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">ImportHooksBaseTestCase</span><span class="o">.</span><span class="n">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.doTest"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.doTest">[docs]</a>    <span class="k">def</span> <span class="nf">doTest</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">expected_ext</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="o">*</span><span class="n">modules</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">ZipFile</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="p">(</span><span class="n">mtime</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span> <span class="ow">in</span> <span class="n">files</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">zinfo</span> <span class="o">=</span> <span class="n">ZipInfo</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">localtime</span><span class="p">(</span><span class="n">mtime</span><span class="p">))</span>
+                <span class="n">zinfo</span><span class="o">.</span><span class="n">compress_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compression</span>
+                <span class="n">z</span><span class="o">.</span><span class="n">writestr</span><span class="p">(</span><span class="n">zinfo</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+            <span class="n">stuff</span> <span class="o">=</span> <span class="n">kw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;stuff&quot;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">stuff</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="c"># Prepend &#39;stuff&#39; to the start of the zipfile</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">,</span> <span class="s">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">,</span> <span class="s">&quot;wb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">stuff</span><span class="p">)</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+            <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">TEMP_ZIP</span><span class="p">)</span>
+
+            <span class="n">mod</span> <span class="o">=</span> <span class="nb">__import__</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">modules</span><span class="p">),</span> <span class="nb">globals</span><span class="p">(),</span> <span class="nb">locals</span><span class="p">(),</span>
+                             <span class="p">[</span><span class="s">&quot;__dummy__&quot;</span><span class="p">])</span>
+
+            <span class="n">call</span> <span class="o">=</span> <span class="n">kw</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;call&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">call</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">call</span><span class="p">(</span><span class="n">mod</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">expected_ext</span><span class="p">:</span>
+                <span class="nb">file</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">get_file</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">,</span>
+                                 <span class="o">*</span><span class="n">modules</span><span class="p">)</span> <span class="o">+</span> <span class="n">expected_ext</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testAFakeZlib"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testAFakeZlib">[docs]</a>    <span class="k">def</span> <span class="nf">testAFakeZlib</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c">#</span>
+        <span class="c"># This could cause a stack overflow before: importing zlib.py</span>
+        <span class="c"># from a compressed archive would cause zlib to be imported</span>
+        <span class="c"># which would find zlib.py in the archive, which would... etc.</span>
+        <span class="c">#</span>
+        <span class="c"># This test *must* be executed first: it must be the first one</span>
+        <span class="c"># to trigger zipimport to import zlib (zipimport caches the</span>
+        <span class="c"># zlib.decompress function object, after which the problem being</span>
+        <span class="c"># tested here wouldn&#39;t be a problem anymore...</span>
+        <span class="c"># (Hence the &#39;A&#39; in the test method name: to make it the first</span>
+        <span class="c"># item in a list sorted by name, like unittest.makeSuite() does.)</span>
+        <span class="c">#</span>
+        <span class="c"># This test fails on platforms on which the zlib module is</span>
+        <span class="c"># statically linked, but the problem it tests for can&#39;t</span>
+        <span class="c"># occur in that case (builtin modules are always found first),</span>
+        <span class="c"># so we&#39;ll simply skip it then. Bug #765456.</span>
+        <span class="c">#</span>
+        <span class="k">if</span> <span class="s">&quot;zlib&quot;</span> <span class="ow">in</span> <span class="n">sys</span><span class="o">.</span><span class="n">builtin_module_names</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">skipTest</span><span class="p">(</span><span class="s">&#39;zlib is a builtin module&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&quot;zlib&quot;</span> <span class="ow">in</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="s">&quot;zlib&quot;</span><span class="p">]</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;zlib.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">)}</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="s">&quot;zlib&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">compression</span> <span class="o">!=</span> <span class="n">ZIP_DEFLATED</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;expected test to not raise ImportError&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">compression</span> <span class="o">!=</span> <span class="n">ZIP_STORED</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;expected test to raise ImportError&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testPy"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testPy">[docs]</a>    <span class="k">def</span> <span class="nf">testPy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testPyc"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testPyc">[docs]</a>    <span class="k">def</span> <span class="nf">testPyc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="n">pyc_ext</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testBoth"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testBoth">[docs]</a>    <span class="k">def</span> <span class="nf">testBoth</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">),</span>
+                 <span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="n">pyc_ext</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testEmptyPy"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testEmptyPy">[docs]</a>    <span class="k">def</span> <span class="nf">testEmptyPy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testBadMagic"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testBadMagic">[docs]</a>    <span class="k">def</span> <span class="nf">testBadMagic</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># make pyc magic word invalid, forcing loading from .py</span>
+        <span class="n">badmagic_pyc</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">(</span><span class="n">test_pyc</span><span class="p">)</span>
+        <span class="n">badmagic_pyc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">^=</span> <span class="mh">0x04</span>  <span class="c"># flip an arbitrary bit</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">),</span>
+                 <span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">badmagic_pyc</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testBadMagic2"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testBadMagic2">[docs]</a>    <span class="k">def</span> <span class="nf">testBadMagic2</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># make pyc magic word invalid, causing an ImportError</span>
+        <span class="n">badmagic_pyc</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">(</span><span class="n">test_pyc</span><span class="p">)</span>
+        <span class="n">badmagic_pyc</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">^=</span> <span class="mh">0x04</span>  <span class="c"># flip an arbitrary bit</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">badmagic_pyc</span><span class="p">)}</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;expected ImportError; import from bad pyc&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testBadMTime"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testBadMTime">[docs]</a>    <span class="k">def</span> <span class="nf">testBadMTime</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">badtime_pyc</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">(</span><span class="n">test_pyc</span><span class="p">)</span>
+        <span class="c"># flip the second bit -- not the first as that one isn&#39;t stored in the</span>
+        <span class="c"># .py&#39;s mtime in the zip archive.</span>
+        <span class="n">badtime_pyc</span><span class="p">[</span><span class="mi">7</span><span class="p">]</span> <span class="o">^=</span> <span class="mh">0x02</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">),</span>
+                 <span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">badtime_pyc</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testPackage"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testPackage">[docs]</a>    <span class="k">def</span> <span class="nf">testPackage</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">packdir</span> <span class="o">=</span> <span class="n">TESTPACK</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">packdir</span> <span class="o">+</span> <span class="s">&quot;__init__&quot;</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">),</span>
+                 <span class="n">packdir</span> <span class="o">+</span> <span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="n">pyc_ext</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTPACK</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testDeepPackage"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testDeepPackage">[docs]</a>    <span class="k">def</span> <span class="nf">testDeepPackage</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">packdir</span> <span class="o">=</span> <span class="n">TESTPACK</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span>
+        <span class="n">packdir2</span> <span class="o">=</span> <span class="n">packdir</span> <span class="o">+</span> <span class="n">TESTPACK2</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">packdir</span> <span class="o">+</span> <span class="s">&quot;__init__&quot;</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">),</span>
+                 <span class="n">packdir2</span> <span class="o">+</span> <span class="s">&quot;__init__&quot;</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">),</span>
+                 <span class="n">packdir2</span> <span class="o">+</span> <span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="n">pyc_ext</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTPACK</span><span class="p">,</span> <span class="n">TESTPACK2</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testZipImporterMethods"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testZipImporterMethods">[docs]</a>    <span class="k">def</span> <span class="nf">testZipImporterMethods</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">packdir</span> <span class="o">=</span> <span class="n">TESTPACK</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span>
+        <span class="n">packdir2</span> <span class="o">=</span> <span class="n">packdir</span> <span class="o">+</span> <span class="n">TESTPACK2</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">packdir</span> <span class="o">+</span> <span class="s">&quot;__init__&quot;</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">),</span>
+                 <span class="n">packdir2</span> <span class="o">+</span> <span class="s">&quot;__init__&quot;</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">),</span>
+                 <span class="n">packdir2</span> <span class="o">+</span> <span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">)}</span>
+
+        <span class="n">z</span> <span class="o">=</span> <span class="n">ZipFile</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="p">(</span><span class="n">mtime</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span> <span class="ow">in</span> <span class="n">files</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">zinfo</span> <span class="o">=</span> <span class="n">ZipInfo</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">localtime</span><span class="p">(</span><span class="n">mtime</span><span class="p">))</span>
+                <span class="n">zinfo</span><span class="o">.</span><span class="n">compress_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compression</span>
+                <span class="n">zinfo</span><span class="o">.</span><span class="n">comment</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;spam&quot;</span>
+                <span class="n">z</span><span class="o">.</span><span class="n">writestr</span><span class="p">(</span><span class="n">zinfo</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+            <span class="n">zi</span> <span class="o">=</span> <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">archive</span><span class="p">,</span> <span class="n">TEMP_ZIP</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">is_package</span><span class="p">(</span><span class="n">TESTPACK</span><span class="p">),</span> <span class="bp">True</span><span class="p">)</span>
+            <span class="n">mod</span> <span class="o">=</span> <span class="n">zi</span><span class="o">.</span><span class="n">load_module</span><span class="p">(</span><span class="n">TESTPACK</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">get_filename</span><span class="p">(</span><span class="n">TESTPACK</span><span class="p">),</span> <span class="n">mod</span><span class="o">.</span><span class="n">__file__</span><span class="p">)</span>
+
+            <span class="n">existing_pack_path</span> <span class="o">=</span> <span class="nb">__import__</span><span class="p">(</span><span class="n">TESTPACK</span><span class="p">)</span><span class="o">.</span><span class="n">__path__</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">expected_path_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">,</span> <span class="n">TESTPACK</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">existing_pack_path</span><span class="p">,</span> <span class="n">expected_path_path</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">is_package</span><span class="p">(</span><span class="n">packdir</span> <span class="o">+</span> <span class="s">&#39;__init__&#39;</span><span class="p">),</span> <span class="bp">False</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">is_package</span><span class="p">(</span><span class="n">packdir</span> <span class="o">+</span> <span class="n">TESTPACK2</span><span class="p">),</span> <span class="bp">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">is_package</span><span class="p">(</span><span class="n">packdir2</span> <span class="o">+</span> <span class="n">TESTMOD</span><span class="p">),</span> <span class="bp">False</span><span class="p">)</span>
+
+            <span class="n">mod_path</span> <span class="o">=</span> <span class="n">packdir2</span> <span class="o">+</span> <span class="n">TESTMOD</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="n">module_path_to_dotted_name</span><span class="p">(</span><span class="n">mod_path</span><span class="p">)</span>
+            <span class="nb">__import__</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">mod</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="n">mod_name</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">get_source</span><span class="p">(</span><span class="n">TESTPACK</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">get_source</span><span class="p">(</span><span class="n">mod_path</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">get_filename</span><span class="p">(</span><span class="n">mod_path</span><span class="p">),</span> <span class="n">mod</span><span class="o">.</span><span class="n">__file__</span><span class="p">)</span>
+            <span class="c"># To pass in the module name instead of the path, we must use the</span>
+            <span class="c"># right importer</span>
+            <span class="n">loader</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">__loader__</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">loader</span><span class="o">.</span><span class="n">get_source</span><span class="p">(</span><span class="n">mod_name</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">loader</span><span class="o">.</span><span class="n">get_filename</span><span class="p">(</span><span class="n">mod_name</span><span class="p">),</span> <span class="n">mod</span><span class="o">.</span><span class="n">__file__</span><span class="p">)</span>
+
+            <span class="c"># test prefix and archivepath members</span>
+            <span class="n">zi2</span> <span class="o">=</span> <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">(</span><span class="n">TEMP_ZIP</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span> <span class="o">+</span> <span class="n">TESTPACK</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi2</span><span class="o">.</span><span class="n">archive</span><span class="p">,</span> <span class="n">TEMP_ZIP</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi2</span><span class="o">.</span><span class="n">prefix</span><span class="p">,</span> <span class="n">TESTPACK</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testZipImporterMethodsInSubDirectory"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testZipImporterMethodsInSubDirectory">[docs]</a>    <span class="k">def</span> <span class="nf">testZipImporterMethodsInSubDirectory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">packdir</span> <span class="o">=</span> <span class="n">TESTPACK</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span>
+        <span class="n">packdir2</span> <span class="o">=</span> <span class="n">packdir</span> <span class="o">+</span> <span class="n">TESTPACK2</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">packdir2</span> <span class="o">+</span> <span class="s">&quot;__init__&quot;</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">),</span>
+                 <span class="n">packdir2</span> <span class="o">+</span> <span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_pyc</span><span class="p">)}</span>
+
+        <span class="n">z</span> <span class="o">=</span> <span class="n">ZipFile</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="p">(</span><span class="n">mtime</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span> <span class="ow">in</span> <span class="n">files</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">zinfo</span> <span class="o">=</span> <span class="n">ZipInfo</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">localtime</span><span class="p">(</span><span class="n">mtime</span><span class="p">))</span>
+                <span class="n">zinfo</span><span class="o">.</span><span class="n">compress_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compression</span>
+                <span class="n">zinfo</span><span class="o">.</span><span class="n">comment</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;eggs&quot;</span>
+                <span class="n">z</span><span class="o">.</span><span class="n">writestr</span><span class="p">(</span><span class="n">zinfo</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+            <span class="n">zi</span> <span class="o">=</span> <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">(</span><span class="n">TEMP_ZIP</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span> <span class="o">+</span> <span class="n">packdir</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">archive</span><span class="p">,</span> <span class="n">TEMP_ZIP</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">prefix</span><span class="p">,</span> <span class="n">packdir</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">is_package</span><span class="p">(</span><span class="n">TESTPACK2</span><span class="p">),</span> <span class="bp">True</span><span class="p">)</span>
+            <span class="n">mod</span> <span class="o">=</span> <span class="n">zi</span><span class="o">.</span><span class="n">load_module</span><span class="p">(</span><span class="n">TESTPACK2</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">get_filename</span><span class="p">(</span><span class="n">TESTPACK2</span><span class="p">),</span> <span class="n">mod</span><span class="o">.</span><span class="n">__file__</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span>
+                <span class="n">zi</span><span class="o">.</span><span class="n">is_package</span><span class="p">(</span><span class="n">TESTPACK2</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span> <span class="o">+</span> <span class="s">&#39;__init__&#39;</span><span class="p">),</span> <span class="bp">False</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span>
+                <span class="n">zi</span><span class="o">.</span><span class="n">is_package</span><span class="p">(</span><span class="n">TESTPACK2</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span> <span class="o">+</span> <span class="n">TESTMOD</span><span class="p">),</span> <span class="bp">False</span><span class="p">)</span>
+
+            <span class="n">mod_path</span> <span class="o">=</span> <span class="n">TESTPACK2</span> <span class="o">+</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span> <span class="o">+</span> <span class="n">TESTMOD</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="n">module_path_to_dotted_name</span><span class="p">(</span><span class="n">mod_path</span><span class="p">)</span>
+            <span class="nb">__import__</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">mod</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="n">mod_name</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">get_source</span><span class="p">(</span><span class="n">TESTPACK2</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">get_source</span><span class="p">(</span><span class="n">mod_path</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">zi</span><span class="o">.</span><span class="n">get_filename</span><span class="p">(</span><span class="n">mod_path</span><span class="p">),</span> <span class="n">mod</span><span class="o">.</span><span class="n">__file__</span><span class="p">)</span>
+            <span class="c"># To pass in the module name instead of the path, we must use the</span>
+            <span class="c"># right importer</span>
+            <span class="n">loader</span> <span class="o">=</span> <span class="n">mod</span><span class="o">.</span><span class="n">__loader__</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">loader</span><span class="o">.</span><span class="n">get_source</span><span class="p">(</span><span class="n">mod_name</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">loader</span><span class="o">.</span><span class="n">get_filename</span><span class="p">(</span><span class="n">mod_name</span><span class="p">),</span> <span class="n">mod</span><span class="o">.</span><span class="n">__file__</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testGetData"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testGetData">[docs]</a>    <span class="k">def</span> <span class="nf">testGetData</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">ZipFile</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">)</span>
+        <span class="n">z</span><span class="o">.</span><span class="n">compression</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compression</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="s">&quot;testdata.dat&quot;</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">256</span><span class="p">))</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">writestr</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="n">zi</span> <span class="o">=</span> <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">zi</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&#39;zipimporter object&#39;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">zi</span><span class="p">))</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">TEMP_ZIP</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testImporterAttr"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testImporterAttr">[docs]</a>    <span class="k">def</span> <span class="nf">testImporterAttr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">src</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:  # indent hack</span>
+<span class="s">        def get_file():</span>
+<span class="s">            return __file__</span>
+<span class="s">        if __loader__.get_data(&quot;some.data&quot;) != b&quot;some data&quot;:</span>
+<span class="s">            raise AssertionError(&quot;bad data&quot;)</span><span class="se">\n</span><span class="s">&quot;&quot;&quot;</span>
+        <span class="n">pyc</span> <span class="o">=</span> <span class="n">make_pyc</span><span class="p">(</span><span class="nb">compile</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="s">&quot;&lt;???&gt;&quot;</span><span class="p">,</span> <span class="s">&quot;exec&quot;</span><span class="p">),</span> <span class="n">NOW</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">src</span><span class="p">))</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">pyc</span><span class="p">),</span>
+                 <span class="s">&quot;some.data&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="s">&quot;some data&quot;</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="n">pyc_ext</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testImport_WithStuff"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testImport_WithStuff">[docs]</a>    <span class="k">def</span> <span class="nf">testImport_WithStuff</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># try importing from a zipfile which contains additional</span>
+        <span class="c"># stuff at the beginning of the file</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">,</span>
+                    <span class="n">stuff</span><span class="o">=</span><span class="n">b</span><span class="s">&quot;Some Stuff&quot;</span><span class="o">*</span><span class="mi">31</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.assertModuleSource"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.assertModuleSource">[docs]</a>    <span class="k">def</span> <span class="nf">assertModuleSource</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">inspect</span><span class="o">.</span><span class="n">getsource</span><span class="p">(</span><span class="n">module</span><span class="p">),</span> <span class="n">test_src</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testGetSource"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testGetSource">[docs]</a>    <span class="k">def</span> <span class="nf">testGetSource</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">,</span> <span class="n">call</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">assertModuleSource</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testGetCompiledSource"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testGetCompiledSource">[docs]</a>    <span class="k">def</span> <span class="nf">testGetCompiledSource</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">pyc</span> <span class="o">=</span> <span class="n">make_pyc</span><span class="p">(</span><span class="nb">compile</span><span class="p">(</span><span class="n">test_src</span><span class="p">,</span> <span class="s">&quot;&lt;???&gt;&quot;</span><span class="p">,</span> <span class="s">&quot;exec&quot;</span><span class="p">),</span> <span class="n">NOW</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">test_src</span><span class="p">))</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">),</span>
+                 <span class="n">TESTMOD</span> <span class="o">+</span> <span class="n">pyc_ext</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">pyc</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="n">pyc_ext</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">,</span> <span class="n">call</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">assertModuleSource</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.runDoctest"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.runDoctest">[docs]</a>    <span class="k">def</span> <span class="nf">runDoctest</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">test_src</span><span class="p">),</span>
+                 <span class="s">&quot;xyz.txt&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="s">&quot;&gt;&gt;&gt; log.append(True)</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">,</span> <span class="n">call</span><span class="o">=</span><span class="n">callback</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.doDoctestFile"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.doDoctestFile">[docs]</a>    <span class="k">def</span> <span class="nf">doDoctestFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
+        <span class="n">log</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">old_master</span><span class="p">,</span> <span class="n">doctest</span><span class="o">.</span><span class="n">master</span> <span class="o">=</span> <span class="n">doctest</span><span class="o">.</span><span class="n">master</span><span class="p">,</span> <span class="bp">None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">doctest</span><span class="o">.</span><span class="n">testfile</span><span class="p">(</span>
+                <span class="s">&#39;xyz.txt&#39;</span><span class="p">,</span> <span class="n">package</span><span class="o">=</span><span class="n">module</span><span class="p">,</span> <span class="n">module_relative</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                <span class="n">globs</span><span class="o">=</span><span class="nb">locals</span><span class="p">()</span>
+            <span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">doctest</span><span class="o">.</span><span class="n">master</span> <span class="o">=</span> <span class="n">old_master</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">log</span><span class="p">,[</span><span class="bp">True</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testDoctestFile"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testDoctestFile">[docs]</a>    <span class="k">def</span> <span class="nf">testDoctestFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">runDoctest</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">doDoctestFile</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.doDoctestSuite"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.doDoctestSuite">[docs]</a>    <span class="k">def</span> <span class="nf">doDoctestSuite</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
+        <span class="n">log</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">doctest</span><span class="o">.</span><span class="n">DocFileTest</span><span class="p">(</span>
+            <span class="s">&#39;xyz.txt&#39;</span><span class="p">,</span> <span class="n">package</span><span class="o">=</span><span class="n">module</span><span class="p">,</span> <span class="n">module_relative</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+            <span class="n">globs</span><span class="o">=</span><span class="nb">locals</span><span class="p">()</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">log</span><span class="p">,[</span><span class="bp">True</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testDoctestSuite"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testDoctestSuite">[docs]</a>    <span class="k">def</span> <span class="nf">testDoctestSuite</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">runDoctest</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">doDoctestSuite</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.doTraceback"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.doTraceback">[docs]</a>    <span class="k">def</span> <span class="nf">doTraceback</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">module</span><span class="o">.</span><span class="n">do_raise</span><span class="p">()</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="n">tb</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">()[</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">tb_next</span>
+
+            <span class="n">f</span><span class="p">,</span><span class="n">lno</span><span class="p">,</span><span class="n">n</span><span class="p">,</span><span class="n">line</span> <span class="o">=</span> <span class="n">extract_tb</span><span class="p">(</span><span class="n">tb</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">line</span><span class="p">,</span> <span class="n">raise_src</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+
+            <span class="n">f</span><span class="p">,</span><span class="n">lno</span><span class="p">,</span><span class="n">n</span><span class="p">,</span><span class="n">line</span> <span class="o">=</span> <span class="n">extract_stack</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">tb_frame</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">line</span><span class="p">,</span> <span class="n">raise_src</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+
+            <span class="n">s</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+            <span class="n">print_tb</span><span class="p">(</span><span class="n">tb</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">s</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="n">raise_src</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&quot;This ought to be impossible&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testTraceback"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testTraceback">[docs]</a>    <span class="k">def</span> <span class="nf">testTraceback</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">{</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">:</span> <span class="p">(</span><span class="n">NOW</span><span class="p">,</span> <span class="n">raise_src</span><span class="p">)}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">doTest</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">files</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">,</span> <span class="n">call</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">doTraceback</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">support</span><span class="o">.</span><span class="n">TESTFN_UNENCODABLE</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">,</span>
+                     <span class="s">&quot;need an unencodable filename&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="UncompressedZipImportTestCase.testUnencodable"><a class="viewcode-back" href="../../test.html#test.test_zipimport.UncompressedZipImportTestCase.testUnencodable">[docs]</a>    <span class="k">def</span> <span class="nf">testUnencodable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">TESTFN_UNENCODABLE</span> <span class="o">+</span> <span class="s">&quot;.zip&quot;</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">ZipFile</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">)</span>
+        <span class="n">zinfo</span> <span class="o">=</span> <span class="n">ZipInfo</span><span class="p">(</span><span class="n">TESTMOD</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">,</span> <span class="n">time</span><span class="o">.</span><span class="n">localtime</span><span class="p">(</span><span class="n">NOW</span><span class="p">))</span>
+        <span class="n">zinfo</span><span class="o">.</span><span class="n">compress_type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compression</span>
+        <span class="n">z</span><span class="o">.</span><span class="n">writestr</span><span class="p">(</span><span class="n">zinfo</span><span class="p">,</span> <span class="n">test_src</span><span class="p">)</span>
+        <span class="n">z</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+
+</div></div>
+<span class="nd">@support.requires_zlib</span>
+<div class="viewcode-block" id="CompressedZipImportTestCase"><a class="viewcode-back" href="../../test.html#test.test_zipimport.CompressedZipImportTestCase">[docs]</a><span class="k">class</span> <span class="nc">CompressedZipImportTestCase</span><span class="p">(</span><span class="n">UncompressedZipImportTestCase</span><span class="p">):</span>
+    <span class="n">compression</span> <span class="o">=</span> <span class="n">ZIP_DEFLATED</span>
+
+</div>
+<div class="viewcode-block" id="BadFileZipImportTestCase"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase">[docs]</a><span class="k">class</span> <span class="nc">BadFileZipImportTestCase</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="BadFileZipImportTestCase.assertZipFailure"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase.assertZipFailure">[docs]</a>    <span class="k">def</span> <span class="nf">assertZipFailure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">zipimport</span><span class="o">.</span><span class="n">ZipImportError</span><span class="p">,</span>
+                          <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BadFileZipImportTestCase.testNoFile"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase.testNoFile">[docs]</a>    <span class="k">def</span> <span class="nf">testNoFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertZipFailure</span><span class="p">(</span><span class="s">&#39;AdfjdkFJKDFJjdklfjs&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BadFileZipImportTestCase.testEmptyFilename"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase.testEmptyFilename">[docs]</a>    <span class="k">def</span> <span class="nf">testEmptyFilename</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertZipFailure</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BadFileZipImportTestCase.testBadArgs"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase.testBadArgs">[docs]</a>    <span class="k">def</span> <span class="nf">testBadArgs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">,</span> <span class="n">TESTMOD</span><span class="p">,</span> <span class="n">kwd</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BadFileZipImportTestCase.testFilenameTooLong"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase.testFilenameTooLong">[docs]</a>    <span class="k">def</span> <span class="nf">testFilenameTooLong</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertZipFailure</span><span class="p">(</span><span class="s">&#39;A&#39;</span> <span class="o">*</span> <span class="mi">33000</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BadFileZipImportTestCase.testEmptyFile"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase.testEmptyFile">[docs]</a>    <span class="k">def</span> <span class="nf">testEmptyFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">create_empty_file</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertZipFailure</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BadFileZipImportTestCase.testFileUnreadable"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase.testFileUnreadable">[docs]</a>    <span class="k">def</span> <span class="nf">testFileUnreadable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">O_CREAT</span><span class="p">,</span> <span class="mo">000</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertZipFailure</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c"># If we leave &quot;the read-only bit&quot; set on Windows, nothing can</span>
+            <span class="c"># delete TESTMOD, and later tests suffer bogus failures.</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">,</span> <span class="mi">0</span><span class="n">o666</span><span class="p">)</span>
+            <span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BadFileZipImportTestCase.testNotZipFile"><a class="viewcode-back" href="../../test.html#test.test_zipimport.BadFileZipImportTestCase.testNotZipFile">[docs]</a>    <span class="k">def</span> <span class="nf">testNotZipFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+        <span class="n">fp</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">,</span> <span class="s">&#39;w+&#39;</span><span class="p">)</span>
+        <span class="n">fp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;a&#39;</span> <span class="o">*</span> <span class="mi">22</span><span class="p">)</span>
+        <span class="n">fp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertZipFailure</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+
+    <span class="c"># XXX: disabled until this works on Big-endian machines</span></div>
+    <span class="k">def</span> <span class="nf">_testBogusZipFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+        <span class="n">fp</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">,</span> <span class="s">&#39;w+&#39;</span><span class="p">)</span>
+        <span class="n">fp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&#39;=I&#39;</span><span class="p">,</span> <span class="mh">0x06054B50</span><span class="p">))</span>
+        <span class="n">fp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;a&#39;</span> <span class="o">*</span> <span class="mi">18</span><span class="p">)</span>
+        <span class="n">fp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">z</span> <span class="o">=</span> <span class="n">zipimport</span><span class="o">.</span><span class="n">zipimporter</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">find_module</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">load_module</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">is_package</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">get_code</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">get_data</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">get_source</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+            <span class="n">error</span> <span class="o">=</span> <span class="n">zipimport</span><span class="o">.</span><span class="n">ZipImportError</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">z</span><span class="o">.</span><span class="n">find_module</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">load_module</span><span class="p">,</span> <span class="s">&#39;abc&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">get_code</span><span class="p">,</span> <span class="s">&#39;abc&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">get_data</span><span class="p">,</span> <span class="s">&#39;abc&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">get_source</span><span class="p">,</span> <span class="s">&#39;abc&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">error</span><span class="p">,</span> <span class="n">z</span><span class="o">.</span><span class="n">is_package</span><span class="p">,</span> <span class="s">&#39;abc&#39;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">zipimport</span><span class="o">.</span><span class="n">_zip_directory_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_zipimport.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">():</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">run_unittest</span><span class="p">(</span>
+              <span class="n">UncompressedZipImportTestCase</span><span class="p">,</span>
+              <span class="n">CompressedZipImportTestCase</span><span class="p">,</span>
+              <span class="n">BadFileZipImportTestCase</span><span class="p">,</span>
+            <span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">TESTMOD</span><span class="p">)</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

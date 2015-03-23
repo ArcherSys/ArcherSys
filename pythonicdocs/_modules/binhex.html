@@ -1,0 +1,563 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>binhex &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for binhex</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Macintosh binhex compression/decompression.</span>
+
+<span class="sd">easy interface:</span>
+<span class="sd">binhex(inputfilename, outputfilename)</span>
+<span class="sd">hexbin(inputfilename, outputfilename)</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#</span>
+<span class="c"># Jack Jansen, CWI, August 1995.</span>
+<span class="c">#</span>
+<span class="c"># The module is supposed to be as compatible as possible. Especially the</span>
+<span class="c"># easy interface should work &quot;as expected&quot; on any platform.</span>
+<span class="c"># XXXX Note: currently, textfiles appear in mac-form on all platforms.</span>
+<span class="c"># We seem to lack a simple character-translate in python.</span>
+<span class="c"># (we should probably use ISO-Latin-1 on all but the mac platform).</span>
+<span class="c"># XXXX The simple routines are too simple: they expect to hold the complete</span>
+<span class="c"># files in-core. Should be fixed.</span>
+<span class="c"># XXXX It would be nice to handle AppleDouble format on unix</span>
+<span class="c"># (for servers serving macs).</span>
+<span class="c"># XXXX I don&#39;t understand what happens when you get 0x90 times the same byte on</span>
+<span class="c"># input. The resulting code (xx 90 90) would appear to be interpreted as an</span>
+<span class="c"># escaped *value* of 0x90. All coders I&#39;ve seen appear to ignore this nicety...</span>
+<span class="c">#</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+<span class="kn">import</span> <span class="nn">binascii</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;binhex&quot;</span><span class="p">,</span><span class="s">&quot;hexbin&quot;</span><span class="p">,</span><span class="s">&quot;Error&quot;</span><span class="p">]</span>
+
+<div class="viewcode-block" id="Error"><a class="viewcode-back" href="../binhex.html#binhex.Error">[docs]</a><span class="k">class</span> <span class="nc">Error</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+<span class="c"># States (what have we written)</span></div>
+<span class="p">[</span><span class="n">_DID_HEADER</span><span class="p">,</span> <span class="n">_DID_DATA</span><span class="p">,</span> <span class="n">_DID_RSRC</span><span class="p">]</span> <span class="o">=</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+
+<span class="c"># Various constants</span>
+<span class="n">REASONABLY_LARGE</span> <span class="o">=</span> <span class="mi">32768</span>  <span class="c"># Minimal amount we pass the rle-coder</span>
+<span class="n">LINELEN</span> <span class="o">=</span> <span class="mi">64</span>
+<span class="n">RUNCHAR</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\x90</span><span class="s">&quot;</span>
+
+<span class="c">#</span>
+<span class="c"># This code is no longer byte-order dependent</span>
+
+
+<span class="k">class</span> <span class="nc">FInfo</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Type</span> <span class="o">=</span> <span class="s">&#39;????&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Creator</span> <span class="o">=</span> <span class="s">&#39;????&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">Flags</span> <span class="o">=</span> <span class="mi">0</span>
+
+<span class="k">def</span> <span class="nf">getfileinfo</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+    <span class="n">finfo</span> <span class="o">=</span> <span class="n">FInfo</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+        <span class="c"># Quick check for textfile</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">512</span><span class="p">)</span>
+        <span class="k">if</span> <span class="mi">0</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">finfo</span><span class="o">.</span><span class="n">Type</span> <span class="o">=</span> <span class="s">&#39;TEXT&#39;</span>
+        <span class="n">fp</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">dsize</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span>
+    <span class="nb">dir</span><span class="p">,</span> <span class="nb">file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="nb">file</span> <span class="o">=</span> <span class="nb">file</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;:&#39;</span><span class="p">,</span> <span class="s">&#39;-&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">file</span><span class="p">,</span> <span class="n">finfo</span><span class="p">,</span> <span class="n">dsize</span><span class="p">,</span> <span class="mi">0</span>
+
+<span class="k">class</span> <span class="nc">openrsrc</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+<span class="k">class</span> <span class="nc">_Hqxcoderengine</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Write data to the coder in 3-byte chunks&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ofp</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span> <span class="o">=</span> <span class="n">ofp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linelen</span> <span class="o">=</span> <span class="n">LINELEN</span> <span class="o">-</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">+</span> <span class="n">data</span>
+        <span class="n">datalen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+        <span class="n">todo</span> <span class="o">=</span> <span class="p">(</span><span class="n">datalen</span> <span class="o">//</span> <span class="mi">3</span><span class="p">)</span> <span class="o">*</span> <span class="mi">3</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[:</span><span class="n">todo</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">todo</span><span class="p">:]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span> <span class="o">+</span> <span class="n">binascii</span><span class="o">.</span><span class="n">b2a_hqx</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_flush</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_flush</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">force</span><span class="p">):</span>
+        <span class="n">first</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">while</span> <span class="n">first</span> <span class="o">&lt;=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span><span class="p">)</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">linelen</span><span class="p">:</span>
+            <span class="n">last</span> <span class="o">=</span> <span class="n">first</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">linelen</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span><span class="p">[</span><span class="n">first</span><span class="p">:</span><span class="n">last</span><span class="p">]</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">linelen</span> <span class="o">=</span> <span class="n">LINELEN</span>
+            <span class="n">first</span> <span class="o">=</span> <span class="n">last</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span><span class="p">[</span><span class="n">first</span><span class="p">:]</span>
+        <span class="k">if</span> <span class="n">force</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;:</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">hqxdata</span> <span class="o">+</span> <span class="n">binascii</span><span class="o">.</span><span class="n">b2a_hqx</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_flush</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span>
+
+<span class="k">class</span> <span class="nc">_Rlecoderengine</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Write data to the RLE-coder in suitably large chunks&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ofp</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span> <span class="o">=</span> <span class="n">ofp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">+</span> <span class="n">data</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">REASONABLY_LARGE</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">rledata</span> <span class="o">=</span> <span class="n">binascii</span><span class="o">.</span><span class="n">rlecode_hqx</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">rledata</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">:</span>
+            <span class="n">rledata</span> <span class="o">=</span> <span class="n">binascii</span><span class="o">.</span><span class="n">rlecode_hqx</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">rledata</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span>
+
+<span class="k">class</span> <span class="nc">BinHex</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name_finfo_dlen_rlen</span><span class="p">,</span> <span class="n">ofp</span><span class="p">):</span>
+        <span class="n">name</span><span class="p">,</span> <span class="n">finfo</span><span class="p">,</span> <span class="n">dlen</span><span class="p">,</span> <span class="n">rlen</span> <span class="o">=</span> <span class="n">name_finfo_dlen_rlen</span>
+        <span class="n">close_on_error</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ofp</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">ofname</span> <span class="o">=</span> <span class="n">ofp</span>
+            <span class="n">ofp</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">ofname</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">)</span>
+            <span class="n">close_on_error</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;(This file must be converted with BinHex 4.0)</span><span class="se">\r\r</span><span class="s">:&#39;</span><span class="p">)</span>
+            <span class="n">hqxer</span> <span class="o">=</span> <span class="n">_Hqxcoderengine</span><span class="p">(</span><span class="n">ofp</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span> <span class="o">=</span> <span class="n">_Rlecoderengine</span><span class="p">(</span><span class="n">hqxer</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">if</span> <span class="n">finfo</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">finfo</span> <span class="o">=</span> <span class="n">FInfo</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span> <span class="o">=</span> <span class="n">dlen</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span> <span class="o">=</span> <span class="n">rlen</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_writeinfo</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">finfo</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="n">_DID_HEADER</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">close_on_error</span><span class="p">:</span>
+                <span class="n">ofp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">_writeinfo</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">finfo</span><span class="p">):</span>
+        <span class="n">nl</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">nl</span> <span class="o">&gt;</span> <span class="mi">63</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Filename too long&#39;</span><span class="p">)</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">([</span><span class="n">nl</span><span class="p">])</span> <span class="o">+</span> <span class="n">name</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;latin-1&quot;</span><span class="p">)</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\0</span><span class="s">&#39;</span>
+        <span class="n">tp</span><span class="p">,</span> <span class="n">cr</span> <span class="o">=</span> <span class="n">finfo</span><span class="o">.</span><span class="n">Type</span><span class="p">,</span> <span class="n">finfo</span><span class="o">.</span><span class="n">Creator</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">tp</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">tp</span> <span class="o">=</span> <span class="n">tp</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;latin-1&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cr</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">cr</span> <span class="o">=</span> <span class="n">cr</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;latin-1&quot;</span><span class="p">)</span>
+        <span class="n">d2</span> <span class="o">=</span> <span class="n">tp</span> <span class="o">+</span> <span class="n">cr</span>
+
+        <span class="c"># Force all structs to be packed with big-endian</span>
+        <span class="n">d3</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&#39;&gt;h&#39;</span><span class="p">,</span> <span class="n">finfo</span><span class="o">.</span><span class="n">Flags</span><span class="p">)</span>
+        <span class="n">d4</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&#39;&gt;ii&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span><span class="p">)</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="n">d</span> <span class="o">+</span> <span class="n">d2</span> <span class="o">+</span> <span class="n">d3</span> <span class="o">+</span> <span class="n">d4</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_writecrc</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">=</span> <span class="n">binascii</span><span class="o">.</span><span class="n">crc_hqx</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">crc</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_writecrc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># XXXX Should this be here??</span>
+        <span class="c"># self.crc = binascii.crc_hqx(&#39;\0\0&#39;, self.crc)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">fmt</span> <span class="o">=</span> <span class="s">&#39;&gt;h&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fmt</span> <span class="o">=</span> <span class="s">&#39;&gt;H&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">crc</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">_DID_HEADER</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Writing data at the wrong time&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">close_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Incorrect data size, diff=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rlen</span><span class="p">,))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_writecrc</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="n">_DID_DATA</span>
+
+    <span class="k">def</span> <span class="nf">write_rsrc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">&lt;</span> <span class="n">_DID_DATA</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close_data</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">_DID_DATA</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Writing resource data at the wrong time&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">&lt;</span> <span class="n">_DID_DATA</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close_data</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">_DID_DATA</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Close at the wrong time&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&quot;Incorrect resource-datasize, diff=</span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rlen</span><span class="p">,))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_writecrc</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">ofp</span>
+
+<div class="viewcode-block" id="binhex"><a class="viewcode-back" href="../binhex.html#binhex.binhex">[docs]</a><span class="k">def</span> <span class="nf">binhex</span><span class="p">(</span><span class="n">inp</span><span class="p">,</span> <span class="n">out</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;binhex(infilename, outfilename): create binhex-encoded copy of a file&quot;&quot;&quot;</span>
+    <span class="n">finfo</span> <span class="o">=</span> <span class="n">getfileinfo</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
+    <span class="n">ofp</span> <span class="o">=</span> <span class="n">BinHex</span><span class="p">(</span><span class="n">finfo</span><span class="p">,</span> <span class="n">out</span><span class="p">)</span>
+
+    <span class="n">ifp</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">inp</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span>
+    <span class="c"># XXXX Do textfile translation on non-mac systems</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">128000</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">d</span><span class="p">:</span> <span class="k">break</span>
+        <span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+    <span class="n">ofp</span><span class="o">.</span><span class="n">close_data</span><span class="p">()</span>
+    <span class="n">ifp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="n">ifp</span> <span class="o">=</span> <span class="n">openrsrc</span><span class="p">(</span><span class="n">inp</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">128000</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">d</span><span class="p">:</span> <span class="k">break</span>
+        <span class="n">ofp</span><span class="o">.</span><span class="n">write_rsrc</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+    <span class="n">ofp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">ifp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<span class="k">class</span> <span class="nc">_Hqxdecoderengine</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Read data via the decoder in 4-byte chunks&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ifp</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span> <span class="o">=</span> <span class="n">ifp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">eof</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">totalwtd</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Read at least wtd bytes (or until EOF)&quot;&quot;&quot;</span>
+        <span class="n">decdata</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="n">wtd</span> <span class="o">=</span> <span class="n">totalwtd</span>
+        <span class="c">#</span>
+        <span class="c"># The loop here is convoluted, since we don&#39;t really now how</span>
+        <span class="c"># much to decode: there may be newlines in the incoming data.</span>
+        <span class="k">while</span> <span class="n">wtd</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">eof</span><span class="p">:</span> <span class="k">return</span> <span class="n">decdata</span>
+            <span class="n">wtd</span> <span class="o">=</span> <span class="p">((</span><span class="n">wtd</span> <span class="o">+</span> <span class="mi">2</span><span class="p">)</span> <span class="o">//</span> <span class="mi">3</span><span class="p">)</span> <span class="o">*</span> <span class="mi">4</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">wtd</span><span class="p">)</span>
+            <span class="c">#</span>
+            <span class="c"># Next problem: there may not be a complete number of</span>
+            <span class="c"># bytes in what we pass to a2b. Solve by yet another</span>
+            <span class="c"># loop.</span>
+            <span class="c">#</span>
+            <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">decdatacur</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">eof</span> <span class="o">=</span> <span class="n">binascii</span><span class="o">.</span><span class="n">a2b_hqx</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                    <span class="k">break</span>
+                <span class="k">except</span> <span class="n">binascii</span><span class="o">.</span><span class="n">Incomplete</span><span class="p">:</span>
+                    <span class="k">pass</span>
+                <span class="n">newdata</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">newdata</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Premature EOF on binhex file&#39;</span><span class="p">)</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">data</span> <span class="o">+</span> <span class="n">newdata</span>
+            <span class="n">decdata</span> <span class="o">=</span> <span class="n">decdata</span> <span class="o">+</span> <span class="n">decdatacur</span>
+            <span class="n">wtd</span> <span class="o">=</span> <span class="n">totalwtd</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">decdata</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">decdata</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">eof</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Premature EOF on binhex file&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">decdata</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<span class="k">class</span> <span class="nc">_Rledecoderengine</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Read data via the RLE-coder&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ifp</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span> <span class="o">=</span> <span class="n">ifp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">eof</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">wtd</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">wtd</span> <span class="o">&gt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fill</span><span class="p">(</span><span class="n">wtd</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span><span class="p">))</span>
+        <span class="n">rv</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span><span class="p">[:</span><span class="n">wtd</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span><span class="p">[</span><span class="n">wtd</span><span class="p">:]</span>
+        <span class="k">return</span> <span class="n">rv</span>
+
+    <span class="k">def</span> <span class="nf">_fill</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">wtd</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">wtd</span> <span class="o">+</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">eof</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span> <span class="o">+</span> \
+                <span class="n">binascii</span><span class="o">.</span><span class="n">rledecode_hqx</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+            <span class="k">return</span>
+
+        <span class="c">#</span>
+        <span class="c"># Obfuscated code ahead. We have to take care that we don&#39;t</span>
+        <span class="c"># end up with an orphaned RUNCHAR later on. So, we keep a couple</span>
+        <span class="c"># of bytes in the buffer, depending on what the end of</span>
+        <span class="c"># the buffer looks like:</span>
+        <span class="c"># &#39;\220\0\220&#39; - Keep 3 bytes: repeated \220 (escaped as \220\0)</span>
+        <span class="c"># &#39;?\220&#39; - Keep 2 bytes: repeated something-else</span>
+        <span class="c"># &#39;\220\0&#39; - Escaped \220: Keep 2 bytes.</span>
+        <span class="c"># &#39;?\220?&#39; - Complete repeat sequence: decode all</span>
+        <span class="c"># otherwise: keep 1 byte.</span>
+        <span class="c">#</span>
+        <span class="n">mark</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span><span class="p">[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="o">==</span> <span class="n">RUNCHAR</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\0</span><span class="s">&#39;</span> <span class="o">+</span> <span class="n">RUNCHAR</span><span class="p">:</span>
+            <span class="n">mark</span> <span class="o">=</span> <span class="n">mark</span> <span class="o">-</span> <span class="mi">3</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="o">==</span> <span class="n">RUNCHAR</span><span class="p">:</span>
+            <span class="n">mark</span> <span class="o">=</span> <span class="n">mark</span> <span class="o">-</span> <span class="mi">2</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:]</span> <span class="o">==</span> <span class="n">RUNCHAR</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\0</span><span class="s">&#39;</span><span class="p">:</span>
+            <span class="n">mark</span> <span class="o">=</span> <span class="n">mark</span> <span class="o">-</span> <span class="mi">2</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">RUNCHAR</span><span class="p">:</span>
+            <span class="k">pass</span> <span class="c"># Decode all</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mark</span> <span class="o">=</span> <span class="n">mark</span> <span class="o">-</span> <span class="mi">1</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">post_buffer</span> <span class="o">+</span> \
+            <span class="n">binascii</span><span class="o">.</span><span class="n">rledecode_hqx</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span><span class="p">[:</span><span class="n">mark</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_buffer</span><span class="p">[</span><span class="n">mark</span><span class="p">:]</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<span class="k">class</span> <span class="nc">HexBin</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ifp</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ifp</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">ifp</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">ifp</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span>
+        <span class="c">#</span>
+        <span class="c"># Find initial colon.</span>
+        <span class="c">#</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">ch</span> <span class="o">=</span> <span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">ch</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&quot;No binhex data found&quot;</span><span class="p">)</span>
+            <span class="c"># Cater for \r\n terminated lines (which show up as \n\r, hence</span>
+            <span class="c"># all lines start with \r)</span>
+            <span class="k">if</span> <span class="n">ch</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">if</span> <span class="n">ch</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;:&#39;</span><span class="p">:</span>
+                <span class="k">break</span>
+
+        <span class="n">hqxifp</span> <span class="o">=</span> <span class="n">_Hqxdecoderengine</span><span class="p">(</span><span class="n">ifp</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span> <span class="o">=</span> <span class="n">_Rledecoderengine</span><span class="p">(</span><span class="n">hqxifp</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_readheader</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">len</span><span class="p">):</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="nb">len</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">=</span> <span class="n">binascii</span><span class="o">.</span><span class="n">crc_hqx</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">crc</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">data</span>
+
+    <span class="k">def</span> <span class="nf">_checkcrc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">filecrc</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s">&#39;&gt;h&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">2</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&amp;</span> <span class="mh">0xffff</span>
+        <span class="c">#self.crc = binascii.crc_hqx(&#39;\0\0&#39;, self.crc)</span>
+        <span class="c"># XXXX Is this needed??</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">&amp;</span> <span class="mh">0xffff</span>
+        <span class="k">if</span> <span class="n">filecrc</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">crc</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;CRC error, computed </span><span class="si">%x</span><span class="s">, read </span><span class="si">%x</span><span class="s">&#39;</span>
+                        <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">crc</span><span class="p">,</span> <span class="n">filecrc</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">crc</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">_readheader</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">len</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">fname</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read</span><span class="p">(</span><span class="nb">ord</span><span class="p">(</span><span class="nb">len</span><span class="p">))</span>
+        <span class="n">rest</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read</span><span class="p">(</span><span class="mi">1</span> <span class="o">+</span> <span class="mi">4</span> <span class="o">+</span> <span class="mi">4</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">+</span> <span class="mi">4</span> <span class="o">+</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_checkcrc</span><span class="p">()</span>
+
+        <span class="nb">type</span> <span class="o">=</span> <span class="n">rest</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="mi">5</span><span class="p">]</span>
+        <span class="n">creator</span> <span class="o">=</span> <span class="n">rest</span><span class="p">[</span><span class="mi">5</span><span class="p">:</span><span class="mi">9</span><span class="p">]</span>
+        <span class="n">flags</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s">&#39;&gt;h&#39;</span><span class="p">,</span> <span class="n">rest</span><span class="p">[</span><span class="mi">9</span><span class="p">:</span><span class="mi">11</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s">&#39;&gt;l&#39;</span><span class="p">,</span> <span class="n">rest</span><span class="p">[</span><span class="mi">11</span><span class="p">:</span><span class="mi">15</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s">&#39;&gt;l&#39;</span><span class="p">,</span> <span class="n">rest</span><span class="p">[</span><span class="mi">15</span><span class="p">:</span><span class="mi">19</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">FName</span> <span class="o">=</span> <span class="n">fname</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">FInfo</span> <span class="o">=</span> <span class="n">FInfo</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">FInfo</span><span class="o">.</span><span class="n">Creator</span> <span class="o">=</span> <span class="n">creator</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">FInfo</span><span class="o">.</span><span class="n">Type</span> <span class="o">=</span> <span class="nb">type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">FInfo</span><span class="o">.</span><span class="n">Flags</span> <span class="o">=</span> <span class="n">flags</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="n">_DID_HEADER</span>
+
+    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">n</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">_DID_HEADER</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Read data at wrong time&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n</span><span class="p">:</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="n">n</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span>
+        <span class="n">rv</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">rv</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">:</span>
+            <span class="n">rv</span> <span class="o">=</span> <span class="n">rv</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read</span><span class="p">(</span><span class="n">n</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">rv</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span> <span class="o">-</span> <span class="n">n</span>
+        <span class="k">return</span> <span class="n">rv</span>
+
+    <span class="k">def</span> <span class="nf">close_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">_DID_HEADER</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;close_data at wrong time&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dlen</span><span class="p">:</span>
+            <span class="n">dummy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dlen</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_checkcrc</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="n">_DID_DATA</span>
+
+    <span class="k">def</span> <span class="nf">read_rsrc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">n</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">==</span> <span class="n">_DID_HEADER</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close_data</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">!=</span> <span class="n">_DID_DATA</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&#39;Read resource data at wrong time&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n</span><span class="p">:</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="n">n</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span> <span class="o">-</span> <span class="n">n</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">rlen</span><span class="p">:</span>
+            <span class="n">dummy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">read_rsrc</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rlen</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_checkcrc</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">state</span> <span class="o">=</span> <span class="n">_DID_RSRC</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ifp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="hexbin"><a class="viewcode-back" href="../binhex.html#binhex.hexbin">[docs]</a><span class="k">def</span> <span class="nf">hexbin</span><span class="p">(</span><span class="n">inp</span><span class="p">,</span> <span class="n">out</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;hexbin(infilename, outfilename) - Decode binhexed file&quot;&quot;&quot;</span>
+    <span class="n">ifp</span> <span class="o">=</span> <span class="n">HexBin</span><span class="p">(</span><span class="n">inp</span><span class="p">)</span>
+    <span class="n">finfo</span> <span class="o">=</span> <span class="n">ifp</span><span class="o">.</span><span class="n">FInfo</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">out</span><span class="p">:</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="n">ifp</span><span class="o">.</span><span class="n">FName</span>
+
+    <span class="n">ofp</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">)</span>
+    <span class="c"># XXXX Do translation on non-mac systems</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">ifp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">128000</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">d</span><span class="p">:</span> <span class="k">break</span>
+        <span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+    <span class="n">ofp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">ifp</span><span class="o">.</span><span class="n">close_data</span><span class="p">()</span>
+
+    <span class="n">d</span> <span class="o">=</span> <span class="n">ifp</span><span class="o">.</span><span class="n">read_rsrc</span><span class="p">(</span><span class="mi">128000</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">d</span><span class="p">:</span>
+        <span class="n">ofp</span> <span class="o">=</span> <span class="n">openrsrc</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">)</span>
+        <span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">d</span> <span class="o">=</span> <span class="n">ifp</span><span class="o">.</span><span class="n">read_rsrc</span><span class="p">(</span><span class="mi">128000</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">d</span><span class="p">:</span> <span class="k">break</span>
+            <span class="n">ofp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+        <span class="n">ofp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="n">ifp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

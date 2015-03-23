@@ -1,0 +1,918 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_tracemalloc &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_tracemalloc</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">contextlib</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">tracemalloc</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">from</span> <span class="nn">unittest.mock</span> <span class="kn">import</span> <span class="n">patch</span>
+<span class="kn">from</span> <span class="nn">test.script_helper</span> <span class="kn">import</span> <span class="n">assert_python_ok</span><span class="p">,</span> <span class="n">assert_python_failure</span>
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">support</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">threading</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">threading</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="n">EMPTY_STRING_SIZE</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">getsizeof</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="get_frames"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.get_frames">[docs]</a><span class="k">def</span> <span class="nf">get_frames</span><span class="p">(</span><span class="n">nframe</span><span class="p">,</span> <span class="n">lineno_delta</span><span class="p">):</span>
+    <span class="n">frames</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">frame</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">_getframe</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">nframe</span><span class="p">):</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">f_code</span>
+        <span class="n">lineno</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">f_lineno</span> <span class="o">+</span> <span class="n">lineno_delta</span>
+        <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">code</span><span class="o">.</span><span class="n">co_filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">))</span>
+        <span class="n">lineno_delta</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">f_back</span>
+        <span class="k">if</span> <span class="n">frame</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">break</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">frames</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="allocate_bytes"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.allocate_bytes">[docs]</a><span class="k">def</span> <span class="nf">allocate_bytes</span><span class="p">(</span><span class="n">size</span><span class="p">):</span>
+    <span class="n">nframe</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_traceback_limit</span><span class="p">()</span>
+    <span class="n">bytes_len</span> <span class="o">=</span> <span class="p">(</span><span class="n">size</span> <span class="o">-</span> <span class="n">EMPTY_STRING_SIZE</span><span class="p">)</span>
+    <span class="n">frames</span> <span class="o">=</span> <span class="n">get_frames</span><span class="p">(</span><span class="n">nframe</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">data</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;x&#39;</span> <span class="o">*</span> <span class="n">bytes_len</span>
+    <span class="k">return</span> <span class="n">data</span><span class="p">,</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Traceback</span><span class="p">(</span><span class="n">frames</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="create_snapshots"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.create_snapshots">[docs]</a><span class="k">def</span> <span class="nf">create_snapshots</span><span class="p">():</span>
+    <span class="n">traceback_limit</span> <span class="o">=</span> <span class="mi">2</span>
+
+    <span class="n">raw_traces</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+        <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+        <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+
+        <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+
+        <span class="p">(</span><span class="mi">66</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),)),</span>
+
+        <span class="p">(</span><span class="mi">7</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;&lt;unknown&gt;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),)),</span>
+    <span class="p">]</span>
+    <span class="n">snapshot</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Snapshot</span><span class="p">(</span><span class="n">raw_traces</span><span class="p">,</span> <span class="n">traceback_limit</span><span class="p">)</span>
+
+    <span class="n">raw_traces2</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+        <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+        <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+
+        <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+        <span class="p">(</span><span class="mi">5000</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+
+        <span class="p">(</span><span class="mi">400</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;c.py&#39;</span><span class="p">,</span> <span class="mi">578</span><span class="p">),)),</span>
+    <span class="p">]</span>
+    <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Snapshot</span><span class="p">(</span><span class="n">raw_traces2</span><span class="p">,</span> <span class="n">traceback_limit</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="p">(</span><span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="frame"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.frame">[docs]</a><span class="k">def</span> <span class="nf">frame</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">_Frame</span><span class="p">((</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="traceback"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.traceback">[docs]</a><span class="k">def</span> <span class="nf">traceback</span><span class="p">(</span><span class="o">*</span><span class="n">frames</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Traceback</span><span class="p">(</span><span class="n">frames</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="traceback_lineno"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.traceback_lineno">[docs]</a><span class="k">def</span> <span class="nf">traceback_lineno</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">traceback</span><span class="p">((</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="traceback_filename"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.traceback_filename">[docs]</a><span class="k">def</span> <span class="nf">traceback_filename</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled">[docs]</a><span class="k">class</span> <span class="nc">TestTracemallocEnabled</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="TestTracemallocEnabled.setUp"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">is_tracing</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">skipTest</span><span class="p">(</span><span class="s">&quot;tracemalloc must be stopped before the test&quot;</span><span class="p">)</span>
+
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.tearDown"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_get_tracemalloc_memory"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_get_tracemalloc_memory">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_tracemalloc_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">[</span><span class="n">allocate_bytes</span><span class="p">(</span><span class="mi">123</span><span class="p">)</span> <span class="k">for</span> <span class="n">count</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1000</span><span class="p">)]</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_tracemalloc_memory</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">clear_traces</span><span class="p">()</span>
+        <span class="n">size2</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_tracemalloc_memory</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">size2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertLessEqual</span><span class="p">(</span><span class="n">size2</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_get_object_traceback"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_get_object_traceback">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_object_traceback</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">clear_traces</span><span class="p">()</span>
+        <span class="n">obj_size</span> <span class="o">=</span> <span class="mi">12345</span>
+        <span class="n">obj</span><span class="p">,</span> <span class="n">obj_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+        <span class="n">traceback</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_object_traceback</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">traceback</span><span class="p">,</span> <span class="n">obj_traceback</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_set_traceback_limit"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_set_traceback_limit">[docs]</a>    <span class="k">def</span> <span class="nf">test_set_traceback_limit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">obj_size</span> <span class="o">=</span> <span class="mi">10</span>
+
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">start</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span>
+        <span class="n">obj2</span><span class="p">,</span> <span class="n">obj2_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+        <span class="n">traceback</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_object_traceback</span><span class="p">(</span><span class="n">obj2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">traceback</span><span class="p">),</span> <span class="mi">10</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">traceback</span><span class="p">,</span> <span class="n">obj2_traceback</span><span class="p">)</span>
+
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">obj</span><span class="p">,</span> <span class="n">obj_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+        <span class="n">traceback</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_object_traceback</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">traceback</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">traceback</span><span class="p">,</span> <span class="n">obj_traceback</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.find_trace"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.find_trace">[docs]</a>    <span class="k">def</span> <span class="nf">find_trace</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">traces</span><span class="p">,</span> <span class="n">traceback</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">trace</span> <span class="ow">in</span> <span class="n">traces</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">trace</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">traceback</span><span class="o">.</span><span class="n">_frames</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">trace</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;trace not found&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_get_traces"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_get_traces">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_traces</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">clear_traces</span><span class="p">()</span>
+        <span class="n">obj_size</span> <span class="o">=</span> <span class="mi">12345</span>
+        <span class="n">obj</span><span class="p">,</span> <span class="n">obj_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+
+        <span class="n">traces</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">_get_traces</span><span class="p">()</span>
+        <span class="n">trace</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_trace</span><span class="p">(</span><span class="n">traces</span><span class="p">,</span> <span class="n">obj_traceback</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsInstance</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span>
+        <span class="n">size</span><span class="p">,</span> <span class="n">traceback</span> <span class="o">=</span> <span class="n">trace</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">obj_size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">traceback</span><span class="p">,</span> <span class="n">obj_traceback</span><span class="o">.</span><span class="n">_frames</span><span class="p">)</span>
+
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">tracemalloc</span><span class="o">.</span><span class="n">_get_traces</span><span class="p">(),</span> <span class="p">[])</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_get_traces_intern_traceback"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_get_traces_intern_traceback">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_traces_intern_traceback</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># dummy wrappers to get more useful and identical frames in the traceback</span>
+        <span class="k">def</span> <span class="nf">allocate_bytes2</span><span class="p">(</span><span class="n">size</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">allocate_bytes3</span><span class="p">(</span><span class="n">size</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">allocate_bytes2</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">allocate_bytes4</span><span class="p">(</span><span class="n">size</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">allocate_bytes3</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+
+        <span class="c"># Ensure that two identical tracebacks are not duplicated</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">start</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+        <span class="n">obj_size</span> <span class="o">=</span> <span class="mi">123</span>
+        <span class="n">obj1</span><span class="p">,</span> <span class="n">obj1_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes4</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+        <span class="n">obj2</span><span class="p">,</span> <span class="n">obj2_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes4</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+
+        <span class="n">traces</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">_get_traces</span><span class="p">()</span>
+
+        <span class="n">trace1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_trace</span><span class="p">(</span><span class="n">traces</span><span class="p">,</span> <span class="n">obj1_traceback</span><span class="p">)</span>
+        <span class="n">trace2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_trace</span><span class="p">(</span><span class="n">traces</span><span class="p">,</span> <span class="n">obj2_traceback</span><span class="p">)</span>
+        <span class="n">size1</span><span class="p">,</span> <span class="n">traceback1</span> <span class="o">=</span> <span class="n">trace1</span>
+        <span class="n">size2</span><span class="p">,</span> <span class="n">traceback2</span> <span class="o">=</span> <span class="n">trace2</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">traceback2</span><span class="p">,</span> <span class="n">traceback1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">traceback2</span><span class="p">,</span> <span class="n">traceback1</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_get_traced_memory"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_get_traced_memory">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_traced_memory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Python allocates some internals objects, so the test must tolerate</span>
+        <span class="c"># a small difference between the expected size and the real usage</span>
+        <span class="n">max_error</span> <span class="o">=</span> <span class="mi">2048</span>
+
+        <span class="c"># allocate one object</span>
+        <span class="n">obj_size</span> <span class="o">=</span> <span class="mi">1024</span> <span class="o">*</span> <span class="mi">1024</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">clear_traces</span><span class="p">()</span>
+        <span class="n">obj</span><span class="p">,</span> <span class="n">obj_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+        <span class="n">size</span><span class="p">,</span> <span class="n">peak_size</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_traced_memory</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">obj_size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">peak_size</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertLessEqual</span><span class="p">(</span><span class="n">size</span> <span class="o">-</span> <span class="n">obj_size</span><span class="p">,</span> <span class="n">max_error</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertLessEqual</span><span class="p">(</span><span class="n">peak_size</span> <span class="o">-</span> <span class="n">size</span><span class="p">,</span> <span class="n">max_error</span><span class="p">)</span>
+
+        <span class="c"># destroy the object</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">size2</span><span class="p">,</span> <span class="n">peak_size2</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_traced_memory</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertLess</span><span class="p">(</span><span class="n">size2</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">size</span> <span class="o">-</span> <span class="n">size2</span><span class="p">,</span> <span class="n">obj_size</span> <span class="o">-</span> <span class="n">max_error</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">peak_size2</span><span class="p">,</span> <span class="n">peak_size</span><span class="p">)</span>
+
+        <span class="c"># clear_traces() must reset traced memory counters</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">clear_traces</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_traced_memory</span><span class="p">(),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+
+        <span class="c"># allocate another object</span>
+        <span class="n">obj</span><span class="p">,</span> <span class="n">obj_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+        <span class="n">size</span><span class="p">,</span> <span class="n">peak_size</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_traced_memory</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">obj_size</span><span class="p">)</span>
+
+        <span class="c"># stop() also resets traced memory counters</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_traced_memory</span><span class="p">(),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_clear_traces"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_clear_traces">[docs]</a>    <span class="k">def</span> <span class="nf">test_clear_traces</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">obj</span><span class="p">,</span> <span class="n">obj_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="mi">123</span><span class="p">)</span>
+        <span class="n">traceback</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_object_traceback</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNotNone</span><span class="p">(</span><span class="n">traceback</span><span class="p">)</span>
+
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">clear_traces</span><span class="p">()</span>
+        <span class="n">traceback2</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_object_traceback</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">traceback2</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_is_tracing"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_is_tracing">[docs]</a>    <span class="k">def</span> <span class="nf">test_is_tracing</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">tracemalloc</span><span class="o">.</span><span class="n">is_tracing</span><span class="p">())</span>
+
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">tracemalloc</span><span class="o">.</span><span class="n">is_tracing</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_snapshot"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_snapshot">[docs]</a>    <span class="k">def</span> <span class="nf">test_snapshot</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">obj</span><span class="p">,</span> <span class="n">source</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="mi">123</span><span class="p">)</span>
+
+        <span class="c"># take a snapshot</span>
+        <span class="n">snapshot</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">take_snapshot</span><span class="p">()</span>
+
+        <span class="c"># write on disk</span>
+        <span class="n">snapshot</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">support</span><span class="o">.</span><span class="n">TESTFN</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">,</span> <span class="n">support</span><span class="o">.</span><span class="n">TESTFN</span><span class="p">)</span>
+
+        <span class="c"># load from disk</span>
+        <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Snapshot</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">support</span><span class="o">.</span><span class="n">TESTFN</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">snapshot2</span><span class="o">.</span><span class="n">traces</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">)</span>
+
+        <span class="c"># tracemalloc must be tracing memory allocations to take a snapshot</span>
+        <span class="n">tracemalloc</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">cm</span><span class="p">:</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">take_snapshot</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">cm</span><span class="o">.</span><span class="n">exception</span><span class="p">),</span>
+                         <span class="s">&quot;the tracemalloc module must be tracing memory &quot;</span>
+                         <span class="s">&quot;allocations to take a snapshot&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_snapshot_save_attr"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_snapshot_save_attr">[docs]</a>    <span class="k">def</span> <span class="nf">test_snapshot_save_attr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># take a snapshot with a new attribute</span>
+        <span class="n">snapshot</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">take_snapshot</span><span class="p">()</span>
+        <span class="n">snapshot</span><span class="o">.</span><span class="n">test_attr</span> <span class="o">=</span> <span class="s">&quot;new&quot;</span>
+        <span class="n">snapshot</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">support</span><span class="o">.</span><span class="n">TESTFN</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">,</span> <span class="n">support</span><span class="o">.</span><span class="n">TESTFN</span><span class="p">)</span>
+
+        <span class="c"># load() should recreates the attribute</span>
+        <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Snapshot</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">support</span><span class="o">.</span><span class="n">TESTFN</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">snapshot2</span><span class="o">.</span><span class="n">test_attr</span><span class="p">,</span> <span class="s">&quot;new&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestTracemallocEnabled.fork_child"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.fork_child">[docs]</a>    <span class="k">def</span> <span class="nf">fork_child</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">is_tracing</span><span class="p">():</span>
+            <span class="k">return</span> <span class="mi">2</span>
+
+        <span class="n">obj_size</span> <span class="o">=</span> <span class="mi">12345</span>
+        <span class="n">obj</span><span class="p">,</span> <span class="n">obj_traceback</span> <span class="o">=</span> <span class="n">allocate_bytes</span><span class="p">(</span><span class="n">obj_size</span><span class="p">)</span>
+        <span class="n">traceback</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">get_object_traceback</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">traceback</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">3</span>
+
+        <span class="c"># everything is fine</span>
+        <span class="k">return</span> <span class="mi">0</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&#39;need os.fork()&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="TestTracemallocEnabled.test_fork"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestTracemallocEnabled.test_fork">[docs]</a>    <span class="k">def</span> <span class="nf">test_fork</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># check that tracemalloc is still working after fork</span>
+        <span class="n">pid</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">fork</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">pid</span><span class="p">:</span>
+            <span class="c"># child</span>
+            <span class="n">exitcode</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">exitcode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fork_child</span><span class="p">()</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">_exit</span><span class="p">(</span><span class="n">exitcode</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">pid2</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">waitpid</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">WIFEXITED</span><span class="p">(</span><span class="n">status</span><span class="p">))</span>
+            <span class="n">exitcode</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">WEXITSTATUS</span><span class="p">(</span><span class="n">status</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="TestSnapshot"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot">[docs]</a><span class="k">class</span> <span class="nc">TestSnapshot</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">maxDiff</span> <span class="o">=</span> <span class="mi">4000</span>
+
+<div class="viewcode-block" id="TestSnapshot.test_create_snapshot"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_create_snapshot">[docs]</a>    <span class="k">def</span> <span class="nf">test_create_snapshot</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">raw_traces</span> <span class="o">=</span> <span class="p">[(</span><span class="mi">5</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),))]</span>
+
+        <span class="k">with</span> <span class="n">contextlib</span><span class="o">.</span><span class="n">ExitStack</span><span class="p">()</span> <span class="k">as</span> <span class="n">stack</span><span class="p">:</span>
+            <span class="n">stack</span><span class="o">.</span><span class="n">enter_context</span><span class="p">(</span><span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">tracemalloc</span><span class="p">,</span> <span class="s">&#39;is_tracing&#39;</span><span class="p">,</span>
+                                             <span class="n">return_value</span><span class="o">=</span><span class="bp">True</span><span class="p">))</span>
+            <span class="n">stack</span><span class="o">.</span><span class="n">enter_context</span><span class="p">(</span><span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">tracemalloc</span><span class="p">,</span> <span class="s">&#39;get_traceback_limit&#39;</span><span class="p">,</span>
+                                             <span class="n">return_value</span><span class="o">=</span><span class="mi">5</span><span class="p">))</span>
+            <span class="n">stack</span><span class="o">.</span><span class="n">enter_context</span><span class="p">(</span><span class="n">patch</span><span class="o">.</span><span class="n">object</span><span class="p">(</span><span class="n">tracemalloc</span><span class="p">,</span> <span class="s">&#39;_get_traces&#39;</span><span class="p">,</span>
+                                             <span class="n">return_value</span><span class="o">=</span><span class="n">raw_traces</span><span class="p">))</span>
+
+            <span class="n">snapshot</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">take_snapshot</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">snapshot</span><span class="o">.</span><span class="n">traceback_limit</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">trace</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">traceback</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">traceback</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">filename</span><span class="p">,</span> <span class="s">&#39;a.py&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">trace</span><span class="o">.</span><span class="n">traceback</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">lineno</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_filter_traces"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_filter_traces">[docs]</a>    <span class="k">def</span> <span class="nf">test_filter_traces</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="n">filter1</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;b.py&quot;</span><span class="p">)</span>
+        <span class="n">filter2</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;a.py&quot;</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">filter3</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;a.py&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+
+        <span class="n">original_traces</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="o">.</span><span class="n">_traces</span><span class="p">)</span>
+
+        <span class="c"># exclude b.py</span>
+        <span class="n">snapshot3</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">filter_traces</span><span class="p">((</span><span class="n">filter1</span><span class="p">,))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">snapshot3</span><span class="o">.</span><span class="n">traces</span><span class="o">.</span><span class="n">_traces</span><span class="p">,</span> <span class="p">[</span>
+            <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+            <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+            <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+            <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+            <span class="p">(</span><span class="mi">7</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;&lt;unknown&gt;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),)),</span>
+        <span class="p">])</span>
+
+        <span class="c"># filter_traces() must not touch the original snapshot</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="o">.</span><span class="n">_traces</span><span class="p">,</span> <span class="n">original_traces</span><span class="p">)</span>
+
+        <span class="c"># only include two lines of a.py</span>
+        <span class="n">snapshot4</span> <span class="o">=</span> <span class="n">snapshot3</span><span class="o">.</span><span class="n">filter_traces</span><span class="p">((</span><span class="n">filter2</span><span class="p">,</span> <span class="n">filter3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">snapshot4</span><span class="o">.</span><span class="n">traces</span><span class="o">.</span><span class="n">_traces</span><span class="p">,</span> <span class="p">[</span>
+            <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+            <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+            <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+            <span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))),</span>
+        <span class="p">])</span>
+
+        <span class="c"># No filter: just duplicate the snapshot</span>
+        <span class="n">snapshot5</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">filter_traces</span><span class="p">(())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNot</span><span class="p">(</span><span class="n">snapshot5</span><span class="p">,</span> <span class="n">snapshot</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNot</span><span class="p">(</span><span class="n">snapshot5</span><span class="o">.</span><span class="n">traces</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">snapshot5</span><span class="o">.</span><span class="n">traces</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">filter_traces</span><span class="p">,</span> <span class="n">filter1</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_snapshot_group_by_line"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_snapshot_group_by_line">[docs]</a>    <span class="k">def</span> <span class="nf">test_snapshot_group_by_line</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="n">tb_0</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;&lt;unknown&gt;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">tb_a_2</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">tb_a_5</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="n">tb_b_1</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">tb_c_578</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;c.py&#39;</span><span class="p">,</span> <span class="mi">578</span><span class="p">)</span>
+
+        <span class="c"># stats per file and line</span>
+        <span class="n">stats1</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;lineno&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stats1</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_b_1</span><span class="p">,</span> <span class="mi">66</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a_2</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_0</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a_5</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="p">])</span>
+
+        <span class="c"># stats per file and line (2)</span>
+        <span class="n">stats2</span> <span class="o">=</span> <span class="n">snapshot2</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;lineno&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stats2</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a_5</span><span class="p">,</span> <span class="mi">5002</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_c_578</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a_2</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+        <span class="p">])</span>
+
+        <span class="c"># stats diff per file and line</span>
+        <span class="n">statistics</span> <span class="o">=</span> <span class="n">snapshot2</span><span class="o">.</span><span class="n">compare_to</span><span class="p">(</span><span class="n">snapshot</span><span class="p">,</span> <span class="s">&#39;lineno&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">statistics</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_a_5</span><span class="p">,</span> <span class="mi">5002</span><span class="p">,</span> <span class="mi">5000</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_c_578</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_b_1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">66</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">7</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_a_2</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+        <span class="p">])</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_snapshot_group_by_file"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_snapshot_group_by_file">[docs]</a>    <span class="k">def</span> <span class="nf">test_snapshot_group_by_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="n">tb_0</span> <span class="o">=</span> <span class="n">traceback_filename</span><span class="p">(</span><span class="s">&#39;&lt;unknown&gt;&#39;</span><span class="p">)</span>
+        <span class="n">tb_a</span> <span class="o">=</span> <span class="n">traceback_filename</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">)</span>
+        <span class="n">tb_b</span> <span class="o">=</span> <span class="n">traceback_filename</span><span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">)</span>
+        <span class="n">tb_c</span> <span class="o">=</span> <span class="n">traceback_filename</span><span class="p">(</span><span class="s">&#39;c.py&#39;</span><span class="p">)</span>
+
+        <span class="c"># stats per file</span>
+        <span class="n">stats1</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;filename&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stats1</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_b</span><span class="p">,</span> <span class="mi">66</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_0</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="p">])</span>
+
+        <span class="c"># stats per file (2)</span>
+        <span class="n">stats2</span> <span class="o">=</span> <span class="n">snapshot2</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;filename&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stats2</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a</span><span class="p">,</span> <span class="mi">5032</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_c</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="p">])</span>
+
+        <span class="c"># stats diff per file</span>
+        <span class="n">diff</span> <span class="o">=</span> <span class="n">snapshot2</span><span class="o">.</span><span class="n">compare_to</span><span class="p">(</span><span class="n">snapshot</span><span class="p">,</span> <span class="s">&#39;filename&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">diff</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_a</span><span class="p">,</span> <span class="mi">5032</span><span class="p">,</span> <span class="mi">5000</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_c</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_b</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">66</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb_0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">7</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+        <span class="p">])</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_snapshot_group_by_traceback"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_snapshot_group_by_traceback">[docs]</a>    <span class="k">def</span> <span class="nf">test_snapshot_group_by_traceback</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+
+        <span class="c"># stats per file</span>
+        <span class="n">tb1</span> <span class="o">=</span> <span class="n">traceback</span><span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+        <span class="n">tb2</span> <span class="o">=</span> <span class="n">traceback</span><span class="p">((</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+        <span class="n">tb3</span> <span class="o">=</span> <span class="n">traceback</span><span class="p">((</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="n">tb4</span> <span class="o">=</span> <span class="n">traceback</span><span class="p">((</span><span class="s">&#39;&lt;unknown&gt;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="n">stats1</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;traceback&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stats1</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb3</span><span class="p">,</span> <span class="mi">66</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb1</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb4</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb2</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="p">])</span>
+
+        <span class="c"># stats per file (2)</span>
+        <span class="n">tb5</span> <span class="o">=</span> <span class="n">traceback</span><span class="p">((</span><span class="s">&#39;c.py&#39;</span><span class="p">,</span> <span class="mi">578</span><span class="p">))</span>
+        <span class="n">stats2</span> <span class="o">=</span> <span class="n">snapshot2</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;traceback&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stats2</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb2</span><span class="p">,</span> <span class="mi">5002</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb5</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb1</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+        <span class="p">])</span>
+
+        <span class="c"># stats diff per file</span>
+        <span class="n">diff</span> <span class="o">=</span> <span class="n">snapshot2</span><span class="o">.</span><span class="n">compare_to</span><span class="p">(</span><span class="n">snapshot</span><span class="p">,</span> <span class="s">&#39;traceback&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">diff</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb2</span><span class="p">,</span> <span class="mi">5002</span><span class="p">,</span> <span class="mi">5000</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb5</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">400</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb3</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">66</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb4</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">7</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">StatisticDiff</span><span class="p">(</span><span class="n">tb1</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+        <span class="p">])</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span>
+                          <span class="n">snapshot</span><span class="o">.</span><span class="n">statistics</span><span class="p">,</span> <span class="s">&#39;traceback&#39;</span><span class="p">,</span> <span class="n">cumulative</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_snapshot_group_by_cumulative"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_snapshot_group_by_cumulative">[docs]</a>    <span class="k">def</span> <span class="nf">test_snapshot_group_by_cumulative</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="n">tb_0</span> <span class="o">=</span> <span class="n">traceback_filename</span><span class="p">(</span><span class="s">&#39;&lt;unknown&gt;&#39;</span><span class="p">)</span>
+        <span class="n">tb_a</span> <span class="o">=</span> <span class="n">traceback_filename</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">)</span>
+        <span class="n">tb_b</span> <span class="o">=</span> <span class="n">traceback_filename</span><span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">)</span>
+        <span class="n">tb_a_2</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">tb_a_5</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="n">tb_b_1</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">tb_b_4</span> <span class="o">=</span> <span class="n">traceback_lineno</span><span class="p">(</span><span class="s">&#39;b.py&#39;</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+        <span class="c"># per file</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;filename&#39;</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stats</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_b</span><span class="p">,</span> <span class="mi">98</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_0</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="p">])</span>
+
+        <span class="c"># per line</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;lineno&#39;</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stats</span><span class="p">,</span> <span class="p">[</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_b_1</span><span class="p">,</span> <span class="mi">66</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_b_4</span><span class="p">,</span> <span class="mi">32</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a_2</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">3</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_0</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Statistic</span><span class="p">(</span><span class="n">tb_a_5</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="p">])</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_trace_format"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_trace_format">[docs]</a>    <span class="k">def</span> <span class="nf">test_trace_format</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="n">trace</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">trace</span><span class="p">),</span> <span class="s">&#39;a.py:2: 10 B&#39;</span><span class="p">)</span>
+        <span class="n">traceback</span> <span class="o">=</span> <span class="n">trace</span><span class="o">.</span><span class="n">traceback</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">traceback</span><span class="p">),</span> <span class="s">&#39;a.py:2&#39;</span><span class="p">)</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">traceback</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">frame</span><span class="p">),</span> <span class="s">&#39;a.py:2&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_statistic_format"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_statistic_format">[docs]</a>    <span class="k">def</span> <span class="nf">test_statistic_format</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">statistics</span><span class="p">(</span><span class="s">&#39;lineno&#39;</span><span class="p">)</span>
+        <span class="n">stat</span> <span class="o">=</span> <span class="n">stats</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">stat</span><span class="p">),</span>
+                         <span class="s">&#39;b.py:1: size=66 B, count=1, average=66 B&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_statistic_diff_format"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_statistic_diff_format">[docs]</a>    <span class="k">def</span> <span class="nf">test_statistic_diff_format</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="n">snapshot2</span><span class="o">.</span><span class="n">compare_to</span><span class="p">(</span><span class="n">snapshot</span><span class="p">,</span> <span class="s">&#39;lineno&#39;</span><span class="p">)</span>
+        <span class="n">stat</span> <span class="o">=</span> <span class="n">stats</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">stat</span><span class="p">),</span>
+                         <span class="s">&#39;a.py:5: size=5002 B (+5000 B), count=2 (+1), average=2501 B&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_slices"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_slices">[docs]</a>    <span class="k">def</span> <span class="nf">test_slices</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">[:</span><span class="mi">2</span><span class="p">],</span>
+                         <span class="p">(</span><span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+
+        <span class="n">traceback</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">traceback</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">traceback</span><span class="p">[:</span><span class="mi">2</span><span class="p">],</span>
+                         <span class="p">(</span><span class="n">traceback</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">traceback</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+</div>
+<div class="viewcode-block" id="TestSnapshot.test_format_traceback"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestSnapshot.test_format_traceback">[docs]</a>    <span class="k">def</span> <span class="nf">test_format_traceback</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">snapshot</span><span class="p">,</span> <span class="n">snapshot2</span> <span class="o">=</span> <span class="n">create_snapshots</span><span class="p">()</span>
+        <span class="k">def</span> <span class="nf">getline</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+            <span class="k">return</span> <span class="s">&#39;  &lt;</span><span class="si">%s</span><span class="s">, </span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">unittest</span><span class="o">.</span><span class="n">mock</span><span class="o">.</span><span class="n">patch</span><span class="p">(</span><span class="s">&#39;tracemalloc.linecache.getline&#39;</span><span class="p">,</span>
+                                 <span class="n">side_effect</span><span class="o">=</span><span class="n">getline</span><span class="p">):</span>
+            <span class="n">tb</span> <span class="o">=</span> <span class="n">snapshot</span><span class="o">.</span><span class="n">traces</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">traceback</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">format</span><span class="p">(),</span>
+                             <span class="p">[</span><span class="s">&#39;  File &quot;a.py&quot;, line 2&#39;</span><span class="p">,</span>
+                              <span class="s">&#39;    &lt;a.py, 2&gt;&#39;</span><span class="p">,</span>
+                              <span class="s">&#39;  File &quot;b.py&quot;, line 4&#39;</span><span class="p">,</span>
+                              <span class="s">&#39;    &lt;b.py, 4&gt;&#39;</span><span class="p">])</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span>
+                             <span class="p">[</span><span class="s">&#39;  File &quot;a.py&quot;, line 2&#39;</span><span class="p">,</span>
+                              <span class="s">&#39;    &lt;a.py, 2&gt;&#39;</span><span class="p">])</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">limit</span><span class="o">=-</span><span class="mi">1</span><span class="p">),</span>
+                             <span class="p">[])</span>
+
+</div></div>
+<div class="viewcode-block" id="TestFilters"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestFilters">[docs]</a><span class="k">class</span> <span class="nc">TestFilters</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">maxDiff</span> <span class="o">=</span> <span class="mi">2048</span>
+
+<div class="viewcode-block" id="TestFilters.test_filter_attributes"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestFilters.test_filter_attributes">[docs]</a>    <span class="k">def</span> <span class="nf">test_filter_attributes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># test default values</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">inclusive</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">filename_pattern</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">lineno</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">all_frames</span><span class="p">,</span> <span class="bp">False</span><span class="p">)</span>
+
+        <span class="c"># test custom values</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;test.py&quot;</span><span class="p">,</span> <span class="mi">123</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">inclusive</span><span class="p">,</span> <span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">filename_pattern</span><span class="p">,</span> <span class="s">&quot;test.py&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">lineno</span><span class="p">,</span> <span class="mi">123</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">all_frames</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+
+        <span class="c"># parameters passed by keyword</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="n">inclusive</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">filename_pattern</span><span class="o">=</span><span class="s">&quot;test.py&quot;</span><span class="p">,</span> <span class="n">lineno</span><span class="o">=</span><span class="mi">123</span><span class="p">,</span> <span class="n">all_frames</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">inclusive</span><span class="p">,</span> <span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">filename_pattern</span><span class="p">,</span> <span class="s">&quot;test.py&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">lineno</span><span class="p">,</span> <span class="mi">123</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">all_frames</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+
+        <span class="c"># read-only attribute</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">AttributeError</span><span class="p">,</span> <span class="nb">setattr</span><span class="p">,</span> <span class="n">f</span><span class="p">,</span> <span class="s">&quot;filename_pattern&quot;</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestFilters.test_filter_match"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestFilters.test_filter_match">[docs]</a>    <span class="k">def</span> <span class="nf">test_filter_match</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># filter without line number</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+
+        <span class="c"># filter with line number &gt; 0</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+
+        <span class="c"># filter with line number 0</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestFilters.test_filter_match_filename"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestFilters.test_filter_match_filename">[docs]</a>    <span class="k">def</span> <span class="nf">test_filter_match_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">def</span> <span class="nf">fnmatch</span><span class="p">(</span><span class="n">inclusive</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">pattern</span><span class="p">):</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="n">inclusive</span><span class="p">,</span> <span class="n">pattern</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">f</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;&lt;unknown&gt;&quot;</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">))</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;12356&quot;</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;&lt;unknown&gt;&quot;</span><span class="p">,</span> <span class="s">&quot;abc&quot;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestFilters.test_filter_match_filename_joker"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestFilters.test_filter_match_filename_joker">[docs]</a>    <span class="k">def</span> <span class="nf">test_filter_match_filename_joker</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">def</span> <span class="nf">fnmatch</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">pattern</span><span class="p">):</span>
+            <span class="nb">filter</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="n">pattern</span><span class="p">)</span>
+            <span class="k">return</span> <span class="nb">filter</span><span class="o">.</span><span class="n">_match_frame</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+        <span class="c"># empty string</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="s">&#39;abc&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="s">&#39;*&#39;</span><span class="p">))</span>
+
+        <span class="c"># no *</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;abc&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;abcd&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;def&#39;</span><span class="p">))</span>
+
+        <span class="c"># a*</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;a*&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;abc*&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;b*&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;abcd*&#39;</span><span class="p">))</span>
+
+        <span class="c"># a*b</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abc&#39;</span><span class="p">,</span> <span class="s">&#39;a*c&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abcdcx&#39;</span><span class="p">,</span> <span class="s">&#39;a*cx&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abb&#39;</span><span class="p">,</span> <span class="s">&#39;a*c&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abcdce&#39;</span><span class="p">,</span> <span class="s">&#39;a*cx&#39;</span><span class="p">))</span>
+
+        <span class="c"># a*b*c</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abcde&#39;</span><span class="p">,</span> <span class="s">&#39;a*c*e&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abcbdefeg&#39;</span><span class="p">,</span> <span class="s">&#39;a*bd*eg&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abcdd&#39;</span><span class="p">,</span> <span class="s">&#39;a*c*e&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;abcbdefef&#39;</span><span class="p">,</span> <span class="s">&#39;a*bd*eg&#39;</span><span class="p">))</span>
+
+        <span class="c"># replace .pyc and .pyo suffix with .py</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.pyc&#39;</span><span class="p">,</span> <span class="s">&#39;a.py&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.pyo&#39;</span><span class="p">,</span> <span class="s">&#39;a.py&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="s">&#39;a.pyc&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="s">&#39;a.pyo&#39;</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;nt&#39;</span><span class="p">:</span>
+            <span class="c"># case insensitive</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;aBC&#39;</span><span class="p">,</span> <span class="s">&#39;ABc&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;aBcDe&#39;</span><span class="p">,</span> <span class="s">&#39;Ab*dE&#39;</span><span class="p">))</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.pyc&#39;</span><span class="p">,</span> <span class="s">&#39;a.PY&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.PYO&#39;</span><span class="p">,</span> <span class="s">&#39;a.py&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="s">&#39;a.PYC&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.PY&#39;</span><span class="p">,</span> <span class="s">&#39;a.pyo&#39;</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># case sensitive</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;aBC&#39;</span><span class="p">,</span> <span class="s">&#39;ABc&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;aBcDe&#39;</span><span class="p">,</span> <span class="s">&#39;Ab*dE&#39;</span><span class="p">))</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.pyc&#39;</span><span class="p">,</span> <span class="s">&#39;a.PY&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.PYO&#39;</span><span class="p">,</span> <span class="s">&#39;a.py&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.py&#39;</span><span class="p">,</span> <span class="s">&#39;a.PYC&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">&#39;a.PY&#39;</span><span class="p">,</span> <span class="s">&#39;a.pyo&#39;</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;nt&#39;</span><span class="p">:</span>
+            <span class="c"># normalize alternate separator &quot;/&quot; to the standard separator &quot;\&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">r&#39;a/b&#39;</span><span class="p">,</span> <span class="s">r&#39;a\b&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">r&#39;a\b&#39;</span><span class="p">,</span> <span class="s">r&#39;a/b&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">r&#39;a/b\c&#39;</span><span class="p">,</span> <span class="s">r&#39;a\b/c&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">r&#39;a/b/c&#39;</span><span class="p">,</span> <span class="s">r&#39;a\b\c&#39;</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># there is no alternate separator</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">r&#39;a/b&#39;</span><span class="p">,</span> <span class="s">r&#39;a\b&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">r&#39;a\b&#39;</span><span class="p">,</span> <span class="s">r&#39;a/b&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">r&#39;a/b\c&#39;</span><span class="p">,</span> <span class="s">r&#39;a\b/c&#39;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">fnmatch</span><span class="p">(</span><span class="s">r&#39;a/b/c&#39;</span><span class="p">,</span> <span class="s">r&#39;a\b\c&#39;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestFilters.test_filter_match_trace"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestFilters.test_filter_match_trace">[docs]</a>    <span class="k">def</span> <span class="nf">test_filter_match_trace</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">t1</span> <span class="o">=</span> <span class="p">((</span><span class="s">&quot;a.py&quot;</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="p">(</span><span class="s">&quot;b.py&quot;</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+        <span class="n">t2</span> <span class="o">=</span> <span class="p">((</span><span class="s">&quot;b.py&quot;</span><span class="p">,</span> <span class="mi">4</span><span class="p">),</span> <span class="p">(</span><span class="s">&quot;b.py&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="n">t3</span> <span class="o">=</span> <span class="p">((</span><span class="s">&quot;c.py&quot;</span><span class="p">,</span> <span class="mi">5</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;&lt;unknown&gt;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="n">unknown</span> <span class="o">=</span> <span class="p">((</span><span class="s">&#39;&lt;unknown&gt;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),)</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;b.py&quot;</span><span class="p">,</span> <span class="n">all_frames</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">unknown</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;b.py&quot;</span><span class="p">,</span> <span class="n">all_frames</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">unknown</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;b.py&quot;</span><span class="p">,</span> <span class="n">all_frames</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">unknown</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;b.py&quot;</span><span class="p">,</span> <span class="n">all_frames</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">unknown</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;&lt;unknown&gt;&quot;</span><span class="p">,</span> <span class="n">all_frames</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">unknown</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="s">&quot;&lt;unknown&gt;&quot;</span><span class="p">,</span> <span class="n">all_frames</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">unknown</span><span class="p">))</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">tracemalloc</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="s">&quot;&lt;unknown&gt;&quot;</span><span class="p">,</span> <span class="n">all_frames</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t2</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">t3</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">_match_traceback</span><span class="p">(</span><span class="n">unknown</span><span class="p">))</span>
+
+</div></div>
+<div class="viewcode-block" id="TestCommandLine"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestCommandLine">[docs]</a><span class="k">class</span> <span class="nc">TestCommandLine</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="TestCommandLine.test_env_var"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestCommandLine.test_env_var">[docs]</a>    <span class="k">def</span> <span class="nf">test_env_var</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># not tracing by default</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&#39;import tracemalloc; print(tracemalloc.is_tracing())&#39;</span>
+        <span class="n">ok</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="n">stdout</span> <span class="o">=</span> <span class="n">stdout</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stdout</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;False&#39;</span><span class="p">)</span>
+
+        <span class="c"># PYTHON* environment variables must be ignored when -E option is</span>
+        <span class="c"># present</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&#39;import tracemalloc; print(tracemalloc.is_tracing())&#39;</span>
+        <span class="n">ok</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-E&#39;</span><span class="p">,</span> <span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">PYTHONTRACEMALLOC</span><span class="o">=</span><span class="s">&#39;1&#39;</span><span class="p">)</span>
+        <span class="n">stdout</span> <span class="o">=</span> <span class="n">stdout</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stdout</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;False&#39;</span><span class="p">)</span>
+
+        <span class="c"># tracing at startup</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&#39;import tracemalloc; print(tracemalloc.is_tracing())&#39;</span>
+        <span class="n">ok</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">PYTHONTRACEMALLOC</span><span class="o">=</span><span class="s">&#39;1&#39;</span><span class="p">)</span>
+        <span class="n">stdout</span> <span class="o">=</span> <span class="n">stdout</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stdout</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;True&#39;</span><span class="p">)</span>
+
+        <span class="c"># start and set the number of frames</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&#39;import tracemalloc; print(tracemalloc.get_traceback_limit())&#39;</span>
+        <span class="n">ok</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">PYTHONTRACEMALLOC</span><span class="o">=</span><span class="s">&#39;10&#39;</span><span class="p">)</span>
+        <span class="n">stdout</span> <span class="o">=</span> <span class="n">stdout</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stdout</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;10&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestCommandLine.test_env_var_invalid"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestCommandLine.test_env_var_invalid">[docs]</a>    <span class="k">def</span> <span class="nf">test_env_var_invalid</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">nframe</span> <span class="ow">in</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">30</span><span class="p">):</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">subTest</span><span class="p">(</span><span class="n">nframe</span><span class="o">=</span><span class="n">nframe</span><span class="p">):</span>
+                <span class="k">with</span> <span class="n">support</span><span class="o">.</span><span class="n">SuppressCrashReport</span><span class="p">():</span>
+                    <span class="n">ok</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">assert_python_failure</span><span class="p">(</span>
+                        <span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="s">&#39;pass&#39;</span><span class="p">,</span>
+                        <span class="n">PYTHONTRACEMALLOC</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="n">nframe</span><span class="p">))</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;PYTHONTRACEMALLOC: invalid &#39;</span>
+                                  <span class="n">b</span><span class="s">&#39;number of frames&#39;</span><span class="p">,</span>
+                                  <span class="n">stderr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestCommandLine.test_sys_xoptions"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestCommandLine.test_sys_xoptions">[docs]</a>    <span class="k">def</span> <span class="nf">test_sys_xoptions</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">xoptions</span><span class="p">,</span> <span class="n">nframe</span> <span class="ow">in</span> <span class="p">(</span>
+            <span class="p">(</span><span class="s">&#39;tracemalloc&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="p">(</span><span class="s">&#39;tracemalloc=1&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>
+            <span class="p">(</span><span class="s">&#39;tracemalloc=15&#39;</span><span class="p">,</span> <span class="mi">15</span><span class="p">),</span>
+        <span class="p">):</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">subTest</span><span class="p">(</span><span class="n">xoptions</span><span class="o">=</span><span class="n">xoptions</span><span class="p">,</span> <span class="n">nframe</span><span class="o">=</span><span class="n">nframe</span><span class="p">):</span>
+                <span class="n">code</span> <span class="o">=</span> <span class="s">&#39;import tracemalloc; print(tracemalloc.get_traceback_limit())&#39;</span>
+                <span class="n">ok</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-X&#39;</span><span class="p">,</span> <span class="n">xoptions</span><span class="p">,</span> <span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+                <span class="n">stdout</span> <span class="o">=</span> <span class="n">stdout</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stdout</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">nframe</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestCommandLine.test_sys_xoptions_invalid"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestCommandLine.test_sys_xoptions_invalid">[docs]</a>    <span class="k">def</span> <span class="nf">test_sys_xoptions_invalid</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">nframe</span> <span class="ow">in</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="o">**</span><span class="mi">30</span><span class="p">):</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">subTest</span><span class="p">(</span><span class="n">nframe</span><span class="o">=</span><span class="n">nframe</span><span class="p">):</span>
+                <span class="k">with</span> <span class="n">support</span><span class="o">.</span><span class="n">SuppressCrashReport</span><span class="p">():</span>
+                    <span class="n">args</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;-X&#39;</span><span class="p">,</span> <span class="s">&#39;tracemalloc=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">nframe</span><span class="p">,</span> <span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="s">&#39;pass&#39;</span><span class="p">)</span>
+                    <span class="n">ok</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">assert_python_failure</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;-X tracemalloc=NFRAME: invalid &#39;</span>
+                                  <span class="n">b</span><span class="s">&#39;number of frames&#39;</span><span class="p">,</span>
+                                  <span class="n">stderr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestCommandLine.test_pymem_alloc0"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.TestCommandLine.test_pymem_alloc0">[docs]</a>    <span class="k">def</span> <span class="nf">test_pymem_alloc0</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #21639: Check that PyMem_Malloc(0) with tracemalloc enabled</span>
+        <span class="c"># does not crash.</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&#39;import _testcapi; _testcapi.test_pymem_alloc0(); 1&#39;</span>
+        <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-X&#39;</span><span class="p">,</span> <span class="s">&#39;tracemalloc&#39;</span><span class="p">,</span> <span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_tracemalloc.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">():</span>
+    <span class="n">support</span><span class="o">.</span><span class="n">run_unittest</span><span class="p">(</span>
+        <span class="n">TestTracemallocEnabled</span><span class="p">,</span>
+        <span class="n">TestSnapshot</span><span class="p">,</span>
+        <span class="n">TestFilters</span><span class="p">,</span>
+        <span class="n">TestCommandLine</span><span class="p">,</span>
+    <span class="p">)</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,715 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_faulthandler &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_faulthandler</h1><div class="highlight"><pre>
+<span class="kn">from</span> <span class="nn">contextlib</span> <span class="kn">import</span> <span class="n">contextmanager</span>
+<span class="kn">import</span> <span class="nn">datetime</span>
+<span class="kn">import</span> <span class="nn">faulthandler</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">signal</span>
+<span class="kn">import</span> <span class="nn">subprocess</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">support</span><span class="p">,</span> <span class="n">script_helper</span>
+<span class="kn">from</span> <span class="nn">test.script_helper</span> <span class="kn">import</span> <span class="n">assert_python_ok</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">from</span> <span class="nn">textwrap</span> <span class="kn">import</span> <span class="n">dedent</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">threading</span>
+    <span class="n">HAVE_THREADS</span> <span class="o">=</span> <span class="bp">True</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">HAVE_THREADS</span> <span class="o">=</span> <span class="bp">False</span>
+
+<span class="n">TIMEOUT</span> <span class="o">=</span> <span class="mf">0.5</span>
+
+<div class="viewcode-block" id="expected_traceback"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.expected_traceback">[docs]</a><span class="k">def</span> <span class="nf">expected_traceback</span><span class="p">(</span><span class="n">lineno1</span><span class="p">,</span> <span class="n">lineno2</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">min_count</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="n">regex</span> <span class="o">=</span> <span class="n">header</span>
+    <span class="n">regex</span> <span class="o">+=</span> <span class="s">&#39;  File &quot;&lt;string&gt;&quot;, line </span><span class="si">%s</span><span class="s"> in func</span><span class="se">\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">lineno1</span>
+    <span class="n">regex</span> <span class="o">+=</span> <span class="s">&#39;  File &quot;&lt;string&gt;&quot;, line </span><span class="si">%s</span><span class="s"> in &lt;module&gt;&#39;</span> <span class="o">%</span> <span class="n">lineno2</span>
+    <span class="k">if</span> <span class="mi">1</span> <span class="o">&lt;</span> <span class="n">min_count</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s">&#39;^&#39;</span> <span class="o">+</span> <span class="p">(</span><span class="n">regex</span> <span class="o">+</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="n">min_count</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">regex</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s">&#39;^&#39;</span> <span class="o">+</span> <span class="n">regex</span> <span class="o">+</span> <span class="s">&#39;$&#39;</span>
+</div>
+<span class="nd">@contextmanager</span>
+<div class="viewcode-block" id="temporary_filename"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.temporary_filename">[docs]</a><span class="k">def</span> <span class="nf">temporary_filename</span><span class="p">():</span>
+    <span class="n">filename</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mktemp</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">filename</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests">[docs]</a><span class="k">class</span> <span class="nc">FaultHandlerTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="FaultHandlerTests.get_output"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.get_output">[docs]</a>    <span class="k">def</span> <span class="nf">get_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Run the specified code in Python (in a new child process) and read the</span>
+<span class="sd">        output from the standard error or from a file (if filename is set).</span>
+<span class="sd">        Return the output lines as a list.</span>
+
+<span class="sd">        Strip the reference count from the standard error for Python debug</span>
+<span class="sd">        build, and replace &quot;Current thread 0x00007f8d8fbd9700&quot; by &quot;Current</span>
+<span class="sd">        thread XXX&quot;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">dedent</span><span class="p">(</span><span class="n">code</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">with</span> <span class="n">support</span><span class="o">.</span><span class="n">SuppressCrashReport</span><span class="p">():</span>
+            <span class="n">process</span> <span class="o">=</span> <span class="n">script_helper</span><span class="o">.</span><span class="n">spawn_python</span><span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">process</span><span class="o">.</span><span class="n">communicate</span><span class="p">()</span>
+        <span class="n">exitcode</span> <span class="o">=</span> <span class="n">process</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">strip_python_stderr</span><span class="p">(</span><span class="n">stdout</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">output</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;backslashreplace&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&quot;rb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+                <span class="n">output</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="n">output</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;backslashreplace&#39;</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">&#39;Current thread 0x[0-9a-f]+&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;Current thread XXX&#39;</span><span class="p">,</span>
+                        <span class="n">output</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">output</span><span class="o">.</span><span class="n">splitlines</span><span class="p">(),</span> <span class="n">exitcode</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.check_fatal_error"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.check_fatal_error">[docs]</a>    <span class="k">def</span> <span class="nf">check_fatal_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">line_number</span><span class="p">,</span> <span class="n">name_regex</span><span class="p">,</span>
+                          <span class="n">filename</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">all_threads</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">other_regex</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check that the fault handler for fatal errors is enabled and check the</span>
+<span class="sd">        traceback from the child process output.</span>
+
+<span class="sd">        Raise an error if the output doesn&#39;t match the expected format.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">all_threads</span><span class="p">:</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="s">&#39;Current thread XXX (most recent call first)&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="s">&#39;Stack (most recent call first)&#39;</span>
+        <span class="n">regex</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">            ^Fatal Python error: {name}</span>
+
+<span class="s">            {header}:</span>
+<span class="s">              File &quot;&lt;string&gt;&quot;, line {lineno} in &lt;module&gt;</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">regex</span> <span class="o">=</span> <span class="n">dedent</span><span class="p">(</span><span class="n">regex</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">lineno</span><span class="o">=</span><span class="n">line_number</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="n">name_regex</span><span class="p">,</span>
+            <span class="n">header</span><span class="o">=</span><span class="n">re</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="n">header</span><span class="p">)))</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">other_regex</span><span class="p">:</span>
+            <span class="n">regex</span> <span class="o">+=</span> <span class="s">&#39;|&#39;</span> <span class="o">+</span> <span class="n">other_regex</span>
+        <span class="n">output</span><span class="p">,</span> <span class="n">exitcode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_output</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">regex</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;aix&#39;</span><span class="p">),</span>
+                     <span class="s">&quot;the first page of memory is a mapped read-only on AIX&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="FaultHandlerTests.test_read_null"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_read_null">[docs]</a>    <span class="k">def</span> <span class="nf">test_read_null</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler._read_null()</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="c"># Issue #12700: Read NULL raises SIGILL on Mac OS X Lion</span>
+            <span class="s">&#39;(?:Segmentation fault|Bus error|Illegal instruction)&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_sigsegv"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_sigsegv">[docs]</a>    <span class="k">def</span> <span class="nf">test_sigsegv</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler._sigsegv()</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="s">&#39;Segmentation fault&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_sigabrt"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_sigabrt">[docs]</a>    <span class="k">def</span> <span class="nf">test_sigabrt</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler._sigabrt()</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="s">&#39;Aborted&#39;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">,</span>
+                     <span class="s">&quot;SIGFPE cannot be caught on Windows&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="FaultHandlerTests.test_sigfpe"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_sigfpe">[docs]</a>    <span class="k">def</span> <span class="nf">test_sigfpe</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler._sigfpe()</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="s">&#39;Floating point exception&#39;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">faulthandler</span><span class="p">,</span> <span class="s">&#39;_sigbus&#39;</span><span class="p">),</span>
+                     <span class="s">&quot;need faulthandler._sigbus()&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="FaultHandlerTests.test_sigbus"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_sigbus">[docs]</a>    <span class="k">def</span> <span class="nf">test_sigbus</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler._sigbus()</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="s">&#39;Bus error&#39;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">faulthandler</span><span class="p">,</span> <span class="s">&#39;_sigill&#39;</span><span class="p">),</span>
+                     <span class="s">&quot;need faulthandler._sigill()&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="FaultHandlerTests.test_sigill"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_sigill">[docs]</a>    <span class="k">def</span> <span class="nf">test_sigill</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler._sigill()</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="s">&#39;Illegal instruction&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_fatal_error"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_fatal_error">[docs]</a>    <span class="k">def</span> <span class="nf">test_fatal_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler._fatal_error(b&#39;xyz&#39;)</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">2</span><span class="p">,</span>
+            <span class="s">&#39;xyz&#39;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;openbsd&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">HAVE_THREADS</span><span class="p">,</span>
+                     <span class="s">&quot;Issue #12868: sigaltstack() doesn&#39;t work on &quot;</span>
+                     <span class="s">&quot;OpenBSD if Python is compiled with pthread&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">faulthandler</span><span class="p">,</span> <span class="s">&#39;_stack_overflow&#39;</span><span class="p">),</span>
+                     <span class="s">&#39;need faulthandler._stack_overflow()&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="FaultHandlerTests.test_stack_overflow"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_stack_overflow">[docs]</a>    <span class="k">def</span> <span class="nf">test_stack_overflow</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler._stack_overflow()</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="s">&#39;(?:Segmentation fault|Bus error)&#39;</span><span class="p">,</span>
+            <span class="n">other_regex</span><span class="o">=</span><span class="s">&#39;unable to raise a stack overflow&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_gil_released"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_gil_released">[docs]</a>    <span class="k">def</span> <span class="nf">test_gil_released</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler._read_null(True)</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="s">&#39;(?:Segmentation fault|Bus error|Illegal instruction)&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_enable_file"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_enable_file">[docs]</a>    <span class="k">def</span> <span class="nf">test_enable_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temporary_filename</span><span class="p">()</span> <span class="k">as</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">                import faulthandler</span>
+<span class="s">                output = open({filename}, &#39;wb&#39;)</span>
+<span class="s">                faulthandler.enable(output)</span>
+<span class="s">                faulthandler._sigsegv()</span>
+<span class="s">                &quot;&quot;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="nb">repr</span><span class="p">(</span><span class="n">filename</span><span class="p">)),</span>
+                <span class="mi">4</span><span class="p">,</span>
+                <span class="s">&#39;Segmentation fault&#39;</span><span class="p">,</span>
+                <span class="n">filename</span><span class="o">=</span><span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_enable_single_thread"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_enable_single_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_enable_single_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_fatal_error</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable(all_threads=False)</span>
+<span class="s">            faulthandler._sigsegv()</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">,</span>
+            <span class="mi">3</span><span class="p">,</span>
+            <span class="s">&#39;Segmentation fault&#39;</span><span class="p">,</span>
+            <span class="n">all_threads</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_disable"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_disable">[docs]</a>    <span class="k">def</span> <span class="nf">test_disable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            faulthandler.enable()</span>
+<span class="s">            faulthandler.disable()</span>
+<span class="s">            faulthandler._sigsegv()</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">not_expected</span> <span class="o">=</span> <span class="s">&#39;Fatal Python error&#39;</span>
+        <span class="n">stderr</span><span class="p">,</span> <span class="n">exitcode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_output</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+        <span class="n">stder</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">stderr</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">not_expected</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">stderr</span><span class="p">,</span>
+                     <span class="s">&quot;</span><span class="si">%r</span><span class="s"> is present in </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">not_expected</span><span class="p">,</span> <span class="n">stderr</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_is_enabled"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_is_enabled">[docs]</a>    <span class="k">def</span> <span class="nf">test_is_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">orig_stderr</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c"># regrtest may replace sys.stderr by io.StringIO object, but</span>
+            <span class="c"># faulthandler.enable() requires that sys.stderr has a fileno()</span>
+            <span class="c"># method</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">__stderr__</span>
+
+            <span class="n">was_enabled</span> <span class="o">=</span> <span class="n">faulthandler</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">()</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">faulthandler</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">faulthandler</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">())</span>
+                <span class="n">faulthandler</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">faulthandler</span><span class="o">.</span><span class="n">is_enabled</span><span class="p">())</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">was_enabled</span><span class="p">:</span>
+                    <span class="n">faulthandler</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">faulthandler</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span> <span class="o">=</span> <span class="n">orig_stderr</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_disabled_by_default"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_disabled_by_default">[docs]</a>    <span class="k">def</span> <span class="nf">test_disabled_by_default</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># By default, the module should be disabled</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;import faulthandler; print(faulthandler.is_enabled())&quot;</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="s">&#39;-E&#39;</span><span class="p">,</span> <span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="c"># don&#39;t use assert_python_ok() because it always enable faulthandler</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(),</span> <span class="n">b</span><span class="s">&quot;False&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_sys_xoptions"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_sys_xoptions">[docs]</a>    <span class="k">def</span> <span class="nf">test_sys_xoptions</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test python -X faulthandler</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;import faulthandler; print(faulthandler.is_enabled())&quot;</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="s">&quot;-E&quot;</span><span class="p">,</span> <span class="s">&quot;-X&quot;</span><span class="p">,</span> <span class="s">&quot;faulthandler&quot;</span><span class="p">,</span> <span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="c"># don&#39;t use assert_python_ok() because it always enable faulthandler</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(),</span> <span class="n">b</span><span class="s">&quot;True&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_env_var"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_env_var">[docs]</a>    <span class="k">def</span> <span class="nf">test_env_var</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># empty env var</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;import faulthandler; print(faulthandler.is_enabled())&quot;</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="n">env</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;PYTHONFAULTHANDLER&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="c"># don&#39;t use assert_python_ok() because it always enable faulthandler</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">env</span><span class="o">=</span><span class="n">env</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(),</span> <span class="n">b</span><span class="s">&quot;False&quot;</span><span class="p">)</span>
+
+        <span class="c"># non-empty env var</span>
+        <span class="n">env</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;PYTHONFAULTHANDLER&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;1&#39;</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">check_output</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">env</span><span class="o">=</span><span class="n">env</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">output</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(),</span> <span class="n">b</span><span class="s">&quot;True&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.check_dump_traceback"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.check_dump_traceback">[docs]</a>    <span class="k">def</span> <span class="nf">check_dump_traceback</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Explicitly call dump_traceback() function and check its output.</span>
+<span class="sd">        Raise an error if the output doesn&#39;t match the expected format.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+
+<span class="s">            def funcB():</span>
+<span class="s">                if {has_filename}:</span>
+<span class="s">                    with open({filename}, &quot;wb&quot;) as fp:</span>
+<span class="s">                        faulthandler.dump_traceback(fp, all_threads=False)</span>
+<span class="s">                else:</span>
+<span class="s">                    faulthandler.dump_traceback(all_threads=False)</span>
+
+<span class="s">            def funcA():</span>
+<span class="s">                funcB()</span>
+
+<span class="s">            funcA()</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">filename</span><span class="o">=</span><span class="nb">repr</span><span class="p">(</span><span class="n">filename</span><span class="p">),</span>
+            <span class="n">has_filename</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">filename</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="n">lineno</span> <span class="o">=</span> <span class="mi">6</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">lineno</span> <span class="o">=</span> <span class="mi">8</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s">&#39;Stack (most recent call first):&#39;</span><span class="p">,</span>
+            <span class="s">&#39;  File &quot;&lt;string&gt;&quot;, line </span><span class="si">%s</span><span class="s"> in funcB&#39;</span> <span class="o">%</span> <span class="n">lineno</span><span class="p">,</span>
+            <span class="s">&#39;  File &quot;&lt;string&gt;&quot;, line 11 in funcA&#39;</span><span class="p">,</span>
+            <span class="s">&#39;  File &quot;&lt;string&gt;&quot;, line 13 in &lt;module&gt;&#39;</span>
+        <span class="p">]</span>
+        <span class="n">trace</span><span class="p">,</span> <span class="n">exitcode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_output</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback_file"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback_file">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temporary_filename</span><span class="p">()</span> <span class="k">as</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_truncate"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_truncate">[docs]</a>    <span class="k">def</span> <span class="nf">test_truncate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">maxlen</span> <span class="o">=</span> <span class="mi">500</span>
+        <span class="n">func_name</span> <span class="o">=</span> <span class="s">&#39;x&#39;</span> <span class="o">*</span> <span class="p">(</span><span class="n">maxlen</span> <span class="o">+</span> <span class="mi">50</span><span class="p">)</span>
+        <span class="n">truncated</span> <span class="o">=</span> <span class="s">&#39;x&#39;</span> <span class="o">*</span> <span class="n">maxlen</span> <span class="o">+</span> <span class="s">&#39;...&#39;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+
+<span class="s">            def {func_name}():</span>
+<span class="s">                faulthandler.dump_traceback(all_threads=False)</span>
+
+<span class="s">            {func_name}()</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">func_name</span><span class="o">=</span><span class="n">func_name</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="s">&#39;Stack (most recent call first):&#39;</span><span class="p">,</span>
+            <span class="s">&#39;  File &quot;&lt;string&gt;&quot;, line 4 in </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">truncated</span><span class="p">,</span>
+            <span class="s">&#39;  File &quot;&lt;string&gt;&quot;, line 6 in &lt;module&gt;&#39;</span>
+        <span class="p">]</span>
+        <span class="n">trace</span><span class="p">,</span> <span class="n">exitcode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_output</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="ow">not</span> <span class="n">HAVE_THREADS</span><span class="p">,</span> <span class="s">&#39;need threads&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="FaultHandlerTests.check_dump_traceback_threads"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.check_dump_traceback_threads">[docs]</a>    <span class="k">def</span> <span class="nf">check_dump_traceback_threads</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Call explicitly dump_traceback(all_threads=True) and check the output.</span>
+<span class="sd">        Raise an error if the output doesn&#39;t match the expected format.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            from threading import Thread, Event</span>
+<span class="s">            import time</span>
+
+<span class="s">            def dump():</span>
+<span class="s">                if {filename}:</span>
+<span class="s">                    with open({filename}, &quot;wb&quot;) as fp:</span>
+<span class="s">                        faulthandler.dump_traceback(fp, all_threads=True)</span>
+<span class="s">                else:</span>
+<span class="s">                    faulthandler.dump_traceback(all_threads=True)</span>
+
+<span class="s">            class Waiter(Thread):</span>
+<span class="s">                # avoid blocking if the main thread raises an exception.</span>
+<span class="s">                daemon = True</span>
+
+<span class="s">                def __init__(self):</span>
+<span class="s">                    Thread.__init__(self)</span>
+<span class="s">                    self.running = Event()</span>
+<span class="s">                    self.stop = Event()</span>
+
+<span class="s">                def run(self):</span>
+<span class="s">                    self.running.set()</span>
+<span class="s">                    self.stop.wait()</span>
+
+<span class="s">            waiter = Waiter()</span>
+<span class="s">            waiter.start()</span>
+<span class="s">            waiter.running.wait()</span>
+<span class="s">            dump()</span>
+<span class="s">            waiter.stop.set()</span>
+<span class="s">            waiter.join()</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="nb">repr</span><span class="p">(</span><span class="n">filename</span><span class="p">))</span>
+        <span class="n">output</span><span class="p">,</span> <span class="n">exitcode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_output</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="n">lineno</span> <span class="o">=</span> <span class="mi">8</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">lineno</span> <span class="o">=</span> <span class="mi">10</span>
+        <span class="n">regex</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">            ^Thread 0x[0-9a-f]+ \(most recent call first\):</span>
+<span class="s">            (?:  File &quot;.*threading.py&quot;, line [0-9]+ in [_a-z]+</span>
+<span class="s">            ){{1,3}}  File &quot;&lt;string&gt;&quot;, line 23 in run</span>
+<span class="s">              File &quot;.*threading.py&quot;, line [0-9]+ in _bootstrap_inner</span>
+<span class="s">              File &quot;.*threading.py&quot;, line [0-9]+ in _bootstrap</span>
+
+<span class="s">            Current thread XXX \(most recent call first\):</span>
+<span class="s">              File &quot;&lt;string&gt;&quot;, line {lineno} in dump</span>
+<span class="s">              File &quot;&lt;string&gt;&quot;, line 28 in &lt;module&gt;$</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">regex</span> <span class="o">=</span> <span class="n">dedent</span><span class="p">(</span><span class="n">regex</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">lineno</span><span class="o">=</span><span class="n">lineno</span><span class="p">))</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">regex</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback_threads"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback_threads">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback_threads</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback_threads</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback_threads_file"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback_threads_file">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback_threads_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temporary_filename</span><span class="p">()</span> <span class="k">as</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback_threads</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_check_dump_traceback_later</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repeat</span><span class="p">,</span> <span class="n">cancel</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">loops</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check how many times the traceback is written in timeout x 2.5 seconds,</span>
+<span class="sd">        or timeout x 3.5 seconds if cancel is True: 1, 2 or 3 times depending</span>
+<span class="sd">        on repeat and cancel options.</span>
+
+<span class="sd">        Raise an error if the output doesn&#39;t match the expect format.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">timeout_str</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">seconds</span><span class="o">=</span><span class="n">TIMEOUT</span><span class="p">))</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            import time</span>
+
+<span class="s">            def func(timeout, repeat, cancel, file, loops):</span>
+<span class="s">                for loop in range(loops):</span>
+<span class="s">                    faulthandler.dump_traceback_later(timeout, repeat=repeat, file=file)</span>
+<span class="s">                    if cancel:</span>
+<span class="s">                        faulthandler.cancel_dump_traceback_later()</span>
+<span class="s">                    time.sleep(timeout * 5)</span>
+<span class="s">                    faulthandler.cancel_dump_traceback_later()</span>
+
+<span class="s">            timeout = {timeout}</span>
+<span class="s">            repeat = {repeat}</span>
+<span class="s">            cancel = {cancel}</span>
+<span class="s">            loops = {loops}</span>
+<span class="s">            if {has_filename}:</span>
+<span class="s">                file = open({filename}, &quot;wb&quot;)</span>
+<span class="s">            else:</span>
+<span class="s">                file = None</span>
+<span class="s">            func(timeout, repeat, cancel, file, loops)</span>
+<span class="s">            if file is not None:</span>
+<span class="s">                file.close()</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">timeout</span><span class="o">=</span><span class="n">TIMEOUT</span><span class="p">,</span>
+            <span class="n">repeat</span><span class="o">=</span><span class="n">repeat</span><span class="p">,</span>
+            <span class="n">cancel</span><span class="o">=</span><span class="n">cancel</span><span class="p">,</span>
+            <span class="n">loops</span><span class="o">=</span><span class="n">loops</span><span class="p">,</span>
+            <span class="n">has_filename</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">filename</span><span class="p">),</span>
+            <span class="n">filename</span><span class="o">=</span><span class="nb">repr</span><span class="p">(</span><span class="n">filename</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">trace</span><span class="p">,</span> <span class="n">exitcode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_output</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="n">trace</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">trace</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">cancel</span><span class="p">:</span>
+            <span class="n">count</span> <span class="o">=</span> <span class="n">loops</span>
+            <span class="k">if</span> <span class="n">repeat</span><span class="p">:</span>
+                <span class="n">count</span> <span class="o">*=</span> <span class="mi">2</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="s">r&#39;Timeout \(</span><span class="si">%s</span><span class="s">\)!\nThread 0x[0-9a-f]+ \(most recent call first\):\n&#39;</span> <span class="o">%</span> <span class="n">timeout_str</span>
+            <span class="n">regex</span> <span class="o">=</span> <span class="n">expected_traceback</span><span class="p">(</span><span class="mi">9</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">min_count</span><span class="o">=</span><span class="n">count</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="n">regex</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">faulthandler</span><span class="p">,</span> <span class="s">&#39;dump_traceback_later&#39;</span><span class="p">),</span>
+                     <span class="s">&#39;need faulthandler.dump_traceback_later()&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="FaultHandlerTests.check_dump_traceback_later"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.check_dump_traceback_later">[docs]</a>    <span class="k">def</span> <span class="nf">check_dump_traceback_later</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">cancel</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                                    <span class="nb">file</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">twice</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">twice</span><span class="p">:</span>
+            <span class="n">loops</span> <span class="o">=</span> <span class="mi">2</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">loops</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="nb">file</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">temporary_filename</span><span class="p">()</span> <span class="k">as</span> <span class="n">filename</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_check_dump_traceback_later</span><span class="p">(</span><span class="n">repeat</span><span class="p">,</span> <span class="n">cancel</span><span class="p">,</span>
+                                                  <span class="n">filename</span><span class="p">,</span> <span class="n">loops</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_dump_traceback_later</span><span class="p">(</span><span class="n">repeat</span><span class="p">,</span> <span class="n">cancel</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">loops</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback_later"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback_later">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback_later</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback_later</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback_later_repeat"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback_later_repeat">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback_later_repeat</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback_later</span><span class="p">(</span><span class="n">repeat</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback_later_cancel"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback_later_cancel">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback_later_cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback_later</span><span class="p">(</span><span class="n">cancel</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback_later_file"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback_later_file">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback_later_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback_later</span><span class="p">(</span><span class="nb">file</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_dump_traceback_later_twice"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_dump_traceback_later_twice">[docs]</a>    <span class="k">def</span> <span class="nf">test_dump_traceback_later_twice</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_dump_traceback_later</span><span class="p">(</span><span class="n">twice</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">faulthandler</span><span class="p">,</span> <span class="s">&quot;register&quot;</span><span class="p">),</span>
+                     <span class="s">&quot;need faulthandler.register&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="FaultHandlerTests.check_register"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.check_register">[docs]</a>    <span class="k">def</span> <span class="nf">check_register</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">all_threads</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                       <span class="n">unregister</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">chain</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Register a handler displaying the traceback on a user signal. Raise the</span>
+<span class="sd">        signal and check the written traceback.</span>
+
+<span class="sd">        If chain is True, check that the previous signal handler is called.</span>
+
+<span class="sd">        Raise an error if the output doesn&#39;t match the expected format.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">signum</span> <span class="o">=</span> <span class="n">signal</span><span class="o">.</span><span class="n">SIGUSR1</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">            import faulthandler</span>
+<span class="s">            import os</span>
+<span class="s">            import signal</span>
+<span class="s">            import sys</span>
+
+<span class="s">            def func(signum):</span>
+<span class="s">                os.kill(os.getpid(), signum)</span>
+
+<span class="s">            def handler(signum, frame):</span>
+<span class="s">                handler.called = True</span>
+<span class="s">            handler.called = False</span>
+
+<span class="s">            exitcode = 0</span>
+<span class="s">            signum = {signum}</span>
+<span class="s">            unregister = {unregister}</span>
+<span class="s">            chain = {chain}</span>
+
+<span class="s">            if {has_filename}:</span>
+<span class="s">                file = open({filename}, &quot;wb&quot;)</span>
+<span class="s">            else:</span>
+<span class="s">                file = None</span>
+<span class="s">            if chain:</span>
+<span class="s">                signal.signal(signum, handler)</span>
+<span class="s">            faulthandler.register(signum, file=file,</span>
+<span class="s">                                  all_threads={all_threads}, chain={chain})</span>
+<span class="s">            if unregister:</span>
+<span class="s">                faulthandler.unregister(signum)</span>
+<span class="s">            func(signum)</span>
+<span class="s">            if chain and not handler.called:</span>
+<span class="s">                if file is not None:</span>
+<span class="s">                    output = file</span>
+<span class="s">                else:</span>
+<span class="s">                    output = sys.stderr</span>
+<span class="s">                print(&quot;Error: signal handler not called!&quot;, file=output)</span>
+<span class="s">                exitcode = 1</span>
+<span class="s">            if file is not None:</span>
+<span class="s">                file.close()</span>
+<span class="s">            sys.exit(exitcode)</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">filename</span><span class="o">=</span><span class="nb">repr</span><span class="p">(</span><span class="n">filename</span><span class="p">),</span>
+            <span class="n">has_filename</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">filename</span><span class="p">),</span>
+            <span class="n">all_threads</span><span class="o">=</span><span class="n">all_threads</span><span class="p">,</span>
+            <span class="n">signum</span><span class="o">=</span><span class="n">signum</span><span class="p">,</span>
+            <span class="n">unregister</span><span class="o">=</span><span class="n">unregister</span><span class="p">,</span>
+            <span class="n">chain</span><span class="o">=</span><span class="n">chain</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">trace</span><span class="p">,</span> <span class="n">exitcode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_output</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="n">trace</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">trace</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">unregister</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">all_threads</span><span class="p">:</span>
+                <span class="n">regex</span> <span class="o">=</span> <span class="s">&#39;Current thread XXX \(most recent call first\):</span><span class="se">\n</span><span class="s">&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">regex</span> <span class="o">=</span> <span class="s">&#39;Stack \(most recent call first\):</span><span class="se">\n</span><span class="s">&#39;</span>
+            <span class="n">regex</span> <span class="o">=</span> <span class="n">expected_traceback</span><span class="p">(</span><span class="mi">7</span><span class="p">,</span> <span class="mi">28</span><span class="p">,</span> <span class="n">regex</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="n">regex</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">trace</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">unregister</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">exitcode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_register"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_register">[docs]</a>    <span class="k">def</span> <span class="nf">test_register</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_register</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_unregister"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_unregister">[docs]</a>    <span class="k">def</span> <span class="nf">test_unregister</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_register</span><span class="p">(</span><span class="n">unregister</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_register_file"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_register_file">[docs]</a>    <span class="k">def</span> <span class="nf">test_register_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temporary_filename</span><span class="p">()</span> <span class="k">as</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">check_register</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_register_threads"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_register_threads">[docs]</a>    <span class="k">def</span> <span class="nf">test_register_threads</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_register</span><span class="p">(</span><span class="n">all_threads</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_register_chain"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_register_chain">[docs]</a>    <span class="k">def</span> <span class="nf">test_register_chain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_register</span><span class="p">(</span><span class="n">chain</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+    <span class="nd">@contextmanager</span>
+<div class="viewcode-block" id="FaultHandlerTests.check_stderr_none"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.check_stderr_none">[docs]</a>    <span class="k">def</span> <span class="nf">check_stderr_none</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">stderr</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">)</span> <span class="k">as</span> <span class="n">cm</span><span class="p">:</span>
+                <span class="k">yield</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">cm</span><span class="o">.</span><span class="n">exception</span><span class="p">),</span> <span class="s">&quot;sys.stderr is None&quot;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span> <span class="o">=</span> <span class="n">stderr</span>
+</div>
+<div class="viewcode-block" id="FaultHandlerTests.test_stderr_None"><a class="viewcode-back" href="../../test.html#test.test_faulthandler.FaultHandlerTests.test_stderr_None">[docs]</a>    <span class="k">def</span> <span class="nf">test_stderr_None</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #21497: provide an helpful error if sys.stderr is None,</span>
+        <span class="c"># instead of just an attribute error: &quot;None has no attribute fileno&quot;.</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_stderr_none</span><span class="p">():</span>
+            <span class="n">faulthandler</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_stderr_none</span><span class="p">():</span>
+            <span class="n">faulthandler</span><span class="o">.</span><span class="n">dump_traceback</span><span class="p">()</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">faulthandler</span><span class="p">,</span> <span class="s">&#39;dump_traceback_later&#39;</span><span class="p">):</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_stderr_none</span><span class="p">():</span>
+                <span class="n">faulthandler</span><span class="o">.</span><span class="n">dump_traceback_later</span><span class="p">(</span><span class="mf">1e-3</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">faulthandler</span><span class="p">,</span> <span class="s">&quot;register&quot;</span><span class="p">):</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_stderr_none</span><span class="p">():</span>
+                <span class="n">faulthandler</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">signal</span><span class="o">.</span><span class="n">SIGUSR1</span><span class="p">)</span>
+
+</div></div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">unittest</span><span class="o">.</span><span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

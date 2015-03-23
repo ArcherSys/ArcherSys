@@ -1,0 +1,577 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>distutils.tests.test_sdist &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../../index.html" />
+    <link rel="up" title="distutils.tests" href="../tests.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" >Module code</a> &raquo;</li>
+          <li class="nav-item nav-item-2"><a href="../tests.html" accesskey="U">distutils.tests</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for distutils.tests.test_sdist</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Tests for distutils.command.sdist.&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">tarfile</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="kn">import</span> <span class="nn">zipfile</span>
+<span class="kn">from</span> <span class="nn">os.path</span> <span class="kn">import</span> <span class="n">join</span>
+<span class="kn">from</span> <span class="nn">textwrap</span> <span class="kn">import</span> <span class="n">dedent</span>
+<span class="kn">from</span> <span class="nn">test.support</span> <span class="kn">import</span> <span class="n">captured_stdout</span><span class="p">,</span> <span class="n">check_warnings</span><span class="p">,</span> <span class="n">run_unittest</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">zlib</span>
+    <span class="n">ZLIB_SUPPORT</span> <span class="o">=</span> <span class="bp">True</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">ZLIB_SUPPORT</span> <span class="o">=</span> <span class="bp">False</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">grp</span>
+    <span class="kn">import</span> <span class="nn">pwd</span>
+    <span class="n">UID_GID_SUPPORT</span> <span class="o">=</span> <span class="bp">True</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">UID_GID_SUPPORT</span> <span class="o">=</span> <span class="bp">False</span>
+
+<span class="kn">from</span> <span class="nn">distutils.command.sdist</span> <span class="kn">import</span> <span class="n">sdist</span><span class="p">,</span> <span class="n">show_formats</span>
+<span class="kn">from</span> <span class="nn">distutils.core</span> <span class="kn">import</span> <span class="n">Distribution</span>
+<span class="kn">from</span> <span class="nn">distutils.tests.test_config</span> <span class="kn">import</span> <span class="n">PyPIRCCommandTestCase</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="n">DistutilsOptionError</span>
+<span class="kn">from</span> <span class="nn">distutils.spawn</span> <span class="kn">import</span> <span class="n">find_executable</span>
+<span class="kn">from</span> <span class="nn">distutils.log</span> <span class="kn">import</span> <span class="n">WARN</span>
+<span class="kn">from</span> <span class="nn">distutils.filelist</span> <span class="kn">import</span> <span class="n">FileList</span>
+<span class="kn">from</span> <span class="nn">distutils.archive_util</span> <span class="kn">import</span> <span class="n">ARCHIVE_FORMATS</span>
+
+<span class="n">SETUP_PY</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">from distutils.core import setup</span>
+<span class="s">import somecode</span>
+
+<span class="s">setup(name=&#39;fake&#39;)</span>
+<span class="s">&quot;&quot;&quot;</span>
+
+<span class="n">MANIFEST</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s"># file GENERATED by distutils, do NOT edit</span>
+<span class="s">README</span>
+<span class="s">buildout.cfg</span>
+<span class="s">inroot.txt</span>
+<span class="s">setup.py</span>
+<span class="s">data</span><span class="si">%(sep)s</span><span class="s">data.dt</span>
+<span class="s">scripts</span><span class="si">%(sep)s</span><span class="s">script.py</span>
+<span class="s">some</span><span class="si">%(sep)s</span><span class="s">file.txt</span>
+<span class="s">some</span><span class="si">%(sep)s</span><span class="s">other_file.txt</span>
+<span class="s">somecode</span><span class="si">%(sep)s</span><span class="s">__init__.py</span>
+<span class="s">somecode</span><span class="si">%(sep)s</span><span class="s">doc.dat</span>
+<span class="s">somecode</span><span class="si">%(sep)s</span><span class="s">doc.txt</span>
+<span class="s">&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="SDistTestCase"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase">[docs]</a><span class="k">class</span> <span class="nc">SDistTestCase</span><span class="p">(</span><span class="n">PyPIRCCommandTestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="SDistTestCase.setUp"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># PyPIRCCommandTestCase creates a temp dir already</span>
+        <span class="c"># and put it in self.tmp_dir</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">SDistTestCase</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">setUp</span><span class="p">()</span>
+        <span class="c"># setting up an environment</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">old_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getcwd</span><span class="p">()</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">))</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;dist&#39;</span><span class="p">))</span>
+        <span class="c"># a package, and a README</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;README&#39;</span><span class="p">),</span> <span class="s">&#39;xxx&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;__init__.py&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;setup.py&#39;</span><span class="p">),</span> <span class="n">SETUP_PY</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">chdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SDistTestCase.tearDown"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># back to normal</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">chdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">old_path</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">SDistTestCase</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">tearDown</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SDistTestCase.get_cmd"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.get_cmd">[docs]</a>    <span class="k">def</span> <span class="nf">get_cmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">metadata</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns a cmd&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">metadata</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">metadata</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;name&#39;</span><span class="p">:</span> <span class="s">&#39;fake&#39;</span><span class="p">,</span> <span class="s">&#39;version&#39;</span><span class="p">:</span> <span class="s">&#39;1.0&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;url&#39;</span><span class="p">:</span> <span class="s">&#39;xxx&#39;</span><span class="p">,</span> <span class="s">&#39;author&#39;</span><span class="p">:</span> <span class="s">&#39;xxx&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;author_email&#39;</span><span class="p">:</span> <span class="s">&#39;xxx&#39;</span><span class="p">}</span>
+        <span class="n">dist</span> <span class="o">=</span> <span class="n">Distribution</span><span class="p">(</span><span class="n">metadata</span><span class="p">)</span>
+        <span class="n">dist</span><span class="o">.</span><span class="n">script_name</span> <span class="o">=</span> <span class="s">&#39;setup.py&#39;</span>
+        <span class="n">dist</span><span class="o">.</span><span class="n">packages</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;somecode&#39;</span><span class="p">]</span>
+        <span class="n">dist</span><span class="o">.</span><span class="n">include_package_data</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="n">sdist</span><span class="p">(</span><span class="n">dist</span><span class="p">)</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">dist_dir</span> <span class="o">=</span> <span class="s">&#39;dist&#39;</span>
+        <span class="k">return</span> <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&#39;Need zlib support to run&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_prune_file_list"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_prune_file_list">[docs]</a>    <span class="k">def</span> <span class="nf">test_prune_file_list</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># this test creates a project with some VCS dirs and an NFS rename</span>
+        <span class="c"># file, then launches sdist to check they get pruned on all systems</span>
+
+        <span class="c"># creating VCS directories with some files in them</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;.svn&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;.svn&#39;</span><span class="p">,</span> <span class="s">&#39;ok.py&#39;</span><span class="p">),</span> <span class="s">&#39;xxx&#39;</span><span class="p">)</span>
+
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;.hg&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;.hg&#39;</span><span class="p">,</span>
+                         <span class="s">&#39;ok&#39;</span><span class="p">),</span> <span class="s">&#39;xxx&#39;</span><span class="p">)</span>
+
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;.git&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;.git&#39;</span><span class="p">,</span>
+                         <span class="s">&#39;ok&#39;</span><span class="p">),</span> <span class="s">&#39;xxx&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;.nfs0001&#39;</span><span class="p">),</span> <span class="s">&#39;xxx&#39;</span><span class="p">)</span>
+
+        <span class="c"># now building a sdist</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+
+        <span class="c"># zip is available universally</span>
+        <span class="c"># (tar might not be installed under win32)</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;zip&#39;</span><span class="p">]</span>
+
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="c"># now let&#39;s check what we have</span>
+        <span class="n">dist_folder</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;dist&#39;</span><span class="p">)</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">dist_folder</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">files</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;fake-1.0.zip&#39;</span><span class="p">])</span>
+
+        <span class="n">zip_file</span> <span class="o">=</span> <span class="n">zipfile</span><span class="o">.</span><span class="n">ZipFile</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="n">dist_folder</span><span class="p">,</span> <span class="s">&#39;fake-1.0.zip&#39;</span><span class="p">))</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">content</span> <span class="o">=</span> <span class="n">zip_file</span><span class="o">.</span><span class="n">namelist</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">zip_file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="c"># making sure everything has been pruned correctly</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">content</span><span class="p">),</span> <span class="mi">4</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&#39;Need zlib support to run&#39;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">find_executable</span><span class="p">(</span><span class="s">&#39;tar&#39;</span><span class="p">)</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">,</span>
+                     <span class="s">&quot;The tar command is not found&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">find_executable</span><span class="p">(</span><span class="s">&#39;gzip&#39;</span><span class="p">)</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">,</span>
+                     <span class="s">&quot;The gzip command is not found&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_make_distribution"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_make_distribution">[docs]</a>    <span class="k">def</span> <span class="nf">test_make_distribution</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># now building a sdist</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+
+        <span class="c"># creating a gztar then a tar</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;gztar&#39;</span><span class="p">,</span> <span class="s">&#39;tar&#39;</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="c"># making sure we have two files</span>
+        <span class="n">dist_folder</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;dist&#39;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">dist_folder</span><span class="p">)</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;fake-1.0.tar&#39;</span><span class="p">,</span> <span class="s">&#39;fake-1.0.tar.gz&#39;</span><span class="p">])</span>
+
+        <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="n">dist_folder</span><span class="p">,</span> <span class="s">&#39;fake-1.0.tar&#39;</span><span class="p">))</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="n">dist_folder</span><span class="p">,</span> <span class="s">&#39;fake-1.0.tar.gz&#39;</span><span class="p">))</span>
+
+        <span class="c"># now trying a tar then a gztar</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;tar&#39;</span><span class="p">,</span> <span class="s">&#39;gztar&#39;</span><span class="p">]</span>
+
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="n">result</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">dist_folder</span><span class="p">)</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;fake-1.0.tar&#39;</span><span class="p">,</span> <span class="s">&#39;fake-1.0.tar.gz&#39;</span><span class="p">])</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&#39;Need zlib support to run&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_add_defaults"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_add_defaults">[docs]</a>    <span class="k">def</span> <span class="nf">test_add_defaults</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+
+        <span class="c"># http://bugs.python.org/issue2279</span>
+
+        <span class="c"># add_default should also include</span>
+        <span class="c"># data_files and package_data</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+
+        <span class="c"># filling data_files by pointing files</span>
+        <span class="c"># in package_data</span>
+        <span class="n">dist</span><span class="o">.</span><span class="n">package_data</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;*.cfg&#39;</span><span class="p">,</span> <span class="s">&#39;*.dat&#39;</span><span class="p">],</span>
+                             <span class="s">&#39;somecode&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;*.txt&#39;</span><span class="p">]}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;doc.txt&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;doc.dat&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+
+        <span class="c"># adding some data in data_files</span>
+        <span class="n">data_dir</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;data&#39;</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">data_dir</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="n">data_dir</span><span class="p">,</span> <span class="s">&#39;data.dt&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="n">some_dir</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;some&#39;</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">some_dir</span><span class="p">)</span>
+        <span class="c"># make sure VCS directories are pruned (#14004)</span>
+        <span class="n">hg_dir</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;.hg&#39;</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">hg_dir</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="n">hg_dir</span><span class="p">,</span> <span class="s">&#39;last-message.txt&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="c"># a buggy regex used to prevent this from working on windows (#6884)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;buildout.cfg&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;inroot.txt&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="n">some_dir</span><span class="p">,</span> <span class="s">&#39;file.txt&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="n">some_dir</span><span class="p">,</span> <span class="s">&#39;other_file.txt&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+
+        <span class="n">dist</span><span class="o">.</span><span class="n">data_files</span> <span class="o">=</span> <span class="p">[(</span><span class="s">&#39;data&#39;</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;data/data.dt&#39;</span><span class="p">,</span>
+                                     <span class="s">&#39;buildout.cfg&#39;</span><span class="p">,</span>
+                                     <span class="s">&#39;inroot.txt&#39;</span><span class="p">,</span>
+                                     <span class="s">&#39;notexisting&#39;</span><span class="p">]),</span>
+                           <span class="s">&#39;some/file.txt&#39;</span><span class="p">,</span>
+                           <span class="s">&#39;some/other_file.txt&#39;</span><span class="p">]</span>
+
+        <span class="c"># adding a script</span>
+        <span class="n">script_dir</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;scripts&#39;</span><span class="p">)</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">script_dir</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;script.py&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="n">dist</span><span class="o">.</span><span class="n">scripts</span> <span class="o">=</span> <span class="p">[</span><span class="n">join</span><span class="p">(</span><span class="s">&#39;scripts&#39;</span><span class="p">,</span> <span class="s">&#39;script.py&#39;</span><span class="p">)]</span>
+
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;zip&#39;</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">use_defaults</span> <span class="o">=</span> <span class="bp">True</span>
+
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="c"># now let&#39;s check what we have</span>
+        <span class="n">dist_folder</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;dist&#39;</span><span class="p">)</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">dist_folder</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">files</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;fake-1.0.zip&#39;</span><span class="p">])</span>
+
+        <span class="n">zip_file</span> <span class="o">=</span> <span class="n">zipfile</span><span class="o">.</span><span class="n">ZipFile</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="n">dist_folder</span><span class="p">,</span> <span class="s">&#39;fake-1.0.zip&#39;</span><span class="p">))</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">content</span> <span class="o">=</span> <span class="n">zip_file</span><span class="o">.</span><span class="n">namelist</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">zip_file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="c"># making sure everything was added</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">content</span><span class="p">),</span> <span class="mi">12</span><span class="p">)</span>
+
+        <span class="c"># checking the MANIFEST</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;MANIFEST&#39;</span><span class="p">))</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">manifest</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">manifest</span><span class="p">,</span> <span class="n">MANIFEST</span> <span class="o">%</span> <span class="p">{</span><span class="s">&#39;sep&#39;</span><span class="p">:</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span><span class="p">})</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&#39;Need zlib support to run&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_metadata_check_option"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_metadata_check_option">[docs]</a>    <span class="k">def</span> <span class="nf">test_metadata_check_option</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># testing the `medata-check` option</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">(</span><span class="n">metadata</span><span class="o">=</span><span class="p">{})</span>
+
+        <span class="c"># this should raise some warnings !</span>
+        <span class="c"># with the `check` subcommand</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+        <span class="n">warnings</span> <span class="o">=</span> <span class="p">[</span><span class="n">msg</span> <span class="k">for</span> <span class="n">msg</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logs</span><span class="p">(</span><span class="n">WARN</span><span class="p">)</span> <span class="k">if</span>
+                    <span class="n">msg</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;warning: check:&#39;</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">warnings</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="c"># trying with a complete set of metadata</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">clear_logs</span><span class="p">()</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">metadata_check</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+        <span class="n">warnings</span> <span class="o">=</span> <span class="p">[</span><span class="n">msg</span> <span class="k">for</span> <span class="n">msg</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logs</span><span class="p">(</span><span class="n">WARN</span><span class="p">)</span> <span class="k">if</span>
+                    <span class="n">msg</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;warning: check:&#39;</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">warnings</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SDistTestCase.test_check_metadata_deprecated"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_check_metadata_deprecated">[docs]</a>    <span class="k">def</span> <span class="nf">test_check_metadata_deprecated</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># makes sure make_metadata is deprecated</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+        <span class="k">with</span> <span class="n">check_warnings</span><span class="p">()</span> <span class="k">as</span> <span class="n">w</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">simplefilter</span><span class="p">(</span><span class="s">&quot;always&quot;</span><span class="p">)</span>
+            <span class="n">cmd</span><span class="o">.</span><span class="n">check_metadata</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">w</span><span class="o">.</span><span class="n">warnings</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SDistTestCase.test_show_formats"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_show_formats">[docs]</a>    <span class="k">def</span> <span class="nf">test_show_formats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">captured_stdout</span><span class="p">()</span> <span class="k">as</span> <span class="n">stdout</span><span class="p">:</span>
+            <span class="n">show_formats</span><span class="p">()</span>
+
+        <span class="c"># the output should be a header line + one line per format</span>
+        <span class="n">num_formats</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">ARCHIVE_FORMATS</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">stdout</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                  <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;--formats=&#39;</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">output</span><span class="p">),</span> <span class="n">num_formats</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SDistTestCase.test_finalize_options"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_finalize_options">[docs]</a>    <span class="k">def</span> <span class="nf">test_finalize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">finalize_options</span><span class="p">()</span>
+
+        <span class="c"># default options set by finalize</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">manifest</span><span class="p">,</span> <span class="s">&#39;MANIFEST&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">template</span><span class="p">,</span> <span class="s">&#39;MANIFEST.in&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">dist_dir</span><span class="p">,</span> <span class="s">&#39;dist&#39;</span><span class="p">)</span>
+
+        <span class="c"># formats has to be a string splitable on (&#39; &#39;, &#39;,&#39;) or</span>
+        <span class="c"># a stringlist</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">DistutilsOptionError</span><span class="p">,</span> <span class="n">cmd</span><span class="o">.</span><span class="n">finalize_options</span><span class="p">)</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;zip&#39;</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">finalize_options</span><span class="p">()</span>
+
+        <span class="c"># formats has to be known</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="s">&#39;supazipa&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">DistutilsOptionError</span><span class="p">,</span> <span class="n">cmd</span><span class="o">.</span><span class="n">finalize_options</span><span class="p">)</span>
+
+    <span class="c"># the following tests make sure there is a nice error message instead</span>
+    <span class="c"># of a traceback when parsing an invalid manifest template</span>
+</div>
+    <span class="k">def</span> <span class="nf">_check_template</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">content</span><span class="p">):</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">chdir</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">(</span><span class="s">&#39;MANIFEST.in&#39;</span><span class="p">,</span> <span class="n">content</span><span class="p">)</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">filelist</span> <span class="o">=</span> <span class="n">FileList</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">read_template</span><span class="p">()</span>
+        <span class="n">warnings</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_logs</span><span class="p">(</span><span class="n">WARN</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">warnings</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+
+<div class="viewcode-block" id="SDistTestCase.test_invalid_template_unknown_command"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_invalid_template_unknown_command">[docs]</a>    <span class="k">def</span> <span class="nf">test_invalid_template_unknown_command</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_template</span><span class="p">(</span><span class="s">&#39;taunt knights *&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SDistTestCase.test_invalid_template_wrong_arguments"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_invalid_template_wrong_arguments">[docs]</a>    <span class="k">def</span> <span class="nf">test_invalid_template_wrong_arguments</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># this manifest command takes one argument</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_template</span><span class="p">(</span><span class="s">&#39;prune&#39;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="s">&#39;nt&#39;</span><span class="p">,</span> <span class="s">&#39;test relevant for Windows only&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_invalid_template_wrong_path"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_invalid_template_wrong_path">[docs]</a>    <span class="k">def</span> <span class="nf">test_invalid_template_wrong_path</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># on Windows, trailing slashes are not allowed</span>
+        <span class="c"># this used to crash instead of raising a warning: #8286</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_template</span><span class="p">(</span><span class="s">&#39;include examples/&#39;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&#39;Need zlib support to run&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_get_file_list"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_get_file_list">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_file_list</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># make sure MANIFEST is recalculated</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+
+        <span class="c"># filling data_files by pointing files in package_data</span>
+        <span class="n">dist</span><span class="o">.</span><span class="n">package_data</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;somecode&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;*.txt&#39;</span><span class="p">]}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;doc.txt&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;gztar&#39;</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">manifest</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">manifest</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">!=</span> <span class="s">&#39;&#39;</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">manifest</span><span class="p">),</span> <span class="mi">5</span><span class="p">)</span>
+
+        <span class="c"># adding a file</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;somecode&#39;</span><span class="p">,</span> <span class="s">&#39;doc2.txt&#39;</span><span class="p">),</span> <span class="s">&#39;#&#39;</span><span class="p">)</span>
+
+        <span class="c"># make sure build_py is reinitialized, like a fresh run</span>
+        <span class="n">build_py</span> <span class="o">=</span> <span class="n">dist</span><span class="o">.</span><span class="n">get_command_obj</span><span class="p">(</span><span class="s">&#39;build_py&#39;</span><span class="p">)</span>
+        <span class="n">build_py</span><span class="o">.</span><span class="n">finalized</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="n">build_py</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">manifest</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">manifest2</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                         <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">!=</span> <span class="s">&#39;&#39;</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="c"># do we have the new file in MANIFEST ?</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">manifest2</span><span class="p">),</span> <span class="mi">6</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&#39;doc2.txt&#39;</span><span class="p">,</span> <span class="n">manifest2</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&#39;Need zlib support to run&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_manifest_marker"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_manifest_marker">[docs]</a>    <span class="k">def</span> <span class="nf">test_manifest_marker</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># check that autogenerated MANIFESTs have a marker</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">manifest</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">manifest</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">!=</span> <span class="s">&#39;&#39;</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">manifest</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+                         <span class="s">&#39;# file GENERATED by distutils, do NOT edit&#39;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&quot;Need zlib support to run&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_manifest_comments"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_manifest_comments">[docs]</a>    <span class="k">def</span> <span class="nf">test_manifest_comments</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># make sure comments don&#39;t cause exceptions or wrong includes</span>
+        <span class="n">contents</span> <span class="o">=</span> <span class="n">dedent</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s">            # bad.py</span>
+<span class="s">            #bad.py</span>
+<span class="s">            good.py</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="n">cmd</span><span class="o">.</span><span class="n">manifest</span><span class="p">),</span> <span class="n">contents</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;good.py&#39;</span><span class="p">),</span> <span class="s">&#39;# pick me!&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;bad.py&#39;</span><span class="p">),</span> <span class="s">&quot;# don&#39;t pick me!&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;#bad.py&#39;</span><span class="p">),</span> <span class="s">&quot;# don&#39;t pick me!&quot;</span><span class="p">)</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">filelist</span><span class="o">.</span><span class="n">files</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;good.py&#39;</span><span class="p">])</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&#39;Need zlib support to run&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_manual_manifest"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_manual_manifest">[docs]</a>    <span class="k">def</span> <span class="nf">test_manual_manifest</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># check that a MANIFEST without a marker is left alone</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;gztar&#39;</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="n">cmd</span><span class="o">.</span><span class="n">manifest</span><span class="p">),</span> <span class="s">&#39;README.manual&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;README.manual&#39;</span><span class="p">),</span>
+                         <span class="s">&#39;This project maintains its MANIFEST file itself.&#39;</span><span class="p">)</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">filelist</span><span class="o">.</span><span class="n">files</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;README.manual&#39;</span><span class="p">])</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">manifest</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">manifest</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">!=</span> <span class="s">&#39;&#39;</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">manifest</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;README.manual&#39;</span><span class="p">])</span>
+
+        <span class="n">archive_name</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;dist&#39;</span><span class="p">,</span> <span class="s">&#39;fake-1.0.tar.gz&#39;</span><span class="p">)</span>
+        <span class="n">archive</span> <span class="o">=</span> <span class="n">tarfile</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">archive_name</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">filenames</span> <span class="o">=</span> <span class="p">[</span><span class="n">tarinfo</span><span class="o">.</span><span class="n">name</span> <span class="k">for</span> <span class="n">tarinfo</span> <span class="ow">in</span> <span class="n">archive</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">archive</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">filenames</span><span class="p">),</span> <span class="p">[</span><span class="s">&#39;fake-1.0&#39;</span><span class="p">,</span> <span class="s">&#39;fake-1.0/PKG-INFO&#39;</span><span class="p">,</span>
+                                             <span class="s">&#39;fake-1.0/README.manual&#39;</span><span class="p">])</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">ZLIB_SUPPORT</span><span class="p">,</span> <span class="s">&quot;requires zlib&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">UID_GID_SUPPORT</span><span class="p">,</span> <span class="s">&quot;Requires grp and pwd support&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">find_executable</span><span class="p">(</span><span class="s">&#39;tar&#39;</span><span class="p">)</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">,</span>
+                     <span class="s">&quot;The tar command is not found&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">find_executable</span><span class="p">(</span><span class="s">&#39;gzip&#39;</span><span class="p">)</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">,</span>
+                     <span class="s">&quot;The gzip command is not found&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="SDistTestCase.test_make_distribution_owner_group"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.SDistTestCase.test_make_distribution_owner_group">[docs]</a>    <span class="k">def</span> <span class="nf">test_make_distribution_owner_group</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># now building a sdist</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+
+        <span class="c"># creating a gztar and specifying the owner+group</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;gztar&#39;</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">owner</span> <span class="o">=</span> <span class="n">pwd</span><span class="o">.</span><span class="n">getpwuid</span><span class="p">(</span><span class="mi">0</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">group</span> <span class="o">=</span> <span class="n">grp</span><span class="o">.</span><span class="n">getgrgid</span><span class="p">(</span><span class="mi">0</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="c"># making sure we have the good rights</span>
+        <span class="n">archive_name</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;dist&#39;</span><span class="p">,</span> <span class="s">&#39;fake-1.0.tar.gz&#39;</span><span class="p">)</span>
+        <span class="n">archive</span> <span class="o">=</span> <span class="n">tarfile</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">archive_name</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">member</span> <span class="ow">in</span> <span class="n">archive</span><span class="o">.</span><span class="n">getmembers</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">member</span><span class="o">.</span><span class="n">uid</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">member</span><span class="o">.</span><span class="n">gid</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">archive</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="c"># building a sdist again</span>
+        <span class="n">dist</span><span class="p">,</span> <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cmd</span><span class="p">()</span>
+
+        <span class="c"># creating a gztar</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">formats</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;gztar&#39;</span><span class="p">]</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="n">cmd</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+
+        <span class="c"># making sure we have the good rights</span>
+        <span class="n">archive_name</span> <span class="o">=</span> <span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmp_dir</span><span class="p">,</span> <span class="s">&#39;dist&#39;</span><span class="p">,</span> <span class="s">&#39;fake-1.0.tar.gz&#39;</span><span class="p">)</span>
+        <span class="n">archive</span> <span class="o">=</span> <span class="n">tarfile</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">archive_name</span><span class="p">)</span>
+
+        <span class="c"># note that we are not testing the group ownership here</span>
+        <span class="c"># because, depending on the platforms and the container</span>
+        <span class="c"># rights (see #7408)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">member</span> <span class="ow">in</span> <span class="n">archive</span><span class="o">.</span><span class="n">getmembers</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">member</span><span class="o">.</span><span class="n">uid</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">getuid</span><span class="p">())</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">archive</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div></div>
+<div class="viewcode-block" id="test_suite"><a class="viewcode-back" href="../../../distutils.tests.html#distutils.tests.test_sdist.test_suite">[docs]</a><span class="k">def</span> <span class="nf">test_suite</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">unittest</span><span class="o">.</span><span class="n">makeSuite</span><span class="p">(</span><span class="n">SDistTestCase</span><span class="p">)</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">run_unittest</span><span class="p">(</span><span class="n">test_suite</span><span class="p">())</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

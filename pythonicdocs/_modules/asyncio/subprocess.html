@@ -1,0 +1,320 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>asyncio.subprocess &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for asyncio.subprocess</h1><div class="highlight"><pre>
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;create_subprocess_exec&#39;</span><span class="p">,</span> <span class="s">&#39;create_subprocess_shell&#39;</span><span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">collections</span>
+<span class="kn">import</span> <span class="nn">subprocess</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">protocols</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">streams</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">tasks</span>
+<span class="kn">from</span> <span class="nn">.coroutines</span> <span class="kn">import</span> <span class="n">coroutine</span>
+<span class="kn">from</span> <span class="nn">.log</span> <span class="kn">import</span> <span class="n">logger</span>
+
+
+<span class="n">PIPE</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span>
+<span class="n">STDOUT</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">STDOUT</span>
+<span class="n">DEVNULL</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">DEVNULL</span>
+
+
+<span class="k">class</span> <span class="nc">SubprocessStreamProtocol</span><span class="p">(</span><span class="n">streams</span><span class="o">.</span><span class="n">FlowControlMixin</span><span class="p">,</span>
+                               <span class="n">protocols</span><span class="o">.</span><span class="n">SubprocessProtocol</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Like StreamReaderProtocol, but for a subprocess.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">limit</span><span class="p">,</span> <span class="n">loop</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_limit</span> <span class="o">=</span> <span class="n">limit</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">waiter</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_waiters</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">deque</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;stdin=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;stdout=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;stderr=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">connection_made</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">transport</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="o">=</span> <span class="n">transport</span>
+        <span class="k">if</span> <span class="n">transport</span><span class="o">.</span><span class="n">get_pipe_transport</span><span class="p">(</span><span class="mi">1</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="n">streams</span><span class="o">.</span><span class="n">StreamReader</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_limit</span><span class="p">,</span>
+                                               <span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">transport</span><span class="o">.</span><span class="n">get_pipe_transport</span><span class="p">(</span><span class="mi">2</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span> <span class="o">=</span> <span class="n">streams</span><span class="o">.</span><span class="n">StreamReader</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_limit</span><span class="p">,</span>
+                                               <span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="n">stdin</span> <span class="o">=</span> <span class="n">transport</span><span class="o">.</span><span class="n">get_pipe_transport</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">stdin</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span> <span class="o">=</span> <span class="n">streams</span><span class="o">.</span><span class="n">StreamWriter</span><span class="p">(</span><span class="n">stdin</span><span class="p">,</span>
+                                              <span class="n">protocol</span><span class="o">=</span><span class="bp">self</span><span class="p">,</span>
+                                              <span class="n">reader</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                                              <span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">waiter</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">pipe_data_received</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">reader</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span>
+        <span class="k">elif</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">reader</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">reader</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">reader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">reader</span><span class="o">.</span><span class="n">feed_data</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">pipe_connection_lost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">pipe</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span>
+            <span class="k">if</span> <span class="n">pipe</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">pipe</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">connection_lost</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">reader</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span>
+        <span class="k">elif</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">reader</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">reader</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">reader</span> <span class="o">!=</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">reader</span><span class="o">.</span><span class="n">feed_eof</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">reader</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">process_exited</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># wake up futures waiting for wait()</span>
+        <span class="n">returncode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">get_returncode</span><span class="p">()</span>
+        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiters</span><span class="p">:</span>
+            <span class="n">waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiters</span><span class="o">.</span><span class="n">popleft</span><span class="p">()</span>
+            <span class="n">waiter</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">returncode</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">Process</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">transport</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">loop</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="o">=</span> <span class="n">transport</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">=</span> <span class="n">protocol</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">loop</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span> <span class="o">=</span> <span class="n">protocol</span><span class="o">.</span><span class="n">stdin</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="n">protocol</span><span class="o">.</span><span class="n">stdout</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span> <span class="o">=</span> <span class="n">protocol</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pid</span> <span class="o">=</span> <span class="n">transport</span><span class="o">.</span><span class="n">get_pid</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">pid</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">returncode</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">get_returncode</span><span class="p">()</span>
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">wait</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Wait until the process exit and return the process return code.&quot;&quot;&quot;</span>
+        <span class="n">returncode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">get_returncode</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">returncode</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">returncode</span>
+
+        <span class="n">waiter</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">_waiters</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">waiter</span><span class="p">)</span>
+        <span class="k">yield from</span> <span class="n">waiter</span>
+        <span class="k">return</span> <span class="n">waiter</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_check_alive</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">get_returncode</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ProcessLookupError</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">send_signal</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">signal</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_alive</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">send_signal</span><span class="p">(</span><span class="n">signal</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">terminate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_alive</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">kill</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_alive</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">kill</span><span class="p">()</span>
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">_feed_stdin</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">):</span>
+        <span class="n">debug</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%r</span><span class="s"> communicate: feed stdin (</span><span class="si">%s</span><span class="s"> bytes)&#39;</span><span class="p">,</span>
+                        <span class="bp">self</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="nb">input</span><span class="p">))</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">drain</span><span class="p">()</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BrokenPipeError</span><span class="p">,</span> <span class="n">ConnectionResetError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="c"># communicate() ignores BrokenPipeError and ConnectionResetError</span>
+            <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%r</span><span class="s"> communicate: stdin got </span><span class="si">%r</span><span class="s">&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%r</span><span class="s"> communicate: close stdin&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">_noop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">None</span>
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">_read_stream</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">):</span>
+        <span class="n">transport</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">get_pipe_transport</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">stream</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">1</span>
+            <span class="n">stream</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="s">&#39;stdout&#39;</span> <span class="k">if</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="s">&#39;stderr&#39;</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%r</span><span class="s"> communicate: read </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="n">output</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">stream</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="s">&#39;stdout&#39;</span> <span class="k">if</span> <span class="n">fd</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="s">&#39;stderr&#39;</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%r</span><span class="s"> communicate: close </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="n">transport</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">output</span>
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">communicate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">input</span><span class="p">:</span>
+            <span class="n">stdin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feed_stdin</span><span class="p">(</span><span class="nb">input</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">stdin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_noop</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_stream</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_noop</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">stderr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_stream</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">stderr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_noop</span><span class="p">()</span>
+        <span class="n">stdin</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">tasks</span><span class="o">.</span><span class="n">gather</span><span class="p">(</span><span class="n">stdin</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">,</span>
+                                                        <span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">)</span>
+
+
+<span class="nd">@coroutine</span>
+<div class="viewcode-block" id="create_subprocess_shell"><a class="viewcode-back" href="../../asyncio.html#asyncio.subprocess.create_subprocess_shell">[docs]</a><span class="k">def</span> <span class="nf">create_subprocess_shell</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">stdin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                            <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="n">streams</span><span class="o">.</span><span class="n">_DEFAULT_LIMIT</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+    <span class="n">protocol_factory</span> <span class="o">=</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">SubprocessStreamProtocol</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
+                                                        <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">transport</span><span class="p">,</span> <span class="n">protocol</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">loop</span><span class="o">.</span><span class="n">subprocess_shell</span><span class="p">(</span>
+                                            <span class="n">protocol_factory</span><span class="p">,</span>
+                                            <span class="n">cmd</span><span class="p">,</span> <span class="n">stdin</span><span class="o">=</span><span class="n">stdin</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">stdout</span><span class="p">,</span>
+                                            <span class="n">stderr</span><span class="o">=</span><span class="n">stderr</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">)</span>
+    <span class="k">yield from</span> <span class="n">protocol</span><span class="o">.</span><span class="n">waiter</span>
+    <span class="k">return</span> <span class="n">Process</span><span class="p">(</span><span class="n">transport</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">loop</span><span class="p">)</span>
+</div>
+<span class="nd">@coroutine</span>
+<div class="viewcode-block" id="create_subprocess_exec"><a class="viewcode-back" href="../../asyncio.html#asyncio.subprocess.create_subprocess_exec">[docs]</a><span class="k">def</span> <span class="nf">create_subprocess_exec</span><span class="p">(</span><span class="n">program</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">stdin</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">stderr</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">limit</span><span class="o">=</span><span class="n">streams</span><span class="o">.</span><span class="n">_DEFAULT_LIMIT</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+    <span class="n">protocol_factory</span> <span class="o">=</span> <span class="k">lambda</span><span class="p">:</span> <span class="n">SubprocessStreamProtocol</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span>
+                                                        <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">transport</span><span class="p">,</span> <span class="n">protocol</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">loop</span><span class="o">.</span><span class="n">subprocess_exec</span><span class="p">(</span>
+                                            <span class="n">protocol_factory</span><span class="p">,</span>
+                                            <span class="n">program</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span>
+                                            <span class="n">stdin</span><span class="o">=</span><span class="n">stdin</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">stdout</span><span class="p">,</span>
+                                            <span class="n">stderr</span><span class="o">=</span><span class="n">stderr</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">)</span>
+    <span class="k">yield from</span> <span class="n">protocol</span><span class="o">.</span><span class="n">waiter</span>
+    <span class="k">return</span> <span class="n">Process</span><span class="p">(</span><span class="n">transport</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">loop</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

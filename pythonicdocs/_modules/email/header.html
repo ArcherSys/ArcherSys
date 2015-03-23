@@ -1,0 +1,679 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>email.header &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="email" href="../email.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &raquo;</li>
+          <li class="nav-item nav-item-2"><a href="../email.html" accesskey="U">email</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for email.header</h1><div class="highlight"><pre>
+<span class="c"># Copyright (C) 2002-2007 Python Software Foundation</span>
+<span class="c"># Author: Ben Gertzfield, Barry Warsaw</span>
+<span class="c"># Contact: email-sig@python.org</span>
+
+<span class="sd">&quot;&quot;&quot;Header encoding and decoding functionality.&quot;&quot;&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s">&#39;Header&#39;</span><span class="p">,</span>
+    <span class="s">&#39;decode_header&#39;</span><span class="p">,</span>
+    <span class="s">&#39;make_header&#39;</span><span class="p">,</span>
+    <span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">binascii</span>
+
+<span class="kn">import</span> <span class="nn">email.quoprimime</span>
+<span class="kn">import</span> <span class="nn">email.base64mime</span>
+
+<span class="kn">from</span> <span class="nn">email.errors</span> <span class="kn">import</span> <span class="n">HeaderParseError</span>
+<span class="kn">from</span> <span class="nn">email</span> <span class="kn">import</span> <span class="n">charset</span> <span class="k">as</span> <span class="n">_charset</span>
+<span class="n">Charset</span> <span class="o">=</span> <span class="n">_charset</span><span class="o">.</span><span class="n">Charset</span>
+
+<span class="n">NL</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span>
+<span class="n">SPACE</span> <span class="o">=</span> <span class="s">&#39; &#39;</span>
+<span class="n">BSPACE</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39; &#39;</span>
+<span class="n">SPACE8</span> <span class="o">=</span> <span class="s">&#39; &#39;</span> <span class="o">*</span> <span class="mi">8</span>
+<span class="n">EMPTYSTRING</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+<span class="n">MAXLINELEN</span> <span class="o">=</span> <span class="mi">78</span>
+<span class="n">FWS</span> <span class="o">=</span> <span class="s">&#39; </span><span class="se">\t</span><span class="s">&#39;</span>
+
+<span class="n">USASCII</span> <span class="o">=</span> <span class="n">Charset</span><span class="p">(</span><span class="s">&#39;us-ascii&#39;</span><span class="p">)</span>
+<span class="n">UTF8</span> <span class="o">=</span> <span class="n">Charset</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+
+<span class="c"># Match encoded-word strings in the form =?charset?q?Hello_World?=</span>
+<span class="n">ecre</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;&#39;&#39;</span>
+<span class="s">  =\?                   # literal =?</span>
+<span class="s">  (?P&lt;charset&gt;[^?]*?)   # non-greedy up to the next ? is the charset</span>
+<span class="s">  \?                    # literal ?</span>
+<span class="s">  (?P&lt;encoding&gt;[qb])    # either a &quot;q&quot; or a &quot;b&quot;, case insensitive</span>
+<span class="s">  \?                    # literal ?</span>
+<span class="s">  (?P&lt;encoded&gt;.*?)      # non-greedy up to the next ?= is the encoded string</span>
+<span class="s">  \?=                   # literal ?=</span>
+<span class="s">  &#39;&#39;&#39;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">VERBOSE</span> <span class="o">|</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span> <span class="o">|</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+
+<span class="c"># Field name regexp, including trailing colon, but not separating whitespace,</span>
+<span class="c"># according to RFC 2822.  Character range is from tilde to exclamation mark.</span>
+<span class="c"># For use with .match()</span>
+<span class="n">fcre</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;[\041-\176]+:$&#39;</span><span class="p">)</span>
+
+<span class="c"># Find a header embedded in a putative header value.  Used to check for</span>
+<span class="c"># header injection attack.</span>
+<span class="n">_embeded_header</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;\n[^ \t]+:&#39;</span><span class="p">)</span>
+
+
+
+
+<span class="c"># Helpers</span>
+<span class="n">_max_append</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">quoprimime</span><span class="o">.</span><span class="n">_max_append</span>
+
+
+<div class="viewcode-block" id="decode_header"><a class="viewcode-back" href="../../email.html#email.header.decode_header">[docs]</a>
+
+<span class="k">def</span> <span class="nf">decode_header</span><span class="p">(</span><span class="n">header</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode a message header value without converting charset.</span>
+
+<span class="sd">    Returns a list of (string, charset) pairs containing each of the decoded</span>
+<span class="sd">    parts of the header.  Charset is None for non-encoded parts of the header,</span>
+<span class="sd">    otherwise a lower-case string containing the name of the character set</span>
+<span class="sd">    specified in the encoded string.</span>
+
+<span class="sd">    header may be a string that may or may not contain RFC2047 encoded words,</span>
+<span class="sd">    or it may be a Header object.</span>
+
+<span class="sd">    An email.errors.HeaderParseError may be raised when certain decoding error</span>
+<span class="sd">    occurs (e.g. a base64 decoding exception).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># If it is a Header object, we can just return the encoded chunks.</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">header</span><span class="p">,</span> <span class="s">&#39;_chunks&#39;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">_charset</span><span class="o">.</span><span class="n">_encode</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">charset</span><span class="p">)),</span> <span class="nb">str</span><span class="p">(</span><span class="n">charset</span><span class="p">))</span>
+                    <span class="k">for</span> <span class="n">string</span><span class="p">,</span> <span class="n">charset</span> <span class="ow">in</span> <span class="n">header</span><span class="o">.</span><span class="n">_chunks</span><span class="p">]</span>
+    <span class="c"># If no encoding, just return the header with no charset.</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">ecre</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">header</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">header</span><span class="p">,</span> <span class="bp">None</span><span class="p">)]</span>
+    <span class="c"># First step is to parse all the encoded parts into triplets of the form</span>
+    <span class="c"># (encoded_string, encoding, charset).  For unencoded strings, the last</span>
+    <span class="c"># two parts will be None.</span>
+    <span class="n">words</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">header</span><span class="o">.</span><span class="n">splitlines</span><span class="p">():</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="n">ecre</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="n">first</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">while</span> <span class="n">parts</span><span class="p">:</span>
+            <span class="n">unencoded</span> <span class="o">=</span> <span class="n">parts</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">first</span><span class="p">:</span>
+                <span class="n">unencoded</span> <span class="o">=</span> <span class="n">unencoded</span><span class="o">.</span><span class="n">lstrip</span><span class="p">()</span>
+                <span class="n">first</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">if</span> <span class="n">unencoded</span><span class="p">:</span>
+                <span class="n">words</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">unencoded</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">parts</span><span class="p">:</span>
+                <span class="n">charset</span> <span class="o">=</span> <span class="n">parts</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+                <span class="n">encoding</span> <span class="o">=</span> <span class="n">parts</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+                <span class="n">encoded</span> <span class="o">=</span> <span class="n">parts</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+                <span class="n">words</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">encoded</span><span class="p">,</span> <span class="n">encoding</span><span class="p">,</span> <span class="n">charset</span><span class="p">))</span>
+    <span class="c"># Now loop over words and remove words that consist of whitespace</span>
+    <span class="c"># between two encoded strings.</span>
+    <span class="n">droplist</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">w</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">words</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">n</span><span class="o">&gt;</span><span class="mi">1</span> <span class="ow">and</span> <span class="n">w</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">and</span> <span class="n">words</span><span class="p">[</span><span class="n">n</span><span class="o">-</span><span class="mi">2</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="ow">and</span> <span class="n">words</span><span class="p">[</span><span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">isspace</span><span class="p">():</span>
+            <span class="n">droplist</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">droplist</span><span class="p">):</span>
+        <span class="k">del</span> <span class="n">words</span><span class="p">[</span><span class="n">d</span><span class="p">]</span>
+
+    <span class="c"># The next step is to decode each encoded word by applying the reverse</span>
+    <span class="c"># base64 or quopri transformation.  decoded_words is now a list of the</span>
+    <span class="c"># form (decoded_word, charset).</span>
+    <span class="n">decoded_words</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">encoded_string</span><span class="p">,</span> <span class="n">encoding</span><span class="p">,</span> <span class="n">charset</span> <span class="ow">in</span> <span class="n">words</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">encoding</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># This is an unencoded word.</span>
+            <span class="n">decoded_words</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">encoded_string</span><span class="p">,</span> <span class="n">charset</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="n">encoding</span> <span class="o">==</span> <span class="s">&#39;q&#39;</span><span class="p">:</span>
+            <span class="n">word</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">quoprimime</span><span class="o">.</span><span class="n">header_decode</span><span class="p">(</span><span class="n">encoded_string</span><span class="p">)</span>
+            <span class="n">decoded_words</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">word</span><span class="p">,</span> <span class="n">charset</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="n">encoding</span> <span class="o">==</span> <span class="s">&#39;b&#39;</span><span class="p">:</span>
+            <span class="n">paderr</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">encoded_string</span><span class="p">)</span> <span class="o">%</span> <span class="mi">4</span>   <span class="c"># Postel&#39;s law: add missing padding</span>
+            <span class="k">if</span> <span class="n">paderr</span><span class="p">:</span>
+                <span class="n">encoded_string</span> <span class="o">+=</span> <span class="s">&#39;===&#39;</span><span class="p">[:</span><span class="mi">4</span> <span class="o">-</span> <span class="n">paderr</span><span class="p">]</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">word</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">base64mime</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">encoded_string</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">binascii</span><span class="o">.</span><span class="n">Error</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">HeaderParseError</span><span class="p">(</span><span class="s">&#39;Base64 decoding error&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">decoded_words</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">word</span><span class="p">,</span> <span class="n">charset</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&#39;Unexpected encoding: &#39;</span> <span class="o">+</span> <span class="n">encoding</span><span class="p">)</span>
+    <span class="c"># Now convert all words to bytes and collapse consecutive runs of</span>
+    <span class="c"># similarly encoded words.</span>
+    <span class="n">collapsed</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">last_word</span> <span class="o">=</span> <span class="n">last_charset</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">for</span> <span class="n">word</span><span class="p">,</span> <span class="n">charset</span> <span class="ow">in</span> <span class="n">decoded_words</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">word</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">word</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">word</span><span class="p">,</span> <span class="s">&#39;raw-unicode-escape&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">last_word</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">last_word</span> <span class="o">=</span> <span class="n">word</span>
+            <span class="n">last_charset</span> <span class="o">=</span> <span class="n">charset</span>
+        <span class="k">elif</span> <span class="n">charset</span> <span class="o">!=</span> <span class="n">last_charset</span><span class="p">:</span>
+            <span class="n">collapsed</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">last_word</span><span class="p">,</span> <span class="n">last_charset</span><span class="p">))</span>
+            <span class="n">last_word</span> <span class="o">=</span> <span class="n">word</span>
+            <span class="n">last_charset</span> <span class="o">=</span> <span class="n">charset</span>
+        <span class="k">elif</span> <span class="n">last_charset</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">last_word</span> <span class="o">+=</span> <span class="n">BSPACE</span> <span class="o">+</span> <span class="n">word</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">last_word</span> <span class="o">+=</span> <span class="n">word</span>
+    <span class="n">collapsed</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">last_word</span><span class="p">,</span> <span class="n">last_charset</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">collapsed</span>
+</div>
+<div class="viewcode-block" id="make_header"><a class="viewcode-back" href="../../email.html#email.header.make_header">[docs]</a>
+
+
+<span class="k">def</span> <span class="nf">make_header</span><span class="p">(</span><span class="n">decoded_seq</span><span class="p">,</span> <span class="n">maxlinelen</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">header_name</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                <span class="n">continuation_ws</span><span class="o">=</span><span class="s">&#39; &#39;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Create a Header from a sequence of pairs as returned by decode_header()</span>
+
+<span class="sd">    decode_header() takes a header value string and returns a sequence of</span>
+<span class="sd">    pairs of the format (decoded_string, charset) where charset is the string</span>
+<span class="sd">    name of the character set.</span>
+
+<span class="sd">    This function takes one of those sequence of pairs and returns a Header</span>
+<span class="sd">    instance.  Optional maxlinelen, header_name, and continuation_ws are as in</span>
+<span class="sd">    the Header constructor.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">Header</span><span class="p">(</span><span class="n">maxlinelen</span><span class="o">=</span><span class="n">maxlinelen</span><span class="p">,</span> <span class="n">header_name</span><span class="o">=</span><span class="n">header_name</span><span class="p">,</span>
+               <span class="n">continuation_ws</span><span class="o">=</span><span class="n">continuation_ws</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">s</span><span class="p">,</span> <span class="n">charset</span> <span class="ow">in</span> <span class="n">decoded_seq</span><span class="p">:</span>
+        <span class="c"># None means us-ascii but we can simply pass it on to h.append()</span>
+        <span class="k">if</span> <span class="n">charset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">Charset</span><span class="p">):</span>
+            <span class="n">charset</span> <span class="o">=</span> <span class="n">Charset</span><span class="p">(</span><span class="n">charset</span><span class="p">)</span>
+        <span class="n">h</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">charset</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">h</span></div>
+<div class="viewcode-block" id="Header"><a class="viewcode-back" href="../../email.html#email.header.Header">[docs]</a>
+
+
+
+<span class="k">class</span> <span class="nc">Header</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">s</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">charset</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="n">maxlinelen</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">header_name</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="n">continuation_ws</span><span class="o">=</span><span class="s">&#39; &#39;</span><span class="p">,</span> <span class="n">errors</span><span class="o">=</span><span class="s">&#39;strict&#39;</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Create a MIME-compliant header that can contain many character sets.</span>
+
+<span class="sd">        Optional s is the initial header value.  If None, the initial header</span>
+<span class="sd">        value is not set.  You can later append to the header with .append()</span>
+<span class="sd">        method calls.  s may be a byte string or a Unicode string, but see the</span>
+<span class="sd">        .append() documentation for semantics.</span>
+
+<span class="sd">        Optional charset serves two purposes: it has the same meaning as the</span>
+<span class="sd">        charset argument to the .append() method.  It also sets the default</span>
+<span class="sd">        character set for all subsequent .append() calls that omit the charset</span>
+<span class="sd">        argument.  If charset is not provided in the constructor, the us-ascii</span>
+<span class="sd">        charset is used both as s&#39;s initial charset and as the default for</span>
+<span class="sd">        subsequent .append() calls.</span>
+
+<span class="sd">        The maximum line length can be specified explicitly via maxlinelen. For</span>
+<span class="sd">        splitting the first line to a shorter value (to account for the field</span>
+<span class="sd">        header which isn&#39;t included in s, e.g. `Subject&#39;) pass in the name of</span>
+<span class="sd">        the field in header_name.  The default maxlinelen is 78 as recommended</span>
+<span class="sd">        by RFC 2822.</span>
+
+<span class="sd">        continuation_ws must be RFC 2822 compliant folding whitespace (usually</span>
+<span class="sd">        either a space or a hard tab) which will be prepended to continuation</span>
+<span class="sd">        lines.</span>
+
+<span class="sd">        errors is passed through to the .append() call.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">charset</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">charset</span> <span class="o">=</span> <span class="n">USASCII</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">Charset</span><span class="p">):</span>
+            <span class="n">charset</span> <span class="o">=</span> <span class="n">Charset</span><span class="p">(</span><span class="n">charset</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_charset</span> <span class="o">=</span> <span class="n">charset</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_continuation_ws</span> <span class="o">=</span> <span class="n">continuation_ws</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">charset</span><span class="p">,</span> <span class="n">errors</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">maxlinelen</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">maxlinelen</span> <span class="o">=</span> <span class="n">MAXLINELEN</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maxlinelen</span> <span class="o">=</span> <span class="n">maxlinelen</span>
+        <span class="k">if</span> <span class="n">header_name</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_headerlen</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># Take the separating colon and space into account.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_headerlen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">header_name</span><span class="p">)</span> <span class="o">+</span> <span class="mi">2</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the string value of the header.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_normalize</span><span class="p">()</span>
+        <span class="n">uchunks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">lastcs</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">lastspace</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">for</span> <span class="n">string</span><span class="p">,</span> <span class="n">charset</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="p">:</span>
+            <span class="c"># We must preserve spaces between encoded and non-encoded word</span>
+            <span class="c"># boundaries, which means for us we need to add a space when we go</span>
+            <span class="c"># from a charset to None/us-ascii, or from None/us-ascii to a</span>
+            <span class="c"># charset.  Only do this for the second and subsequent chunks.</span>
+            <span class="c"># Don&#39;t add a space if the None/us-ascii string already has</span>
+            <span class="c"># a space (trailing or leading depending on transition)</span>
+            <span class="n">nextcs</span> <span class="o">=</span> <span class="n">charset</span>
+            <span class="k">if</span> <span class="n">nextcs</span> <span class="o">==</span> <span class="n">_charset</span><span class="o">.</span><span class="n">UNKNOWN8BIT</span><span class="p">:</span>
+                <span class="n">original_bytes</span> <span class="o">=</span> <span class="n">string</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;surrogateescape&#39;</span><span class="p">)</span>
+                <span class="n">string</span> <span class="o">=</span> <span class="n">original_bytes</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;replace&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">uchunks</span><span class="p">:</span>
+                <span class="n">hasspace</span> <span class="o">=</span> <span class="n">string</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nonctext</span><span class="p">(</span><span class="n">string</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">lastcs</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&#39;us-ascii&#39;</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="n">nextcs</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&#39;us-ascii&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">hasspace</span><span class="p">:</span>
+                        <span class="n">uchunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">SPACE</span><span class="p">)</span>
+                        <span class="n">nextcs</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">elif</span> <span class="n">nextcs</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&#39;us-ascii&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">lastspace</span><span class="p">:</span>
+                    <span class="n">uchunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">SPACE</span><span class="p">)</span>
+            <span class="n">lastspace</span> <span class="o">=</span> <span class="n">string</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nonctext</span><span class="p">(</span><span class="n">string</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">lastcs</span> <span class="o">=</span> <span class="n">nextcs</span>
+            <span class="n">uchunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">EMPTYSTRING</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">uchunks</span><span class="p">)</span>
+
+    <span class="c"># Rich comparison operators for equality only.  BAW: does it make sense to</span>
+    <span class="c"># have or explicitly disable &lt;, &lt;=, &gt;, &gt;= operators?</span>
+    <span class="k">def</span> <span class="nf">__eq__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+        <span class="c"># other may be a Header or a string.  Both are fine so coerce</span>
+        <span class="c"># ourselves to a unicode (of the unencoded header value), swap the</span>
+        <span class="c"># args and do another comparison.</span>
+        <span class="k">return</span> <span class="n">other</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+<div class="viewcode-block" id="Header.append"><a class="viewcode-back" href="../../email.html#email.header.Header.append">[docs]</a>
+    <span class="k">def</span> <span class="nf">__ne__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span> <span class="o">==</span> <span class="n">other</span>
+
+    <span class="k">def</span> <span class="nf">append</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">charset</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">errors</span><span class="o">=</span><span class="s">&#39;strict&#39;</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Append a string to the MIME header.</span>
+
+<span class="sd">        Optional charset, if given, should be a Charset instance or the name</span>
+<span class="sd">        of a character set (which will be converted to a Charset instance).  A</span>
+<span class="sd">        value of None (the default) means that the charset given in the</span>
+<span class="sd">        constructor is used.</span>
+
+<span class="sd">        s may be a byte string or a Unicode string.  If it is a byte string</span>
+<span class="sd">        (i.e. isinstance(s, str) is false), then charset is the encoding of</span>
+<span class="sd">        that byte string, and a UnicodeError will be raised if the string</span>
+<span class="sd">        cannot be decoded with that charset.  If s is a Unicode string, then</span>
+<span class="sd">        charset is a hint specifying the character set of the characters in</span>
+<span class="sd">        the string.  In either case, when producing an RFC 2822 compliant</span>
+<span class="sd">        header using RFC 2047 rules, the string will be encoded using the</span>
+<span class="sd">        output codec of the charset.  If the string cannot be encoded to the</span>
+<span class="sd">        output codec, a UnicodeError will be raised.</span>
+
+<span class="sd">        Optional `errors&#39; is passed as the errors argument to the decode</span>
+<span class="sd">        call if s is a byte string.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">charset</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">charset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_charset</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">Charset</span><span class="p">):</span>
+            <span class="n">charset</span> <span class="o">=</span> <span class="n">Charset</span><span class="p">(</span><span class="n">charset</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">input_charset</span> <span class="o">=</span> <span class="n">charset</span><span class="o">.</span><span class="n">input_codec</span> <span class="ow">or</span> <span class="s">&#39;us-ascii&#39;</span>
+            <span class="k">if</span> <span class="n">input_charset</span> <span class="o">==</span> <span class="n">_charset</span><span class="o">.</span><span class="n">UNKNOWN8BIT</span><span class="p">:</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;us-ascii&#39;</span><span class="p">,</span> <span class="s">&#39;surrogateescape&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">input_charset</span><span class="p">,</span> <span class="n">errors</span><span class="p">)</span>
+        <span class="c"># Ensure that the bytes we&#39;re storing can be decoded to the output</span>
+        <span class="c"># character set, otherwise an early error is raised.</span>
+        <span class="n">output_charset</span> <span class="o">=</span> <span class="n">charset</span><span class="o">.</span><span class="n">output_codec</span> <span class="ow">or</span> <span class="s">&#39;us-ascii&#39;</span>
+        <span class="k">if</span> <span class="n">output_charset</span> <span class="o">!=</span> <span class="n">_charset</span><span class="o">.</span><span class="n">UNKNOWN8BIT</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">s</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">output_charset</span><span class="p">,</span> <span class="n">errors</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">UnicodeEncodeError</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">output_charset</span><span class="o">!=</span><span class="s">&#39;us-ascii&#39;</span><span class="p">:</span></div>
+                    <span class="k">raise</span>
+                <span class="n">charset</span> <span class="o">=</span> <span class="n">UTF8</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">s</span><span class="p">,</span> <span class="n">charset</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_nonctext</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">s</span><span class="p">):</span>
+<div class="viewcode-block" id="Header.encode"><a class="viewcode-back" href="../../email.html#email.header.Header.encode">[docs]</a>        <span class="sd">&quot;&quot;&quot;True if string s is not a ctext character of RFC822.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">s</span><span class="o">.</span><span class="n">isspace</span><span class="p">()</span> <span class="ow">or</span> <span class="n">s</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;(&#39;</span><span class="p">,</span> <span class="s">&#39;)&#39;</span><span class="p">,</span> <span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">encode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">splitchars</span><span class="o">=</span><span class="s">&#39;;, </span><span class="se">\t</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">maxlinelen</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">linesep</span><span class="o">=</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">):</span>
+        <span class="sd">r&quot;&quot;&quot;Encode a message header into an RFC-compliant format.</span>
+
+<span class="sd">        There are many issues involved in converting a given string for use in</span>
+<span class="sd">        an email header.  Only certain character sets are readable in most</span>
+<span class="sd">        email clients, and as header strings can only contain a subset of</span>
+<span class="sd">        7-bit ASCII, care must be taken to properly convert and encode (with</span>
+<span class="sd">        Base64 or quoted-printable) header strings.  In addition, there is a</span>
+<span class="sd">        75-character length limit on any given encoded header field, so</span>
+<span class="sd">        line-wrapping must be performed, even with double-byte character sets.</span>
+
+<span class="sd">        Optional maxlinelen specifies the maximum length of each generated</span>
+<span class="sd">        line, exclusive of the linesep string.  Individual lines may be longer</span>
+<span class="sd">        than maxlinelen if a folding point cannot be found.  The first line</span>
+<span class="sd">        will be shorter by the length of the header name plus &quot;: &quot; if a header</span>
+<span class="sd">        name was specified at Header construction time.  The default value for</span>
+<span class="sd">        maxlinelen is determined at header construction time.</span>
+
+<span class="sd">        Optional splitchars is a string containing characters which should be</span>
+<span class="sd">        given extra weight by the splitting algorithm during normal header</span>
+<span class="sd">        wrapping.  This is in very rough support of RFC 2822&#39;s `higher level</span>
+<span class="sd">        syntactic breaks&#39;:  split points preceded by a splitchar are preferred</span>
+<span class="sd">        during line splitting, with the characters preferred in the order in</span>
+<span class="sd">        which they appear in the string.  Space and tab may be included in the</span>
+<span class="sd">        string to indicate whether preference should be given to one over the</span>
+<span class="sd">        other as a split point when other split chars do not appear in the line</span>
+<span class="sd">        being split.  Splitchars does not affect RFC 2047 encoded lines.</span>
+
+<span class="sd">        Optional linesep is a string to be used to separate the lines of</span>
+<span class="sd">        the value.  The default value is the most useful for typical</span>
+<span class="sd">        Python applications, but it can be set to \r\n to produce RFC-compliant</span>
+<span class="sd">        line separators when needed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_normalize</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">maxlinelen</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">maxlinelen</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_maxlinelen</span>
+        <span class="c"># A maxlinelen of 0 means don&#39;t wrap.  For all practical purposes,</span>
+        <span class="c"># choosing a huge number here accomplishes that and makes the</span>
+        <span class="c"># _ValueFormatter algorithm much simpler.</span>
+        <span class="k">if</span> <span class="n">maxlinelen</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">maxlinelen</span> <span class="o">=</span> <span class="mi">1000000</span>
+        <span class="n">formatter</span> <span class="o">=</span> <span class="n">_ValueFormatter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_headerlen</span><span class="p">,</span> <span class="n">maxlinelen</span><span class="p">,</span>
+                                    <span class="bp">self</span><span class="o">.</span><span class="n">_continuation_ws</span><span class="p">,</span> <span class="n">splitchars</span><span class="p">)</span>
+        <span class="n">lastcs</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">hasspace</span> <span class="o">=</span> <span class="n">lastspace</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">for</span> <span class="n">string</span><span class="p">,</span> <span class="n">charset</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">hasspace</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">hasspace</span> <span class="o">=</span> <span class="n">string</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nonctext</span><span class="p">(</span><span class="n">string</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="k">if</span> <span class="n">lastcs</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&#39;us-ascii&#39;</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="n">hasspace</span> <span class="ow">or</span> <span class="n">charset</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&#39;us-ascii&#39;</span><span class="p">):</span>
+                        <span class="n">formatter</span><span class="o">.</span><span class="n">add_transition</span><span class="p">()</span>
+                <span class="k">elif</span> <span class="n">charset</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&#39;us-ascii&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">lastspace</span><span class="p">:</span>
+                    <span class="n">formatter</span><span class="o">.</span><span class="n">add_transition</span><span class="p">()</span>
+            <span class="n">lastspace</span> <span class="o">=</span> <span class="n">string</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nonctext</span><span class="p">(</span><span class="n">string</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">lastcs</span> <span class="o">=</span> <span class="n">charset</span>
+            <span class="n">hasspace</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">lines</span> <span class="o">=</span> <span class="n">string</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">lines</span><span class="p">:</span>
+                <span class="n">formatter</span><span class="o">.</span><span class="n">feed</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">lines</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">charset</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">formatter</span><span class="o">.</span><span class="n">feed</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">charset</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+                <span class="n">formatter</span><span class="o">.</span><span class="n">newline</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">charset</span><span class="o">.</span><span class="n">header_encoding</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="n">formatter</span><span class="o">.</span><span class="n">feed</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_continuation_ws</span><span class="p">,</span> <span class="s">&#39; &#39;</span> <span class="o">+</span> <span class="n">line</span><span class="o">.</span><span class="n">lstrip</span><span class="p">(),</span>
+                                   <span class="n">charset</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">sline</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">lstrip</span><span class="p">()</span>
+                    <span class="n">fws</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">sline</span><span class="p">)]</span>
+                    <span class="n">formatter</span><span class="o">.</span><span class="n">feed</span><span class="p">(</span><span class="n">fws</span><span class="p">,</span> <span class="n">sline</span><span class="p">,</span> <span class="n">charset</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">formatter</span><span class="o">.</span><span class="n">newline</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="p">:</span>
+            <span class="n">formatter</span><span class="o">.</span><span class="n">add_transition</span><span class="p">()</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">formatter</span><span class="o">.</span><span class="n">_str</span><span class="p">(</span><span class="n">linesep</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">_embeded_header</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">value</span><span class="p">):</span></div>
+            <span class="k">raise</span> <span class="n">HeaderParseError</span><span class="p">(</span><span class="s">&quot;header value appears to contain &quot;</span>
+                <span class="s">&quot;an embedded header: {!r}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">value</span>
+
+    <span class="k">def</span> <span class="nf">_normalize</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Step 1: Normalize the chunks so that all runs of identical charsets</span>
+        <span class="c"># get collapsed into a single unicode string.</span>
+        <span class="n">chunks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">last_charset</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">last_chunk</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">string</span><span class="p">,</span> <span class="n">charset</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">charset</span> <span class="o">==</span> <span class="n">last_charset</span><span class="p">:</span>
+                <span class="n">last_chunk</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">last_charset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">SPACE</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">last_chunk</span><span class="p">),</span> <span class="n">last_charset</span><span class="p">))</span>
+                <span class="n">last_chunk</span> <span class="o">=</span> <span class="p">[</span><span class="n">string</span><span class="p">]</span>
+                <span class="n">last_charset</span> <span class="o">=</span> <span class="n">charset</span>
+        <span class="k">if</span> <span class="n">last_chunk</span><span class="p">:</span>
+            <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">SPACE</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">last_chunk</span><span class="p">),</span> <span class="n">last_charset</span><span class="p">))</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_chunks</span> <span class="o">=</span> <span class="n">chunks</span>
+
+
+
+
+<span class="k">class</span> <span class="nc">_ValueFormatter</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">headerlen</span><span class="p">,</span> <span class="n">maxlen</span><span class="p">,</span> <span class="n">continuation_ws</span><span class="p">,</span> <span class="n">splitchars</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maxlen</span> <span class="o">=</span> <span class="n">maxlen</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_continuation_ws</span> <span class="o">=</span> <span class="n">continuation_ws</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_continuation_ws_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">continuation_ws</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_splitchars</span> <span class="o">=</span> <span class="n">splitchars</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lines</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span> <span class="o">=</span> <span class="n">_Accumulator</span><span class="p">(</span><span class="n">headerlen</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_str</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">linesep</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">newline</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">linesep</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_lines</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_str</span><span class="p">(</span><span class="n">NL</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">newline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">end_of_line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">end_of_line</span> <span class="o">!=</span> <span class="p">(</span><span class="s">&#39; &#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="o">*</span><span class="n">end_of_line</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">is_onlyws</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_lines</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">add_transition</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39; &#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">feed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fws</span><span class="p">,</span> <span class="n">string</span><span class="p">,</span> <span class="n">charset</span><span class="p">):</span>
+        <span class="c"># If the charset has no header encoding (i.e. it is an ASCII encoding)</span>
+        <span class="c"># then we must split the header at the &quot;highest level syntactic break&quot;</span>
+        <span class="c"># possible. Note that we don&#39;t have a lot of smarts about field</span>
+        <span class="c"># syntax; we just try to break on semi-colons, then commas, then</span>
+        <span class="c"># whitespace.  Eventually, this should be pluggable.</span>
+        <span class="k">if</span> <span class="n">charset</span><span class="o">.</span><span class="n">header_encoding</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_ascii_split</span><span class="p">(</span><span class="n">fws</span><span class="p">,</span> <span class="n">string</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_splitchars</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="c"># Otherwise, we&#39;re doing either a Base64 or a quoted-printable</span>
+        <span class="c"># encoding which means we don&#39;t need to split the line on syntactic</span>
+        <span class="c"># breaks.  We can basically just find enough characters to fit on the</span>
+        <span class="c"># current line, minus the RFC 2047 chrome.  What makes this trickier</span>
+        <span class="c"># though is that we have to split at octet boundaries, not character</span>
+        <span class="c"># boundaries but it&#39;s only safe to split at character boundaries so at</span>
+        <span class="c"># best we can only get close.</span>
+        <span class="n">encoded_lines</span> <span class="o">=</span> <span class="n">charset</span><span class="o">.</span><span class="n">header_encode_lines</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_maxlengths</span><span class="p">())</span>
+        <span class="c"># The first element extends the current line, but if it&#39;s None then</span>
+        <span class="c"># nothing more fit on the current line so start a new line.</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">first_line</span> <span class="o">=</span> <span class="n">encoded_lines</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+            <span class="c"># There are no encoded lines, so we&#39;re done.</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">first_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_append_chunk</span><span class="p">(</span><span class="n">fws</span><span class="p">,</span> <span class="n">first_line</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">last_line</span> <span class="o">=</span> <span class="n">encoded_lines</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+            <span class="c"># There was only one line.</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">newline</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_continuation_ws</span><span class="p">,</span> <span class="n">last_line</span><span class="p">)</span>
+        <span class="c"># Everything else are full lines in themselves.</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">encoded_lines</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_continuation_ws</span> <span class="o">+</span> <span class="n">line</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_maxlengths</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># The first line&#39;s length.</span>
+        <span class="k">yield</span> <span class="bp">self</span><span class="o">.</span><span class="n">_maxlen</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="p">)</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="bp">self</span><span class="o">.</span><span class="n">_maxlen</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">_continuation_ws_len</span>
+
+    <span class="k">def</span> <span class="nf">_ascii_split</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fws</span><span class="p">,</span> <span class="n">string</span><span class="p">,</span> <span class="n">splitchars</span><span class="p">):</span>
+        <span class="c"># The RFC 2822 header folding algorithm is simple in principle but</span>
+        <span class="c"># complex in practice.  Lines may be folded any place where &quot;folding</span>
+        <span class="c"># white space&quot; appears by inserting a linesep character in front of the</span>
+        <span class="c"># FWS.  The complication is that not all spaces or tabs qualify as FWS,</span>
+        <span class="c"># and we are also supposed to prefer to break at &quot;higher level</span>
+        <span class="c"># syntactic breaks&quot;.  We can&#39;t do either of these without intimate</span>
+        <span class="c"># knowledge of the structure of structured headers, which we don&#39;t have</span>
+        <span class="c"># here.  So the best we can do here is prefer to break at the specified</span>
+        <span class="c"># splitchars, and hope that we don&#39;t choose any spaces or tabs that</span>
+        <span class="c"># aren&#39;t legal FWS.  (This is at least better than the old algorithm,</span>
+        <span class="c"># where we would sometimes *introduce* FWS after a splitchar, or the</span>
+        <span class="c"># algorithm before that, where we would turn all white space runs into</span>
+        <span class="c"># single spaces or tabs.)</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;([&quot;</span><span class="o">+</span><span class="n">FWS</span><span class="o">+</span><span class="s">&quot;]+)&quot;</span><span class="p">,</span> <span class="n">fws</span><span class="o">+</span><span class="n">string</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="n">parts</span><span class="p">[:</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;&#39;</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">fws</span><span class="p">,</span> <span class="n">part</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="nb">iter</span><span class="p">(</span><span class="n">parts</span><span class="p">)]</span><span class="o">*</span><span class="mi">2</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_append_chunk</span><span class="p">(</span><span class="n">fws</span><span class="p">,</span> <span class="n">part</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_append_chunk</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fws</span><span class="p">,</span> <span class="n">string</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">fws</span><span class="p">,</span> <span class="n">string</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_maxlen</span><span class="p">:</span>
+            <span class="c"># Find the best split point, working backward from the end.</span>
+            <span class="c"># There might be none, on a long first line.</span>
+            <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_splitchars</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">part_count</span><span class="p">()</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="n">ch</span><span class="o">.</span><span class="n">isspace</span><span class="p">():</span>
+                        <span class="n">fws</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+                        <span class="k">if</span> <span class="n">fws</span> <span class="ow">and</span> <span class="n">fws</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">==</span><span class="n">ch</span><span class="p">:</span>
+                            <span class="k">break</span>
+                    <span class="n">prevpart</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">prevpart</span> <span class="ow">and</span> <span class="n">prevpart</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">==</span><span class="n">ch</span><span class="p">:</span>
+                        <span class="k">break</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="k">break</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">fws</span><span class="p">,</span> <span class="n">part</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">_initial_size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="c"># There will be a header, so leave it on a line by itself.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">newline</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="n">fws</span><span class="p">:</span>
+                        <span class="c"># We don&#39;t use continuation_ws here because the whitespace</span>
+                        <span class="c"># after a header should always be a space.</span>
+                        <span class="n">fws</span> <span class="o">=</span> <span class="s">&#39; &#39;</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">fws</span><span class="p">,</span> <span class="n">part</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="n">remainder</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">pop_from</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_current_line</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="n">remainder</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">_Accumulator</span><span class="p">(</span><span class="nb">list</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">initial_size</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initial_size</span> <span class="o">=</span> <span class="n">initial_size</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">push</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fws</span><span class="p">,</span> <span class="n">string</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">fws</span><span class="p">,</span> <span class="n">string</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">pop_from</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="n">popped</span> <span class="o">=</span> <span class="bp">self</span><span class="p">[</span><span class="n">i</span><span class="p">:]</span>
+        <span class="bp">self</span><span class="p">[</span><span class="n">i</span><span class="p">:]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">return</span> <span class="n">popped</span>
+
+    <span class="k">def</span> <span class="nf">pop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">part_count</span><span class="p">()</span><span class="o">==</span><span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">sum</span><span class="p">((</span><span class="nb">len</span><span class="p">(</span><span class="n">fws</span><span class="p">)</span><span class="o">+</span><span class="nb">len</span><span class="p">(</span><span class="n">part</span><span class="p">)</span> <span class="k">for</span> <span class="n">fws</span><span class="p">,</span> <span class="n">part</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">),</span>
+                   <span class="bp">self</span><span class="o">.</span><span class="n">_initial_size</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">EMPTYSTRING</span><span class="o">.</span><span class="n">join</span><span class="p">((</span><span class="n">EMPTYSTRING</span><span class="o">.</span><span class="n">join</span><span class="p">((</span><span class="n">fws</span><span class="p">,</span> <span class="n">part</span><span class="p">))</span>
+                                <span class="k">for</span> <span class="n">fws</span><span class="p">,</span> <span class="n">part</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">startval</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">startval</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">startval</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">startval</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initial_size</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">is_onlyws</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_initial_size</span><span class="o">==</span><span class="mi">0</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="bp">self</span> <span class="ow">or</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">isspace</span><span class="p">())</span>
+
+    <span class="k">def</span> <span class="nf">part_count</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__len__</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

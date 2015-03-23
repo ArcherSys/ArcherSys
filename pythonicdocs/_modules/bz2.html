@@ -1,0 +1,613 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>bz2 &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for bz2</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Interface to the libbzip2 compression library.</span>
+
+<span class="sd">This module provides a file interface, classes for incremental</span>
+<span class="sd">(de)compression, and functions for one-shot (de)compression.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;BZ2File&quot;</span><span class="p">,</span> <span class="s">&quot;BZ2Compressor&quot;</span><span class="p">,</span> <span class="s">&quot;BZ2Decompressor&quot;</span><span class="p">,</span>
+           <span class="s">&quot;open&quot;</span><span class="p">,</span> <span class="s">&quot;compress&quot;</span><span class="p">,</span> <span class="s">&quot;decompress&quot;</span><span class="p">]</span>
+
+<span class="n">__author__</span> <span class="o">=</span> <span class="s">&quot;Nadeem Vawda &lt;nadeem.vawda@gmail.com&gt;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">threading</span> <span class="kn">import</span> <span class="n">RLock</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">dummy_threading</span> <span class="kn">import</span> <span class="n">RLock</span>
+
+<span class="kn">from</span> <span class="nn">_bz2</span> <span class="kn">import</span> <span class="n">BZ2Compressor</span><span class="p">,</span> <span class="n">BZ2Decompressor</span>
+
+
+<span class="n">_MODE_CLOSED</span>   <span class="o">=</span> <span class="mi">0</span>
+<span class="n">_MODE_READ</span>     <span class="o">=</span> <span class="mi">1</span>
+<span class="n">_MODE_READ_EOF</span> <span class="o">=</span> <span class="mi">2</span>
+<span class="n">_MODE_WRITE</span>    <span class="o">=</span> <span class="mi">3</span>
+
+<span class="n">_BUFFER_SIZE</span> <span class="o">=</span> <span class="mi">8192</span>
+
+<span class="n">_builtin_open</span> <span class="o">=</span> <span class="nb">open</span>
+
+
+<div class="viewcode-block" id="BZ2File"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File">[docs]</a><span class="k">class</span> <span class="nc">BZ2File</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">BufferedIOBase</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;A file object providing transparent bzip2 (de)compression.</span>
+
+<span class="sd">    A BZ2File can act as a wrapper for an existing file object, or refer</span>
+<span class="sd">    directly to a named file on disk.</span>
+
+<span class="sd">    Note that BZ2File provides a *binary* file interface - data read is</span>
+<span class="sd">    returned as bytes, and data to be written should be given as bytes.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">&quot;r&quot;</span><span class="p">,</span> <span class="n">buffering</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">compresslevel</span><span class="o">=</span><span class="mi">9</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Open a bzip2-compressed file.</span>
+
+<span class="sd">        If filename is a str or bytes object, it gives the name</span>
+<span class="sd">        of the file to be opened. Otherwise, it should be a file object,</span>
+<span class="sd">        which will be used to read or write the compressed data.</span>
+
+<span class="sd">        mode can be &#39;r&#39; for reading (default), &#39;w&#39; for (over)writing,</span>
+<span class="sd">        &#39;x&#39; for creating exclusively, or &#39;a&#39; for appending. These can</span>
+<span class="sd">        equivalently be given as &#39;rb&#39;, &#39;wb&#39;, &#39;xb&#39;, and &#39;ab&#39;.</span>
+
+<span class="sd">        buffering is ignored. Its use is deprecated.</span>
+
+<span class="sd">        If mode is &#39;w&#39;, &#39;x&#39; or &#39;a&#39;, compresslevel can be a number between 1</span>
+<span class="sd">        and 9 specifying the level of compression: 1 produces the least</span>
+<span class="sd">        compression, and 9 (default) produces the most compression.</span>
+
+<span class="sd">        If mode is &#39;r&#39;, the input file may be the concatenation of</span>
+<span class="sd">        multiple compressed streams.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># This lock must be recursive, so that BufferedIOBase&#39;s</span>
+        <span class="c"># readline(), readlines() and writelines() don&#39;t deadlock.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">RLock</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closefp</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">_MODE_CLOSED</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
+        <span class="k">if</span> <span class="n">buffering</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;Use of &#39;buffering&#39; argument is deprecated&quot;</span><span class="p">,</span>
+                          <span class="ne">DeprecationWarning</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="mi">1</span> <span class="o">&lt;=</span> <span class="n">compresslevel</span> <span class="o">&lt;=</span> <span class="mi">9</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;compresslevel must be between 1 and 9&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">mode</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;&quot;</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">,</span> <span class="s">&quot;rb&quot;</span><span class="p">):</span>
+            <span class="n">mode</span> <span class="o">=</span> <span class="s">&quot;rb&quot;</span>
+            <span class="n">mode_code</span> <span class="o">=</span> <span class="n">_MODE_READ</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span> <span class="o">=</span> <span class="n">BZ2Decompressor</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">elif</span> <span class="n">mode</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;w&quot;</span><span class="p">,</span> <span class="s">&quot;wb&quot;</span><span class="p">):</span>
+            <span class="n">mode</span> <span class="o">=</span> <span class="s">&quot;wb&quot;</span>
+            <span class="n">mode_code</span> <span class="o">=</span> <span class="n">_MODE_WRITE</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_compressor</span> <span class="o">=</span> <span class="n">BZ2Compressor</span><span class="p">(</span><span class="n">compresslevel</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">mode</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;x&quot;</span><span class="p">,</span> <span class="s">&quot;xb&quot;</span><span class="p">):</span>
+            <span class="n">mode</span> <span class="o">=</span> <span class="s">&quot;xb&quot;</span>
+            <span class="n">mode_code</span> <span class="o">=</span> <span class="n">_MODE_WRITE</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_compressor</span> <span class="o">=</span> <span class="n">BZ2Compressor</span><span class="p">(</span><span class="n">compresslevel</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">mode</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;a&quot;</span><span class="p">,</span> <span class="s">&quot;ab&quot;</span><span class="p">):</span>
+            <span class="n">mode</span> <span class="o">=</span> <span class="s">&quot;ab&quot;</span>
+            <span class="n">mode_code</span> <span class="o">=</span> <span class="n">_MODE_WRITE</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_compressor</span> <span class="o">=</span> <span class="n">BZ2Compressor</span><span class="p">(</span><span class="n">compresslevel</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Invalid mode: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">mode</span><span class="p">,))</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">)):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span> <span class="o">=</span> <span class="n">_builtin_open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_closefp</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">mode_code</span>
+        <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&quot;read&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&quot;write&quot;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span> <span class="o">=</span> <span class="n">filename</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">mode_code</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;filename must be a str or bytes object, or a file&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BZ2File.close"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Flush and close the file.</span>
+
+<span class="sd">        May be called more than once without error. Once the file is</span>
+<span class="sd">        closed, any other operation on it will raise a ValueError.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">==</span> <span class="n">_MODE_CLOSED</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_MODE_READ</span><span class="p">,</span> <span class="n">_MODE_READ_EOF</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">==</span> <span class="n">_MODE_WRITE</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_compressor</span><span class="o">.</span><span class="n">flush</span><span class="p">())</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_compressor</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closefp</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span> <span class="o">=</span> <span class="bp">None</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_closefp</span> <span class="o">=</span> <span class="bp">False</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">_MODE_CLOSED</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="mi">0</span>
+</div>
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">closed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;True if this file is closed.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">==</span> <span class="n">_MODE_CLOSED</span>
+
+<div class="viewcode-block" id="BZ2File.fileno"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.fileno">[docs]</a>    <span class="k">def</span> <span class="nf">fileno</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the file descriptor for the underlying file.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_not_closed</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BZ2File.seekable"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.seekable">[docs]</a>    <span class="k">def</span> <span class="nf">seekable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return whether the file supports seeking.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">readable</span><span class="p">()</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span><span class="o">.</span><span class="n">seekable</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BZ2File.readable"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.readable">[docs]</a>    <span class="k">def</span> <span class="nf">readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return whether the file was opened for reading.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_not_closed</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_MODE_READ</span><span class="p">,</span> <span class="n">_MODE_READ_EOF</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BZ2File.writable"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.writable">[docs]</a>    <span class="k">def</span> <span class="nf">writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return whether the file was opened for writing.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_not_closed</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">==</span> <span class="n">_MODE_WRITE</span>
+
+    <span class="c"># Mode-checking helper functions.</span>
+</div>
+    <span class="k">def</span> <span class="nf">_check_not_closed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">closed</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;I/O operation on closed file&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_can_read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_MODE_READ</span><span class="p">,</span> <span class="n">_MODE_READ_EOF</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_not_closed</span><span class="p">()</span>
+            <span class="k">raise</span> <span class="n">io</span><span class="o">.</span><span class="n">UnsupportedOperation</span><span class="p">(</span><span class="s">&quot;File not open for reading&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_can_write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">!=</span> <span class="n">_MODE_WRITE</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_not_closed</span><span class="p">()</span>
+            <span class="k">raise</span> <span class="n">io</span><span class="o">.</span><span class="n">UnsupportedOperation</span><span class="p">(</span><span class="s">&quot;File not open for writing&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_can_seek</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_MODE_READ</span><span class="p">,</span> <span class="n">_MODE_READ_EOF</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_not_closed</span><span class="p">()</span>
+            <span class="k">raise</span> <span class="n">io</span><span class="o">.</span><span class="n">UnsupportedOperation</span><span class="p">(</span><span class="s">&quot;Seeking is only supported &quot;</span>
+                                          <span class="s">&quot;on files open for reading&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span><span class="o">.</span><span class="n">seekable</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="n">io</span><span class="o">.</span><span class="n">UnsupportedOperation</span><span class="p">(</span><span class="s">&quot;The underlying file object &quot;</span>
+                                          <span class="s">&quot;does not support seeking&quot;</span><span class="p">)</span>
+
+    <span class="c"># Fill the readahead buffer if it is empty. Returns False on EOF.</span>
+    <span class="k">def</span> <span class="nf">_fill_buffer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">==</span> <span class="n">_MODE_READ_EOF</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="c"># Depending on the input data, our call to the decompressor may not</span>
+        <span class="c"># return any data. In this case, try again after reading another block.</span>
+        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">):</span>
+            <span class="n">rawblock</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span><span class="o">.</span><span class="n">unused_data</span> <span class="ow">or</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">_BUFFER_SIZE</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">rawblock</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span><span class="o">.</span><span class="n">eof</span><span class="p">:</span>
+                    <span class="c"># End-of-stream marker and end of file. We&#39;re good.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">_MODE_READ_EOF</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span>
+                    <span class="k">return</span> <span class="bp">False</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># Problem - we were expecting more compressed data.</span>
+                    <span class="k">raise</span> <span class="ne">EOFError</span><span class="p">(</span><span class="s">&quot;Compressed file ended before the &quot;</span>
+                                   <span class="s">&quot;end-of-stream marker was reached&quot;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span><span class="o">.</span><span class="n">eof</span><span class="p">:</span>
+                <span class="c"># Continue to next stream.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span> <span class="o">=</span> <span class="n">BZ2Decompressor</span><span class="p">()</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span><span class="o">.</span><span class="n">decompress</span><span class="p">(</span><span class="n">rawblock</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                    <span class="c"># Trailing data isn&#39;t a valid bzip2 stream. We&#39;re done here.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">_MODE_READ_EOF</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span>
+                    <span class="k">return</span> <span class="bp">False</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span><span class="o">.</span><span class="n">decompress</span><span class="p">(</span><span class="n">rawblock</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+    <span class="c"># Read data until EOF.</span>
+    <span class="c"># If return_data is false, consume the data without returning it.</span>
+    <span class="k">def</span> <span class="nf">_read_all</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">return_data</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="c"># The loop assumes that _buffer_offset is 0. Ensure that this is true.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span><span class="p">:]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="n">blocks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fill_buffer</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">return_data</span><span class="p">:</span>
+                <span class="n">blocks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">return_data</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">blocks</span><span class="p">)</span>
+
+    <span class="c"># Read a block of up to n bytes.</span>
+    <span class="c"># If return_data is false, consume the data without returning it.</span>
+    <span class="k">def</span> <span class="nf">_read_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n</span><span class="p">,</span> <span class="n">return_data</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="c"># If we have enough data buffered, return immediately.</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">+</span> <span class="n">n</span>
+        <span class="k">if</span> <span class="n">end</span> <span class="o">&lt;=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">):</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="p">:</span> <span class="n">end</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="n">end</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">data</span> <span class="k">if</span> <span class="n">return_data</span> <span class="k">else</span> <span class="bp">None</span>
+
+        <span class="c"># The loop assumes that _buffer_offset is 0. Ensure that this is true.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span><span class="p">:]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="n">blocks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fill_buffer</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">):</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[:</span><span class="n">n</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="n">n</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+            <span class="k">if</span> <span class="n">return_data</span><span class="p">:</span>
+                <span class="n">blocks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="n">n</span> <span class="o">-=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">return_data</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">blocks</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BZ2File.peek"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.peek">[docs]</a>    <span class="k">def</span> <span class="nf">peek</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return buffered data without advancing the file position.</span>
+
+<span class="sd">        Always returns at least one byte of data, unless at EOF.</span>
+<span class="sd">        The exact number of bytes returned is unspecified.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_can_read</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fill_buffer</span><span class="p">():</span>
+                <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span><span class="p">:]</span>
+</div>
+<div class="viewcode-block" id="BZ2File.read"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.read">[docs]</a>    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Read up to size uncompressed bytes from the file.</span>
+
+<span class="sd">        If size is negative or omitted, read until EOF is reached.</span>
+<span class="sd">        Returns b&#39;&#39; if the file is already at EOF.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_can_read</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+            <span class="k">elif</span> <span class="n">size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_all</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_block</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BZ2File.read1"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.read1">[docs]</a>    <span class="k">def</span> <span class="nf">read1</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Read up to size uncompressed bytes, while trying to avoid</span>
+<span class="sd">        making multiple reads from the underlying stream.</span>
+
+<span class="sd">        Returns b&#39;&#39; if the file is at EOF.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Usually, read1() calls _fp.read() at most once. However, sometimes</span>
+        <span class="c"># this does not give enough data for the decompressor to make progress.</span>
+        <span class="c"># In this case we make multiple reads, to avoid returning b&quot;&quot;.</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_can_read</span><span class="p">()</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span>
+                <span class="c"># Only call _fill_buffer() if the buffer is actually empty.</span>
+                <span class="c"># This gives a significant speedup if *size* is small.</span>
+                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fill_buffer</span><span class="p">())):</span>
+                <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+            <span class="k">if</span> <span class="n">size</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="p">:</span>
+                                    <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">+</span> <span class="n">size</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span><span class="p">:]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">data</span>
+</div>
+<div class="viewcode-block" id="BZ2File.readinto"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.readinto">[docs]</a>    <span class="k">def</span> <span class="nf">readinto</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Read up to len(b) bytes into b.</span>
+
+<span class="sd">        Returns the number of bytes read (0 for EOF).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">io</span><span class="o">.</span><span class="n">BufferedIOBase</span><span class="o">.</span><span class="n">readinto</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">b</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BZ2File.readline"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.readline">[docs]</a>    <span class="k">def</span> <span class="nf">readline</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Read a line of uncompressed bytes from the file.</span>
+
+<span class="sd">        The terminating newline (if present) is retained. If size is</span>
+<span class="sd">        non-negative, no more than size bytes will be read (in which</span>
+<span class="sd">        case the line may be incomplete). Returns b&#39;&#39; if already at EOF.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="s">&quot;__index__&quot;</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;Integer argument expected&quot;</span><span class="p">)</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">size</span><span class="o">.</span><span class="n">__index__</span><span class="p">()</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_can_read</span><span class="p">()</span>
+            <span class="c"># Shortcut for the common case - the whole line is in the buffer.</span>
+            <span class="k">if</span> <span class="n">size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">end</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="k">if</span> <span class="n">end</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="p">:</span> <span class="n">end</span><span class="p">]</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="n">end</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="n">line</span>
+            <span class="k">return</span> <span class="n">io</span><span class="o">.</span><span class="n">BufferedIOBase</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BZ2File.readlines"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.readlines">[docs]</a>    <span class="k">def</span> <span class="nf">readlines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Read a list of lines of uncompressed bytes from the file.</span>
+
+<span class="sd">        size can be specified to control the number of lines read: no</span>
+<span class="sd">        further lines will be read once the total size of the lines read</span>
+<span class="sd">        so far equals or exceeds size.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="s">&quot;__index__&quot;</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;Integer argument expected&quot;</span><span class="p">)</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">size</span><span class="o">.</span><span class="n">__index__</span><span class="p">()</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">io</span><span class="o">.</span><span class="n">BufferedIOBase</span><span class="o">.</span><span class="n">readlines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BZ2File.write"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.write">[docs]</a>    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Write a byte string to the file.</span>
+
+<span class="sd">        Returns the number of uncompressed bytes written, which is</span>
+<span class="sd">        always len(data). Note that due to buffering, the file on disk</span>
+<span class="sd">        may not reflect the data written until close() is called.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_can_write</span><span class="p">()</span>
+            <span class="n">compressed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_compressor</span><span class="o">.</span><span class="n">compress</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">compressed</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BZ2File.writelines"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.writelines">[docs]</a>    <span class="k">def</span> <span class="nf">writelines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Write a sequence of byte strings to the file.</span>
+
+<span class="sd">        Returns the number of uncompressed bytes written.</span>
+<span class="sd">        seq can be any iterable yielding byte strings.</span>
+
+<span class="sd">        Line separators are not added between the written byte strings.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">io</span><span class="o">.</span><span class="n">BufferedIOBase</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">seq</span><span class="p">)</span>
+
+    <span class="c"># Rewind the file to the beginning of the data stream.</span></div>
+    <span class="k">def</span> <span class="nf">_rewind</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fp</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">_MODE_READ</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_decompressor</span> <span class="o">=</span> <span class="n">BZ2Decompressor</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_offset</span> <span class="o">=</span> <span class="mi">0</span>
+
+<div class="viewcode-block" id="BZ2File.seek"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.seek">[docs]</a>    <span class="k">def</span> <span class="nf">seek</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">offset</span><span class="p">,</span> <span class="n">whence</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Change the file position.</span>
+
+<span class="sd">        The new position is specified by offset, relative to the</span>
+<span class="sd">        position indicated by whence. Values for whence are:</span>
+
+<span class="sd">            0: start of stream (default); offset must not be negative</span>
+<span class="sd">            1: current stream position</span>
+<span class="sd">            2: end of stream; offset must not be positive</span>
+
+<span class="sd">        Returns the new file position.</span>
+
+<span class="sd">        Note that seeking is emulated, so depending on the parameters,</span>
+<span class="sd">        this operation may be extremely slow.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_can_seek</span><span class="p">()</span>
+
+            <span class="c"># Recalculate offset as an absolute file position.</span>
+            <span class="k">if</span> <span class="n">whence</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">elif</span> <span class="n">whence</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">offset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span> <span class="o">+</span> <span class="n">offset</span>
+            <span class="k">elif</span> <span class="n">whence</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="c"># Seeking relative to EOF - we need to know the file&#39;s size.</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_read_all</span><span class="p">(</span><span class="n">return_data</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+                <span class="n">offset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">+</span> <span class="n">offset</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Invalid value for whence: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">whence</span><span class="p">,))</span>
+
+            <span class="c"># Make it so that offset is the number of bytes to skip forward.</span>
+            <span class="k">if</span> <span class="n">offset</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_rewind</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">offset</span> <span class="o">-=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span>
+
+            <span class="c"># Read and discard data until we reach the desired position.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_read_block</span><span class="p">(</span><span class="n">offset</span><span class="p">,</span> <span class="n">return_data</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span>
+</div>
+<div class="viewcode-block" id="BZ2File.tell"><a class="viewcode-back" href="../bz2.html#bz2.BZ2File.tell">[docs]</a>    <span class="k">def</span> <span class="nf">tell</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the current file position.&quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_not_closed</span><span class="p">()</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pos</span>
+
+</div></div>
+<div class="viewcode-block" id="open"><a class="viewcode-back" href="../bz2.html#bz2.open">[docs]</a><span class="k">def</span> <span class="nf">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">&quot;rb&quot;</span><span class="p">,</span> <span class="n">compresslevel</span><span class="o">=</span><span class="mi">9</span><span class="p">,</span>
+         <span class="n">encoding</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">errors</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">newline</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Open a bzip2-compressed file in binary or text mode.</span>
+
+<span class="sd">    The filename argument can be an actual filename (a str or bytes</span>
+<span class="sd">    object), or an existing file object to read from or write to.</span>
+
+<span class="sd">    The mode argument can be &quot;r&quot;, &quot;rb&quot;, &quot;w&quot;, &quot;wb&quot;, &quot;x&quot;, &quot;xb&quot;, &quot;a&quot; or</span>
+<span class="sd">    &quot;ab&quot; for binary mode, or &quot;rt&quot;, &quot;wt&quot;, &quot;xt&quot; or &quot;at&quot; for text mode.</span>
+<span class="sd">    The default mode is &quot;rb&quot;, and the default compresslevel is 9.</span>
+
+<span class="sd">    For binary mode, this function is equivalent to the BZ2File</span>
+<span class="sd">    constructor: BZ2File(filename, mode, compresslevel). In this case,</span>
+<span class="sd">    the encoding, errors and newline arguments must not be provided.</span>
+
+<span class="sd">    For text mode, a BZ2File object is created, and wrapped in an</span>
+<span class="sd">    io.TextIOWrapper instance with the specified encoding, error</span>
+<span class="sd">    handling behavior, and line ending(s).</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="s">&quot;t&quot;</span> <span class="ow">in</span> <span class="n">mode</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s">&quot;b&quot;</span> <span class="ow">in</span> <span class="n">mode</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Invalid mode: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">mode</span><span class="p">,))</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">encoding</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Argument &#39;encoding&#39; not supported in binary mode&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">errors</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Argument &#39;errors&#39; not supported in binary mode&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">newline</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Argument &#39;newline&#39; not supported in binary mode&quot;</span><span class="p">)</span>
+
+    <span class="n">bz_mode</span> <span class="o">=</span> <span class="n">mode</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;t&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">)</span>
+    <span class="n">binary_file</span> <span class="o">=</span> <span class="n">BZ2File</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">bz_mode</span><span class="p">,</span> <span class="n">compresslevel</span><span class="o">=</span><span class="n">compresslevel</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="s">&quot;t&quot;</span> <span class="ow">in</span> <span class="n">mode</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">io</span><span class="o">.</span><span class="n">TextIOWrapper</span><span class="p">(</span><span class="n">binary_file</span><span class="p">,</span> <span class="n">encoding</span><span class="p">,</span> <span class="n">errors</span><span class="p">,</span> <span class="n">newline</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">binary_file</span>
+
+</div>
+<div class="viewcode-block" id="compress"><a class="viewcode-back" href="../bz2.html#bz2.compress">[docs]</a><span class="k">def</span> <span class="nf">compress</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">compresslevel</span><span class="o">=</span><span class="mi">9</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compress a block of data.</span>
+
+<span class="sd">    compresslevel, if given, must be a number between 1 and 9.</span>
+
+<span class="sd">    For incremental compression, use a BZ2Compressor object instead.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">comp</span> <span class="o">=</span> <span class="n">BZ2Compressor</span><span class="p">(</span><span class="n">compresslevel</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">comp</span><span class="o">.</span><span class="n">compress</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="o">+</span> <span class="n">comp</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="decompress"><a class="viewcode-back" href="../bz2.html#bz2.decompress">[docs]</a><span class="k">def</span> <span class="nf">decompress</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decompress a block of data.</span>
+
+<span class="sd">    For incremental decompression, use a BZ2Decompressor object instead.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">while</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">decomp</span> <span class="o">=</span> <span class="n">BZ2Decompressor</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="n">decomp</span><span class="o">.</span><span class="n">decompress</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+                <span class="k">break</span>  <span class="c"># Leftover data is not a valid bzip2 stream; ignore it.</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span>  <span class="c"># Error on the first iteration; bail out.</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">decomp</span><span class="o">.</span><span class="n">eof</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Compressed data ended before the &quot;</span>
+                             <span class="s">&quot;end-of-stream marker was reached&quot;</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">decomp</span><span class="o">.</span><span class="n">unused_data</span>
+    <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">results</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

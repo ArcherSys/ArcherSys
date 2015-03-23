@@ -1,0 +1,405 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>idlelib.HyperParser &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for idlelib.HyperParser</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Provide advanced parsing abilities for ParenMatch and other extensions.</span>
+
+<span class="sd">HyperParser uses PyParser.  PyParser mostly gives information on the</span>
+<span class="sd">proper indentation of code.  HyperParser gives additional information on</span>
+<span class="sd">the structure of code.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">string</span>
+<span class="kn">from</span> <span class="nn">keyword</span> <span class="kn">import</span> <span class="n">iskeyword</span>
+<span class="kn">from</span> <span class="nn">idlelib</span> <span class="kn">import</span> <span class="n">PyParse</span>
+
+
+<span class="c"># all ASCII chars that may be in an identifier</span>
+<span class="n">_ASCII_ID_CHARS</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">string</span><span class="o">.</span><span class="n">ascii_letters</span> <span class="o">+</span> <span class="n">string</span><span class="o">.</span><span class="n">digits</span> <span class="o">+</span> <span class="s">&quot;_&quot;</span><span class="p">)</span>
+<span class="c"># all ASCII chars that may be the first char of an identifier</span>
+<span class="n">_ASCII_ID_FIRST_CHARS</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">string</span><span class="o">.</span><span class="n">ascii_letters</span> <span class="o">+</span> <span class="s">&quot;_&quot;</span><span class="p">)</span>
+
+<span class="c"># lookup table for whether 7-bit ASCII chars are valid in a Python identifier</span>
+<span class="n">_IS_ASCII_ID_CHAR</span> <span class="o">=</span> <span class="p">[(</span><span class="nb">chr</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="ow">in</span> <span class="n">_ASCII_ID_CHARS</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">128</span><span class="p">)]</span>
+<span class="c"># lookup table for whether 7-bit ASCII chars are valid as the first</span>
+<span class="c"># char in a Python identifier</span>
+<span class="n">_IS_ASCII_ID_FIRST_CHAR</span> <span class="o">=</span> \
+    <span class="p">[(</span><span class="nb">chr</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="ow">in</span> <span class="n">_ASCII_ID_FIRST_CHARS</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">128</span><span class="p">)]</span>
+
+
+<div class="viewcode-block" id="HyperParser"><a class="viewcode-back" href="../../idlelib.html#idlelib.HyperParser.HyperParser">[docs]</a><span class="k">class</span> <span class="nc">HyperParser</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">editwin</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+        <span class="s">&quot;To initialize, analyze the surroundings of the given index.&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span> <span class="o">=</span> <span class="n">editwin</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">text</span> <span class="o">=</span> <span class="n">text</span> <span class="o">=</span> <span class="n">editwin</span><span class="o">.</span><span class="n">text</span>
+
+        <span class="n">parser</span> <span class="o">=</span> <span class="n">PyParse</span><span class="o">.</span><span class="n">Parser</span><span class="p">(</span><span class="n">editwin</span><span class="o">.</span><span class="n">indentwidth</span><span class="p">,</span> <span class="n">editwin</span><span class="o">.</span><span class="n">tabwidth</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">index2line</span><span class="p">(</span><span class="n">index</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">index</span><span class="p">))</span>
+        <span class="n">lno</span> <span class="o">=</span> <span class="n">index2line</span><span class="p">(</span><span class="n">text</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">index</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">editwin</span><span class="o">.</span><span class="n">context_use_ps1</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">context</span> <span class="ow">in</span> <span class="n">editwin</span><span class="o">.</span><span class="n">num_context_lines</span><span class="p">:</span>
+                <span class="n">startat</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">lno</span> <span class="o">-</span> <span class="n">context</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="n">startatindex</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="n">startat</span><span class="p">)</span> <span class="o">+</span> <span class="s">&quot;.0&quot;</span>
+                <span class="n">stopatindex</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%d</span><span class="s">.end&quot;</span> <span class="o">%</span> <span class="n">lno</span>
+                <span class="c"># We add the newline because PyParse requires a newline</span>
+                <span class="c"># at end. We add a space so that index won&#39;t be at end</span>
+                <span class="c"># of line, so that its status will be the same as the</span>
+                <span class="c"># char before it, if should.</span>
+                <span class="n">parser</span><span class="o">.</span><span class="n">set_str</span><span class="p">(</span><span class="n">text</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">startatindex</span><span class="p">,</span> <span class="n">stopatindex</span><span class="p">)</span><span class="o">+</span><span class="s">&#39; </span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                <span class="n">bod</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">find_good_parse_start</span><span class="p">(</span>
+                          <span class="n">editwin</span><span class="o">.</span><span class="n">_build_char_in_string_func</span><span class="p">(</span><span class="n">startatindex</span><span class="p">))</span>
+                <span class="k">if</span> <span class="n">bod</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">startat</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">break</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">set_lo</span><span class="p">(</span><span class="n">bod</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">r</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">tag_prevrange</span><span class="p">(</span><span class="s">&quot;console&quot;</span><span class="p">,</span> <span class="n">index</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">r</span><span class="p">:</span>
+                <span class="n">startatindex</span> <span class="o">=</span> <span class="n">r</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">startatindex</span> <span class="o">=</span> <span class="s">&quot;1.0&quot;</span>
+            <span class="n">stopatindex</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%d</span><span class="s">.end&quot;</span> <span class="o">%</span> <span class="n">lno</span>
+            <span class="c"># We add the newline because PyParse requires it. We add a</span>
+            <span class="c"># space so that index won&#39;t be at end of line, so that its</span>
+            <span class="c"># status will be the same as the char before it, if should.</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">set_str</span><span class="p">(</span><span class="n">text</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">startatindex</span><span class="p">,</span> <span class="n">stopatindex</span><span class="p">)</span><span class="o">+</span><span class="s">&#39; </span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">set_lo</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="c"># We want what the parser has, minus the last newline and space.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">str</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+        <span class="c"># Parser.str apparently preserves the statement we are in, so</span>
+        <span class="c"># that stopatindex can be used to synchronize the string with</span>
+        <span class="c"># the text box indices.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stopatindex</span> <span class="o">=</span> <span class="n">stopatindex</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">get_last_stmt_bracketing</span><span class="p">()</span>
+        <span class="c"># find which pairs of bracketing are openers. These always</span>
+        <span class="c"># correspond to a character of rawtext.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">isopener</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span><span class="o">&gt;</span><span class="mi">0</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">i</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span>
+                         <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+                         <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">))]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="n">index</span><span class="p">)</span>
+
+<div class="viewcode-block" id="HyperParser.set_index"><a class="viewcode-back" href="../../idlelib.html#idlelib.HyperParser.HyperParser.set_index">[docs]</a>    <span class="k">def</span> <span class="nf">set_index</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">index</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the index to which the functions relate.</span>
+
+<span class="sd">        The index must be in the same statement.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">indexinrawtext</span> <span class="o">=</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span><span class="p">)</span> <span class="o">-</span>
+                          <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">stopatindex</span><span class="p">)))</span>
+        <span class="k">if</span> <span class="n">indexinrawtext</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Index </span><span class="si">%s</span><span class="s"> precedes the analyzed statement&quot;</span>
+                             <span class="o">%</span> <span class="n">index</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indexinrawtext</span> <span class="o">=</span> <span class="n">indexinrawtext</span>
+        <span class="c"># find the rightmost bracket to which index belongs</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">while</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span> <span class="ow">and</span>
+               <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span><span class="o">+</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">indexinrawtext</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span> <span class="ow">and</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span><span class="o">+</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">indexinrawtext</span> <span class="ow">and</span>
+           <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isopener</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span><span class="o">+</span><span class="mi">1</span><span class="p">]):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span> <span class="o">+=</span> <span class="mi">1</span>
+</div>
+<div class="viewcode-block" id="HyperParser.is_in_string"><a class="viewcode-back" href="../../idlelib.html#idlelib.HyperParser.HyperParser.is_in_string">[docs]</a>    <span class="k">def</span> <span class="nf">is_in_string</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Is the index given to the HyperParser in a string?&quot;&quot;&quot;</span>
+        <span class="c"># The bracket to which we belong should be an opener.</span>
+        <span class="c"># If it&#39;s an opener, it has to have a character.</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">isopener</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span><span class="p">]</span> <span class="ow">and</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span>
+                <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">,</span> <span class="s">&quot;&#39;&quot;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="HyperParser.is_in_code"><a class="viewcode-back" href="../../idlelib.html#idlelib.HyperParser.HyperParser.is_in_code">[docs]</a>    <span class="k">def</span> <span class="nf">is_in_code</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Is the index given to the HyperParser in normal code?&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isopener</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span><span class="p">]</span> <span class="ow">or</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span>
+                <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;#&#39;</span><span class="p">,</span> <span class="s">&#39;&quot;&#39;</span><span class="p">,</span> <span class="s">&quot;&#39;&quot;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="HyperParser.get_surrounding_brackets"><a class="viewcode-back" href="../../idlelib.html#idlelib.HyperParser.HyperParser.get_surrounding_brackets">[docs]</a>    <span class="k">def</span> <span class="nf">get_surrounding_brackets</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">openers</span><span class="o">=</span><span class="s">&#39;([{&#39;</span><span class="p">,</span> <span class="n">mustclose</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return bracket indexes or None.</span>
+
+<span class="sd">        If the index given to the HyperParser is surrounded by a</span>
+<span class="sd">        bracket defined in openers (or at least has one before it),</span>
+<span class="sd">        return the indices of the opening bracket and the closing</span>
+<span class="sd">        bracket (or the end of line, whichever comes first).</span>
+
+<span class="sd">        If it is not surrounded by brackets, or the end of line comes</span>
+<span class="sd">        before the closing bracket and mustclose is True, returns None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">bracketinglevel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">before</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span>
+        <span class="k">while</span> <span class="p">(</span><span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">isopener</span><span class="p">[</span><span class="n">before</span><span class="p">]</span> <span class="ow">or</span>
+              <span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">before</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">openers</span> <span class="ow">or</span>
+              <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">before</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">bracketinglevel</span><span class="p">):</span>
+            <span class="n">before</span> <span class="o">-=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">before</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">None</span>
+            <span class="n">bracketinglevel</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">bracketinglevel</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">before</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span>
+        <span class="n">after</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="k">while</span> <span class="p">(</span><span class="n">after</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">)</span> <span class="ow">and</span>
+              <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">after</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">bracketinglevel</span><span class="p">):</span>
+            <span class="n">after</span> <span class="o">+=</span> <span class="mi">1</span>
+
+        <span class="n">beforeindex</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">-</span><span class="si">%d</span><span class="s">c&quot;</span> <span class="o">%</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">stopatindex</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span><span class="p">)</span><span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">before</span><span class="p">][</span><span class="mi">0</span><span class="p">]))</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">after</span> <span class="o">&gt;=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">)</span> <span class="ow">or</span>
+           <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">after</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="n">mustclose</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">None</span>
+            <span class="n">afterindex</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stopatindex</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># We are after a real char, so it is a &#39;)&#39; and we give the</span>
+            <span class="c"># index before it.</span>
+            <span class="n">afterindex</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">index</span><span class="p">(</span>
+                <span class="s">&quot;</span><span class="si">%s</span><span class="s">-</span><span class="si">%d</span><span class="s">c&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">stopatindex</span><span class="p">,</span>
+                 <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span><span class="p">)</span><span class="o">-</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span><span class="p">[</span><span class="n">after</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span><span class="o">-</span><span class="mi">1</span><span class="p">)))</span>
+
+        <span class="k">return</span> <span class="n">beforeindex</span><span class="p">,</span> <span class="n">afterindex</span>
+
+    <span class="c"># the set of built-in identifiers which are also keywords,</span>
+    <span class="c"># i.e. keyword.iskeyword() returns True for them</span></div>
+    <span class="n">_ID_KEYWORDS</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">({</span><span class="s">&quot;True&quot;</span><span class="p">,</span> <span class="s">&quot;False&quot;</span><span class="p">,</span> <span class="s">&quot;None&quot;</span><span class="p">})</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">_eat_identifier</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="nb">str</span><span class="p">,</span> <span class="n">limit</span><span class="p">,</span> <span class="n">pos</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Given a string and pos, return the number of chars in the</span>
+<span class="sd">        identifier which ends at pos, or 0 if there is no such one.</span>
+
+<span class="sd">        This ignores non-identifier eywords are not identifiers.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">is_ascii_id_char</span> <span class="o">=</span> <span class="n">_IS_ASCII_ID_CHAR</span>
+
+        <span class="c"># Start at the end (pos) and work backwards.</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">pos</span>
+
+        <span class="c"># Go backwards as long as the characters are valid ASCII</span>
+        <span class="c"># identifier characters. This is an optimization, since it</span>
+        <span class="c"># is faster in the common case where most of the characters</span>
+        <span class="c"># are ASCII.</span>
+        <span class="k">while</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="n">limit</span> <span class="ow">and</span> <span class="p">(</span>
+                <span class="nb">ord</span><span class="p">(</span><span class="nb">str</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span><span class="p">])</span> <span class="o">&lt;</span> <span class="mi">128</span> <span class="ow">and</span>
+                <span class="n">is_ascii_id_char</span><span class="p">[</span><span class="nb">ord</span><span class="p">(</span><span class="nb">str</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span><span class="p">])]</span>
+        <span class="p">):</span>
+            <span class="n">i</span> <span class="o">-=</span> <span class="mi">1</span>
+
+        <span class="c"># If the above loop ended due to reaching a non-ASCII</span>
+        <span class="c"># character, continue going backwards using the most generic</span>
+        <span class="c"># test for whether a string contains only valid identifier</span>
+        <span class="c"># characters.</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="n">limit</span> <span class="ow">and</span> <span class="nb">ord</span><span class="p">(</span><span class="nb">str</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span><span class="p">])</span> <span class="o">&gt;=</span> <span class="mi">128</span><span class="p">:</span>
+            <span class="k">while</span> <span class="n">i</span> <span class="o">-</span> <span class="mi">4</span> <span class="o">&gt;=</span> <span class="n">limit</span> <span class="ow">and</span> <span class="p">(</span><span class="s">&#39;a&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">4</span><span class="p">:</span><span class="n">pos</span><span class="p">])</span><span class="o">.</span><span class="n">isidentifier</span><span class="p">():</span>
+                <span class="n">i</span> <span class="o">-=</span> <span class="mi">4</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">-</span> <span class="mi">2</span> <span class="o">&gt;=</span> <span class="n">limit</span> <span class="ow">and</span> <span class="p">(</span><span class="s">&#39;a&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">2</span><span class="p">:</span><span class="n">pos</span><span class="p">])</span><span class="o">.</span><span class="n">isidentifier</span><span class="p">():</span>
+                <span class="n">i</span> <span class="o">-=</span> <span class="mi">2</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">-</span> <span class="mi">1</span> <span class="o">&gt;=</span> <span class="n">limit</span> <span class="ow">and</span> <span class="p">(</span><span class="s">&#39;a&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span><span class="n">pos</span><span class="p">])</span><span class="o">.</span><span class="n">isidentifier</span><span class="p">():</span>
+                <span class="n">i</span> <span class="o">-=</span> <span class="mi">1</span>
+
+            <span class="c"># The identifier candidate starts here. If it isn&#39;t a valid</span>
+            <span class="c"># identifier, don&#39;t eat anything. At this point that is only</span>
+            <span class="c"># possible if the first character isn&#39;t a valid first</span>
+            <span class="c"># character for an identifier.</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">str</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">pos</span><span class="p">]</span><span class="o">.</span><span class="n">isidentifier</span><span class="p">():</span>
+                <span class="k">return</span> <span class="mi">0</span>
+        <span class="k">elif</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">pos</span><span class="p">:</span>
+            <span class="c"># All characters in str[i:pos] are valid ASCII identifier</span>
+            <span class="c"># characters, so it is enough to check that the first is</span>
+            <span class="c"># valid as the first character of an identifier.</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">_IS_ASCII_ID_FIRST_CHAR</span><span class="p">[</span><span class="nb">ord</span><span class="p">(</span><span class="nb">str</span><span class="p">[</span><span class="n">i</span><span class="p">])]:</span>
+                <span class="k">return</span> <span class="mi">0</span>
+
+        <span class="c"># All keywords are valid identifiers, but should not be</span>
+        <span class="c"># considered identifiers here, except for True, False and None.</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">pos</span> <span class="ow">and</span> <span class="p">(</span>
+                <span class="n">iskeyword</span><span class="p">(</span><span class="nb">str</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">pos</span><span class="p">])</span> <span class="ow">and</span>
+                <span class="nb">str</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">pos</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">cls</span><span class="o">.</span><span class="n">_ID_KEYWORDS</span>
+        <span class="p">):</span>
+            <span class="k">return</span> <span class="mi">0</span>
+
+        <span class="k">return</span> <span class="n">pos</span> <span class="o">-</span> <span class="n">i</span>
+
+    <span class="c"># This string includes all chars that may be in a white space</span>
+    <span class="n">_whitespace_chars</span> <span class="o">=</span> <span class="s">&quot; </span><span class="se">\t\n\\</span><span class="s">&quot;</span>
+
+<div class="viewcode-block" id="HyperParser.get_expression"><a class="viewcode-back" href="../../idlelib.html#idlelib.HyperParser.HyperParser.get_expression">[docs]</a>    <span class="k">def</span> <span class="nf">get_expression</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a string with the Python expression which ends at the</span>
+<span class="sd">        given index, which is empty if there is no real one.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_in_code</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;get_expression should only be called&quot;</span>
+                             <span class="s">&quot;if index is inside a code.&quot;</span><span class="p">)</span>
+
+        <span class="n">rawtext</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rawtext</span>
+        <span class="n">bracketing</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">bracketing</span>
+
+        <span class="n">brck_index</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">indexbracket</span>
+        <span class="n">brck_limit</span> <span class="o">=</span> <span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">pos</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">indexinrawtext</span>
+
+        <span class="n">last_identifier_pos</span> <span class="o">=</span> <span class="n">pos</span>
+        <span class="n">postdot_phase</span> <span class="o">=</span> <span class="bp">True</span>
+
+        <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="c"># Eat whitespaces, comments, and if postdot_phase is False - a dot</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">pos</span><span class="o">&gt;</span><span class="n">brck_limit</span> <span class="ow">and</span> <span class="n">rawtext</span><span class="p">[</span><span class="n">pos</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_whitespace_chars</span><span class="p">:</span>
+                    <span class="c"># Eat a whitespace</span>
+                    <span class="n">pos</span> <span class="o">-=</span> <span class="mi">1</span>
+                <span class="k">elif</span> <span class="p">(</span><span class="ow">not</span> <span class="n">postdot_phase</span> <span class="ow">and</span>
+                      <span class="n">pos</span> <span class="o">&gt;</span> <span class="n">brck_limit</span> <span class="ow">and</span> <span class="n">rawtext</span><span class="p">[</span><span class="n">pos</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;.&#39;</span><span class="p">):</span>
+                    <span class="c"># Eat a dot</span>
+                    <span class="n">pos</span> <span class="o">-=</span> <span class="mi">1</span>
+                    <span class="n">postdot_phase</span> <span class="o">=</span> <span class="bp">True</span>
+                <span class="c"># The next line will fail if we are *inside* a comment,</span>
+                <span class="c"># but we shouldn&#39;t be.</span>
+                <span class="k">elif</span> <span class="p">(</span><span class="n">pos</span> <span class="o">==</span> <span class="n">brck_limit</span> <span class="ow">and</span> <span class="n">brck_index</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span>
+                      <span class="n">rawtext</span><span class="p">[</span><span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]]</span> <span class="o">==</span> <span class="s">&#39;#&#39;</span><span class="p">):</span>
+                    <span class="c"># Eat a comment</span>
+                    <span class="n">brck_index</span> <span class="o">-=</span> <span class="mi">2</span>
+                    <span class="n">brck_limit</span> <span class="o">=</span> <span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="n">pos</span> <span class="o">=</span> <span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="o">+</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># If we didn&#39;t eat anything, quit.</span>
+                    <span class="k">break</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">postdot_phase</span><span class="p">:</span>
+                <span class="c"># We didn&#39;t find a dot, so the expression end at the</span>
+                <span class="c"># last identifier pos.</span>
+                <span class="k">break</span>
+
+            <span class="n">ret</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eat_identifier</span><span class="p">(</span><span class="n">rawtext</span><span class="p">,</span> <span class="n">brck_limit</span><span class="p">,</span> <span class="n">pos</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ret</span><span class="p">:</span>
+                <span class="c"># There is an identifier to eat</span>
+                <span class="n">pos</span> <span class="o">=</span> <span class="n">pos</span> <span class="o">-</span> <span class="n">ret</span>
+                <span class="n">last_identifier_pos</span> <span class="o">=</span> <span class="n">pos</span>
+                <span class="c"># Now, to continue the search, we must find a dot.</span>
+                <span class="n">postdot_phase</span> <span class="o">=</span> <span class="bp">False</span>
+                <span class="c"># (the loop continues now)</span>
+
+            <span class="k">elif</span> <span class="n">pos</span> <span class="o">==</span> <span class="n">brck_limit</span><span class="p">:</span>
+                <span class="c"># We are at a bracketing limit. If it is a closing</span>
+                <span class="c"># bracket, eat the bracket, otherwise, stop the search.</span>
+                <span class="n">level</span> <span class="o">=</span> <span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+                <span class="k">while</span> <span class="n">brck_index</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">level</span><span class="p">:</span>
+                    <span class="n">brck_index</span> <span class="o">-=</span> <span class="mi">1</span>
+                <span class="k">if</span> <span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">brck_limit</span><span class="p">:</span>
+                    <span class="c"># We were not at the end of a closing bracket</span>
+                    <span class="k">break</span>
+                <span class="n">pos</span> <span class="o">=</span> <span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+                <span class="n">brck_index</span> <span class="o">-=</span> <span class="mi">1</span>
+                <span class="n">brck_limit</span> <span class="o">=</span> <span class="n">bracketing</span><span class="p">[</span><span class="n">brck_index</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+                <span class="n">last_identifier_pos</span> <span class="o">=</span> <span class="n">pos</span>
+                <span class="k">if</span> <span class="n">rawtext</span><span class="p">[</span><span class="n">pos</span><span class="p">]</span> <span class="ow">in</span> <span class="s">&quot;([&quot;</span><span class="p">:</span>
+                    <span class="c"># [] and () may be used after an identifier, so we</span>
+                    <span class="c"># continue. postdot_phase is True, so we don&#39;t allow a dot.</span>
+                    <span class="k">pass</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># We can&#39;t continue after other types of brackets</span>
+                    <span class="k">if</span> <span class="n">rawtext</span><span class="p">[</span><span class="n">pos</span><span class="p">]</span> <span class="ow">in</span> <span class="s">&quot;&#39;</span><span class="se">\&quot;</span><span class="s">&quot;</span><span class="p">:</span>
+                        <span class="c"># Scan a string prefix</span>
+                        <span class="k">while</span> <span class="n">pos</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">rawtext</span><span class="p">[</span><span class="n">pos</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="ow">in</span> <span class="s">&quot;rRbBuU&quot;</span><span class="p">:</span>
+                            <span class="n">pos</span> <span class="o">-=</span> <span class="mi">1</span>
+                        <span class="n">last_identifier_pos</span> <span class="o">=</span> <span class="n">pos</span>
+                    <span class="k">break</span>
+
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># We&#39;ve found an operator or something.</span>
+                <span class="k">break</span>
+
+        <span class="k">return</span> <span class="n">rawtext</span><span class="p">[</span><span class="n">last_identifier_pos</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">indexinrawtext</span><span class="p">]</span>
+
+</div></div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">unittest</span>
+    <span class="n">unittest</span><span class="o">.</span><span class="n">main</span><span class="p">(</span><span class="s">&#39;idlelib.idle_test.test_hyperparser&#39;</span><span class="p">,</span> <span class="n">verbosity</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

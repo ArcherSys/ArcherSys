@@ -1,0 +1,827 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>distutils.command.build_ext &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for distutils.command.build_ext</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.command.build_ext</span>
+
+<span class="sd">Implements the Distutils &#39;build_ext&#39; command, for building extension</span>
+<span class="sd">modules (currently limited to C extensions, should accommodate C++</span>
+<span class="sd">extensions ASAP).&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">re</span>
+<span class="kn">from</span> <span class="nn">distutils.core</span> <span class="kn">import</span> <span class="n">Command</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">distutils.sysconfig</span> <span class="kn">import</span> <span class="n">customize_compiler</span><span class="p">,</span> <span class="n">get_python_version</span>
+<span class="kn">from</span> <span class="nn">distutils.sysconfig</span> <span class="kn">import</span> <span class="n">get_config_h_filename</span>
+<span class="kn">from</span> <span class="nn">distutils.dep_util</span> <span class="kn">import</span> <span class="n">newer_group</span>
+<span class="kn">from</span> <span class="nn">distutils.extension</span> <span class="kn">import</span> <span class="n">Extension</span>
+<span class="kn">from</span> <span class="nn">distutils.util</span> <span class="kn">import</span> <span class="n">get_platform</span>
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">log</span>
+
+<span class="kn">from</span> <span class="nn">site</span> <span class="kn">import</span> <span class="n">USER_BASE</span>
+
+<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;nt&#39;</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">distutils.msvccompiler</span> <span class="kn">import</span> <span class="n">get_build_version</span>
+    <span class="n">MSVC_VERSION</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">get_build_version</span><span class="p">())</span>
+
+<span class="c"># An extension name is just a dot-separated list of Python NAMEs (ie.</span>
+<span class="c"># the same as a fully-qualified module name).</span>
+<span class="n">extension_name_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span> \
+    <span class="p">(</span><span class="s">r&#39;^[a-zA-Z_][a-zA-Z_0-9]*(\.[a-zA-Z_][a-zA-Z_0-9]*)*$&#39;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="show_compilers"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.show_compilers">[docs]</a><span class="k">def</span> <span class="nf">show_compilers</span> <span class="p">():</span>
+    <span class="kn">from</span> <span class="nn">distutils.ccompiler</span> <span class="kn">import</span> <span class="n">show_compilers</span>
+    <span class="n">show_compilers</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="build_ext"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext">[docs]</a><span class="k">class</span> <span class="nc">build_ext</span><span class="p">(</span><span class="n">Command</span><span class="p">):</span>
+
+    <span class="n">description</span> <span class="o">=</span> <span class="s">&quot;build C/C++ extensions (compile/link to build directory)&quot;</span>
+
+    <span class="c"># XXX thoughts on how to deal with complex command-line options like</span>
+    <span class="c"># these, i.e. how to make it so fancy_getopt can suck them off the</span>
+    <span class="c"># command line and make it look like setup.py defined the appropriate</span>
+    <span class="c"># lists of tuples of what-have-you.</span>
+    <span class="c">#   - each command needs a callback to process its command-line options</span>
+    <span class="c">#   - Command.__init__() needs access to its share of the whole</span>
+    <span class="c">#     command line (must ultimately come from</span>
+    <span class="c">#     Distribution.parse_command_line())</span>
+    <span class="c">#   - it then calls the current command class&#39; option-parsing</span>
+    <span class="c">#     callback to deal with weird options like -D, which have to</span>
+    <span class="c">#     parse the option text and churn out some custom data</span>
+    <span class="c">#     structure</span>
+    <span class="c">#   - that data structure (in this case, a list of 2-tuples)</span>
+    <span class="c">#     will then be present in the command object by the time</span>
+    <span class="c">#     we get to finalize_options() (i.e. the constructor</span>
+    <span class="c">#     takes care of both command-line and client options</span>
+    <span class="c">#     in between initialize_options() and finalize_options())</span>
+
+    <span class="n">sep_by</span> <span class="o">=</span> <span class="s">&quot; (separated by &#39;</span><span class="si">%s</span><span class="s">&#39;)&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">pathsep</span>
+    <span class="n">user_options</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s">&#39;build-lib=&#39;</span><span class="p">,</span> <span class="s">&#39;b&#39;</span><span class="p">,</span>
+         <span class="s">&quot;directory for compiled extension modules&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;build-temp=&#39;</span><span class="p">,</span> <span class="s">&#39;t&#39;</span><span class="p">,</span>
+         <span class="s">&quot;directory for temporary files (build by-products)&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;plat-name=&#39;</span><span class="p">,</span> <span class="s">&#39;p&#39;</span><span class="p">,</span>
+         <span class="s">&quot;platform name to cross-compile for, if supported &quot;</span>
+         <span class="s">&quot;(default: </span><span class="si">%s</span><span class="s">)&quot;</span> <span class="o">%</span> <span class="n">get_platform</span><span class="p">()),</span>
+        <span class="p">(</span><span class="s">&#39;inplace&#39;</span><span class="p">,</span> <span class="s">&#39;i&#39;</span><span class="p">,</span>
+         <span class="s">&quot;ignore build-lib and put compiled extensions into the source &quot;</span> <span class="o">+</span>
+         <span class="s">&quot;directory alongside your pure Python modules&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;include-dirs=&#39;</span><span class="p">,</span> <span class="s">&#39;I&#39;</span><span class="p">,</span>
+         <span class="s">&quot;list of directories to search for header files&quot;</span> <span class="o">+</span> <span class="n">sep_by</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;define=&#39;</span><span class="p">,</span> <span class="s">&#39;D&#39;</span><span class="p">,</span>
+         <span class="s">&quot;C preprocessor macros to define&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;undef=&#39;</span><span class="p">,</span> <span class="s">&#39;U&#39;</span><span class="p">,</span>
+         <span class="s">&quot;C preprocessor macros to undefine&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;libraries=&#39;</span><span class="p">,</span> <span class="s">&#39;l&#39;</span><span class="p">,</span>
+         <span class="s">&quot;external C libraries to link with&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;library-dirs=&#39;</span><span class="p">,</span> <span class="s">&#39;L&#39;</span><span class="p">,</span>
+         <span class="s">&quot;directories to search for external C libraries&quot;</span> <span class="o">+</span> <span class="n">sep_by</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;rpath=&#39;</span><span class="p">,</span> <span class="s">&#39;R&#39;</span><span class="p">,</span>
+         <span class="s">&quot;directories to search for shared C libraries at runtime&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;link-objects=&#39;</span><span class="p">,</span> <span class="s">&#39;O&#39;</span><span class="p">,</span>
+         <span class="s">&quot;extra explicit link objects to include in the link&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;debug&#39;</span><span class="p">,</span> <span class="s">&#39;g&#39;</span><span class="p">,</span>
+         <span class="s">&quot;compile/link with debugging information&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;force&#39;</span><span class="p">,</span> <span class="s">&#39;f&#39;</span><span class="p">,</span>
+         <span class="s">&quot;forcibly build everything (ignore file timestamps)&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;compiler=&#39;</span><span class="p">,</span> <span class="s">&#39;c&#39;</span><span class="p">,</span>
+         <span class="s">&quot;specify the compiler type&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;swig-cpp&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;make SWIG create C++ files (default is C)&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;swig-opts=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;list of SWIG command line options&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;swig=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;path to the SWIG executable&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;user&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;add user include, library and rpath&quot;</span><span class="p">)</span>
+        <span class="p">]</span>
+
+    <span class="n">boolean_options</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;inplace&#39;</span><span class="p">,</span> <span class="s">&#39;debug&#39;</span><span class="p">,</span> <span class="s">&#39;force&#39;</span><span class="p">,</span> <span class="s">&#39;swig-cpp&#39;</span><span class="p">,</span> <span class="s">&#39;user&#39;</span><span class="p">]</span>
+
+    <span class="n">help_options</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s">&#39;help-compiler&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;list available compilers&quot;</span><span class="p">,</span> <span class="n">show_compilers</span><span class="p">),</span>
+        <span class="p">]</span>
+
+<div class="viewcode-block" id="build_ext.initialize_options"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.initialize_options">[docs]</a>    <span class="k">def</span> <span class="nf">initialize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">extensions</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">build_lib</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">plat_name</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">inplace</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">package</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">define</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">undef</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rpath</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">link_objects</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debug</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">swig</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">swig_cpp</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">swig_opts</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">user</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="build_ext.finalize_options"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.finalize_options">[docs]</a>    <span class="k">def</span> <span class="nf">finalize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">sysconfig</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_undefined_options</span><span class="p">(</span><span class="s">&#39;build&#39;</span><span class="p">,</span>
+                                   <span class="p">(</span><span class="s">&#39;build_lib&#39;</span><span class="p">,</span> <span class="s">&#39;build_lib&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;build_temp&#39;</span><span class="p">,</span> <span class="s">&#39;build_temp&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;compiler&#39;</span><span class="p">,</span> <span class="s">&#39;compiler&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;debug&#39;</span><span class="p">,</span> <span class="s">&#39;debug&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;force&#39;</span><span class="p">,</span> <span class="s">&#39;force&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;plat_name&#39;</span><span class="p">,</span> <span class="s">&#39;plat_name&#39;</span><span class="p">),</span>
+                                   <span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">package</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">package</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">ext_package</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">extensions</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">ext_modules</span>
+
+        <span class="c"># Make sure Python&#39;s include directories (for Python.h, pyconfig.h,</span>
+        <span class="c"># etc.) are in the include search path.</span>
+        <span class="n">py_include</span> <span class="o">=</span> <span class="n">sysconfig</span><span class="o">.</span><span class="n">get_python_inc</span><span class="p">()</span>
+        <span class="n">plat_py_include</span> <span class="o">=</span> <span class="n">sysconfig</span><span class="o">.</span><span class="n">get_python_inc</span><span class="p">(</span><span class="n">plat_specific</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">include_dirs</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">pathsep</span><span class="p">)</span>
+
+        <span class="c"># If in a virtualenv, add its include directory</span>
+        <span class="c"># Issue 16116</span>
+        <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="o">!=</span> <span class="n">sys</span><span class="o">.</span><span class="n">base_exec_prefix</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span> <span class="s">&#39;include&#39;</span><span class="p">))</span>
+
+        <span class="c"># Put the Python &quot;system&quot; include dir at the end, so that</span>
+        <span class="c"># any local include dirs take precedence.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">py_include</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">plat_py_include</span> <span class="o">!=</span> <span class="n">py_include</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">plat_py_include</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">ensure_string_list</span><span class="p">(</span><span class="s">&#39;libraries&#39;</span><span class="p">)</span>
+
+        <span class="c"># Life is easier if we&#39;re not forever checking for None, so</span>
+        <span class="c"># simplify these options to empty lists if unset</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">pathsep</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">rpath</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">rpath</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rpath</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">rpath</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rpath</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">pathsep</span><span class="p">)</span>
+
+        <span class="c"># for extensions under windows use different directories</span>
+        <span class="c"># for Release and Debug builds.</span>
+        <span class="c"># also Python&#39;s library directory must be appended to library_dirs</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;nt&#39;</span><span class="p">:</span>
+            <span class="c"># the &#39;libs&#39; directory is for binary installs - we assume that</span>
+            <span class="c"># must be the *native* platform.  But we don&#39;t really support</span>
+            <span class="c"># cross-compiling via a binary install anyway, so we let it go.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span> <span class="s">&#39;libs&#39;</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">base_exec_prefix</span> <span class="o">!=</span> <span class="n">sys</span><span class="o">.</span><span class="n">prefix</span><span class="p">:</span>  <span class="c"># Issue 16116</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">base_exec_prefix</span><span class="p">,</span> <span class="s">&#39;libs&#39;</span><span class="p">))</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span><span class="p">,</span> <span class="s">&quot;Debug&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span><span class="p">,</span> <span class="s">&quot;Release&quot;</span><span class="p">)</span>
+
+            <span class="c"># Append the source distribution include and library directories,</span>
+            <span class="c"># this allows distutils on windows to work in the source tree</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">get_config_h_filename</span><span class="p">()))</span>
+            <span class="n">_sys_home</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">sys</span><span class="p">,</span> <span class="s">&#39;_home&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">_sys_home</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_sys_home</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">MSVC_VERSION</span> <span class="o">&gt;=</span> <span class="mi">9</span><span class="p">:</span>
+                <span class="c"># Use the .lib files for the correct architecture</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">plat_name</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+                    <span class="n">suffix</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># win-amd64 or win-ia64</span>
+                    <span class="n">suffix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">plat_name</span><span class="p">[</span><span class="mi">4</span><span class="p">:]</span>
+                <span class="n">new_lib</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span> <span class="s">&#39;PCbuild&#39;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">suffix</span><span class="p">:</span>
+                    <span class="n">new_lib</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">new_lib</span><span class="p">,</span> <span class="n">suffix</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_lib</span><span class="p">)</span>
+
+            <span class="k">elif</span> <span class="n">MSVC_VERSION</span> <span class="o">==</span> <span class="mi">8</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span>
+                                         <span class="s">&#39;PC&#39;</span><span class="p">,</span> <span class="s">&#39;VS8.0&#39;</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="n">MSVC_VERSION</span> <span class="o">==</span> <span class="mi">7</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span>
+                                         <span class="s">&#39;PC&#39;</span><span class="p">,</span> <span class="s">&#39;VS7.1&#39;</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span>
+                                         <span class="s">&#39;PC&#39;</span><span class="p">,</span> <span class="s">&#39;VC6&#39;</span><span class="p">))</span>
+
+        <span class="c"># for extensions under Cygwin and AtheOS Python&#39;s library directory must be</span>
+        <span class="c"># appended to library_dirs</span>
+        <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;cygwin&#39;</span> <span class="ow">or</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;atheos&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span> <span class="s">&quot;bin&quot;</span><span class="p">)):</span>
+                <span class="c"># building third party extensions</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">prefix</span><span class="p">,</span> <span class="s">&quot;lib&quot;</span><span class="p">,</span>
+                                                      <span class="s">&quot;python&quot;</span> <span class="o">+</span> <span class="n">get_python_version</span><span class="p">(),</span>
+                                                      <span class="s">&quot;config&quot;</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># building python standard extensions</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+
+        <span class="c"># For building extensions with a shared Python library,</span>
+        <span class="c"># Python&#39;s library directory must be appended to library_dirs</span>
+        <span class="c"># See Issues: #1600860, #4366</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">sysconfig</span><span class="o">.</span><span class="n">get_config_var</span><span class="p">(</span><span class="s">&#39;Py_ENABLE_SHARED&#39;</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span> <span class="s">&quot;bin&quot;</span><span class="p">)):</span>
+                <span class="c"># building third party extensions</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">sysconfig</span><span class="o">.</span><span class="n">get_config_var</span><span class="p">(</span><span class="s">&#39;LIBDIR&#39;</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># building python standard extensions</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+
+        <span class="c"># The argument parsing will result in self.define being a string, but</span>
+        <span class="c"># it has to be a list of 2-tuples.  All the preprocessor symbols</span>
+        <span class="c"># specified by the &#39;define&#39; option will be set to &#39;1&#39;.  Multiple</span>
+        <span class="c"># symbols can be separated with commas.</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">define</span><span class="p">:</span>
+            <span class="n">defines</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">define</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">define</span> <span class="o">=</span> <span class="p">[(</span><span class="n">symbol</span><span class="p">,</span> <span class="s">&#39;1&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">symbol</span> <span class="ow">in</span> <span class="n">defines</span><span class="p">]</span>
+
+        <span class="c"># The option for macros to undefine is also a string from the</span>
+        <span class="c"># option parsing, but has to be a list.  Multiple symbols can also</span>
+        <span class="c"># be separated with commas here.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">undef</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">undef</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">undef</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig_opts</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">swig_opts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">swig_opts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig_opts</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39; &#39;</span><span class="p">)</span>
+
+        <span class="c"># Finally add the user include and library directories if requested</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">user</span><span class="p">:</span>
+            <span class="n">user_include</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">USER_BASE</span><span class="p">,</span> <span class="s">&quot;include&quot;</span><span class="p">)</span>
+            <span class="n">user_lib</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">USER_BASE</span><span class="p">,</span> <span class="s">&quot;lib&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">user_include</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">user_include</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">user_lib</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">user_lib</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">rpath</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">user_lib</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="build_ext.run"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span> <span class="nn">distutils.ccompiler</span> <span class="kn">import</span> <span class="n">new_compiler</span>
+
+        <span class="c"># &#39;self.extensions&#39;, as supplied by setup.py, is a list of</span>
+        <span class="c"># Extension instances.  See the documentation for Extension (in</span>
+        <span class="c"># distutils.extension) for details.</span>
+        <span class="c">#</span>
+        <span class="c"># For backwards compatibility with Distutils 0.8.2 and earlier, we</span>
+        <span class="c"># also allow the &#39;extensions&#39; list to be a list of tuples:</span>
+        <span class="c">#    (ext_name, build_info)</span>
+        <span class="c"># where build_info is a dictionary containing everything that</span>
+        <span class="c"># Extension instances do except the name, with a few things being</span>
+        <span class="c"># differently named.  We convert these 2-tuples to Extension</span>
+        <span class="c"># instances as needed.</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">extensions</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="c"># If we were asked to build any C/C++ libraries, make sure that the</span>
+        <span class="c"># directory where we put them is in the library search path for</span>
+        <span class="c"># linking extensions.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">has_c_libraries</span><span class="p">():</span>
+            <span class="n">build_clib</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_finalized_command</span><span class="p">(</span><span class="s">&#39;build_clib&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">build_clib</span><span class="o">.</span><span class="n">get_library_names</span><span class="p">()</span> <span class="ow">or</span> <span class="p">[])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">build_clib</span><span class="o">.</span><span class="n">build_clib</span><span class="p">)</span>
+
+        <span class="c"># Setup the CCompiler object that we&#39;ll use to do all the</span>
+        <span class="c"># compiling and linking</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span> <span class="o">=</span> <span class="n">new_compiler</span><span class="p">(</span><span class="n">compiler</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="p">,</span>
+                                     <span class="n">verbose</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">verbose</span><span class="p">,</span>
+                                     <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">,</span>
+                                     <span class="n">force</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">force</span><span class="p">)</span>
+        <span class="n">customize_compiler</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="p">)</span>
+        <span class="c"># If we are cross-compiling, init the compiler now (if we are not</span>
+        <span class="c"># cross-compiling, init would not hurt, but people may rely on</span>
+        <span class="c"># late initialization of compiler even if they shouldn&#39;t...)</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;nt&#39;</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">plat_name</span> <span class="o">!=</span> <span class="n">get_platform</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">initialize</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">plat_name</span><span class="p">)</span>
+
+        <span class="c"># And make sure that any compile/link-related options (which might</span>
+        <span class="c"># come from the command-line or from the setup script) are set in</span>
+        <span class="c"># that CCompiler object -- that way, they automatically apply to</span>
+        <span class="c"># all compiling and linking done here.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">set_include_dirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">define</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># &#39;define&#39; option is a list of (name,value) tuples</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">define</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">define_macro</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">undef</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">macro</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">undef</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">undefine_macro</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">set_libraries</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">set_library_dirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">rpath</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">set_runtime_library_dirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rpath</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">link_objects</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">set_link_objects</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">link_objects</span><span class="p">)</span>
+
+        <span class="c"># Now actually compile and link everything.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">build_extensions</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="build_ext.check_extensions_list"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.check_extensions_list">[docs]</a>    <span class="k">def</span> <span class="nf">check_extensions_list</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extensions</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Ensure that the list of extensions (presumably provided as a</span>
+<span class="sd">        command option &#39;extensions&#39;) is valid, i.e. it is a list of</span>
+<span class="sd">        Extension objects.  We also support the old-style list of 2-tuples,</span>
+<span class="sd">        where the tuples are (ext_name, build_info), which are converted to</span>
+<span class="sd">        Extension instances here.</span>
+
+<span class="sd">        Raise DistutilsSetupError if the structure is invalid anywhere;</span>
+<span class="sd">        just returns otherwise.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">extensions</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                  <span class="s">&quot;&#39;ext_modules&#39; option must be a list of Extension instances&quot;</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">ext</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">extensions</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ext</span><span class="p">,</span> <span class="n">Extension</span><span class="p">):</span>
+                <span class="k">continue</span>                <span class="c"># OK! (assume type-checking done</span>
+                                        <span class="c"># by Extension constructor)</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">ext</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">ext</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                       <span class="s">&quot;each element of &#39;ext_modules&#39; option must be an &quot;</span>
+                       <span class="s">&quot;Extension instance or 2-tuple&quot;</span><span class="p">)</span>
+
+            <span class="n">ext_name</span><span class="p">,</span> <span class="n">build_info</span> <span class="o">=</span> <span class="n">ext</span>
+
+            <span class="n">log</span><span class="o">.</span><span class="n">warn</span><span class="p">((</span><span class="s">&quot;old-style (ext_name, build_info) tuple found in &quot;</span>
+                      <span class="s">&quot;ext_modules for extension &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span>
+                      <span class="s">&quot;-- please convert to Extension instance&quot;</span> <span class="o">%</span> <span class="n">ext_name</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">ext_name</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span>
+                    <span class="n">extension_name_re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">ext_name</span><span class="p">)):</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                       <span class="s">&quot;first element of each tuple in &#39;ext_modules&#39; &quot;</span>
+                       <span class="s">&quot;must be the extension name (a string)&quot;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">build_info</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                       <span class="s">&quot;second element of each tuple in &#39;ext_modules&#39; &quot;</span>
+                       <span class="s">&quot;must be a dictionary (build info)&quot;</span><span class="p">)</span>
+
+            <span class="c"># OK, the (ext_name, build_info) dict is type-safe: convert it</span>
+            <span class="c"># to an Extension instance.</span>
+            <span class="n">ext</span> <span class="o">=</span> <span class="n">Extension</span><span class="p">(</span><span class="n">ext_name</span><span class="p">,</span> <span class="n">build_info</span><span class="p">[</span><span class="s">&#39;sources&#39;</span><span class="p">])</span>
+
+            <span class="c"># Easy stuff: one-to-one mapping from dict elements to</span>
+            <span class="c"># instance attributes.</span>
+            <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;include_dirs&#39;</span><span class="p">,</span> <span class="s">&#39;library_dirs&#39;</span><span class="p">,</span> <span class="s">&#39;libraries&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;extra_objects&#39;</span><span class="p">,</span> <span class="s">&#39;extra_compile_args&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;extra_link_args&#39;</span><span class="p">):</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="n">build_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="nb">setattr</span><span class="p">(</span><span class="n">ext</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+
+            <span class="c"># Medium-easy stuff: same syntax/semantics, different names.</span>
+            <span class="n">ext</span><span class="o">.</span><span class="n">runtime_library_dirs</span> <span class="o">=</span> <span class="n">build_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;rpath&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="s">&#39;def_file&#39;</span> <span class="ow">in</span> <span class="n">build_info</span><span class="p">:</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;&#39;def_file&#39; element of build info dict &quot;</span>
+                         <span class="s">&quot;no longer supported&quot;</span><span class="p">)</span>
+
+            <span class="c"># Non-trivial stuff: &#39;macros&#39; split into &#39;define_macros&#39;</span>
+            <span class="c"># and &#39;undef_macros&#39;.</span>
+            <span class="n">macros</span> <span class="o">=</span> <span class="n">build_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;macros&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">macros</span><span class="p">:</span>
+                <span class="n">ext</span><span class="o">.</span><span class="n">define_macros</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="n">ext</span><span class="o">.</span><span class="n">undef_macros</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">macro</span> <span class="ow">in</span> <span class="n">macros</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">macro</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)):</span>
+                        <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                              <span class="s">&quot;&#39;macros&#39; element of build info dict &quot;</span>
+                              <span class="s">&quot;must be 1- or 2-tuple&quot;</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                        <span class="n">ext</span><span class="o">.</span><span class="n">undef_macros</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">macro</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                    <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                        <span class="n">ext</span><span class="o">.</span><span class="n">define_macros</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span>
+
+            <span class="n">extensions</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">ext</span>
+</div>
+<div class="viewcode-block" id="build_ext.get_source_files"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.get_source_files">[docs]</a>    <span class="k">def</span> <span class="nf">get_source_files</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_extensions_list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">extensions</span><span class="p">)</span>
+        <span class="n">filenames</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c"># Wouldn&#39;t it be neat if we knew the names of header files too...</span>
+        <span class="k">for</span> <span class="n">ext</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">extensions</span><span class="p">:</span>
+            <span class="n">filenames</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">ext</span><span class="o">.</span><span class="n">sources</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">filenames</span>
+</div>
+<div class="viewcode-block" id="build_ext.get_outputs"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.get_outputs">[docs]</a>    <span class="k">def</span> <span class="nf">get_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Sanity check the &#39;extensions&#39; list -- can&#39;t assume this is being</span>
+        <span class="c"># done in the same run as a &#39;build_extensions()&#39; call (in fact, we</span>
+        <span class="c"># can probably assume that it *isn&#39;t*!).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_extensions_list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">extensions</span><span class="p">)</span>
+
+        <span class="c"># And build the list of output (built) filenames.  Note that this</span>
+        <span class="c"># ignores the &#39;inplace&#39; flag, and assumes everything goes in the</span>
+        <span class="c"># &quot;build&quot; tree.</span>
+        <span class="n">outputs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">ext</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">extensions</span><span class="p">:</span>
+            <span class="n">outputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_ext_fullpath</span><span class="p">(</span><span class="n">ext</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">outputs</span>
+</div>
+<div class="viewcode-block" id="build_ext.build_extensions"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.build_extensions">[docs]</a>    <span class="k">def</span> <span class="nf">build_extensions</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># First, sanity-check the &#39;extensions&#39; list</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_extensions_list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">extensions</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">ext</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">extensions</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">build_extension</span><span class="p">(</span><span class="n">ext</span><span class="p">)</span>
+            <span class="k">except</span> <span class="p">(</span><span class="n">CCompilerError</span><span class="p">,</span> <span class="n">DistutilsError</span><span class="p">,</span> <span class="n">CompileError</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">ext</span><span class="o">.</span><span class="n">optional</span><span class="p">:</span>
+                    <span class="k">raise</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&#39;building extension &quot;</span><span class="si">%s</span><span class="s">&quot; failed: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span>
+                          <span class="p">(</span><span class="n">ext</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="build_ext.build_extension"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.build_extension">[docs]</a>    <span class="k">def</span> <span class="nf">build_extension</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ext</span><span class="p">):</span>
+        <span class="n">sources</span> <span class="o">=</span> <span class="n">ext</span><span class="o">.</span><span class="n">sources</span>
+        <span class="k">if</span> <span class="n">sources</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                  <span class="s">&quot;in &#39;ext_modules&#39; option (extension &#39;</span><span class="si">%s</span><span class="s">&#39;), &quot;</span>
+                  <span class="s">&quot;&#39;sources&#39; must be present and must be &quot;</span>
+                  <span class="s">&quot;a list of source filenames&quot;</span> <span class="o">%</span> <span class="n">ext</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">sources</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
+
+        <span class="n">ext_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_ext_fullpath</span><span class="p">(</span><span class="n">ext</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">depends</span> <span class="o">=</span> <span class="n">sources</span> <span class="o">+</span> <span class="n">ext</span><span class="o">.</span><span class="n">depends</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="ow">or</span> <span class="n">newer_group</span><span class="p">(</span><span class="n">depends</span><span class="p">,</span> <span class="n">ext_path</span><span class="p">,</span> <span class="s">&#39;newer&#39;</span><span class="p">)):</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;skipping &#39;</span><span class="si">%s</span><span class="s">&#39; extension (up-to-date)&quot;</span><span class="p">,</span> <span class="n">ext</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;building &#39;</span><span class="si">%s</span><span class="s">&#39; extension&quot;</span><span class="p">,</span> <span class="n">ext</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+
+        <span class="c"># First, scan the sources for SWIG definition files (.i), run</span>
+        <span class="c"># SWIG on &#39;em to create .c files, and modify the sources list</span>
+        <span class="c"># accordingly.</span>
+        <span class="n">sources</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig_sources</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="n">ext</span><span class="p">)</span>
+
+        <span class="c"># Next, compile the source code to object files.</span>
+
+        <span class="c"># XXX not honouring &#39;define_macros&#39; or &#39;undef_macros&#39; -- the</span>
+        <span class="c"># CCompiler API needs to change to accommodate this, and I</span>
+        <span class="c"># want to do one thing at a time!</span>
+
+        <span class="c"># Two possible sources for extra compiler arguments:</span>
+        <span class="c">#   - &#39;extra_compile_args&#39; in Extension object</span>
+        <span class="c">#   - CFLAGS environment variable (not particularly</span>
+        <span class="c">#     elegant, but people seem to expect it and I</span>
+        <span class="c">#     guess it&#39;s useful)</span>
+        <span class="c"># The environment variable should take precedence, and</span>
+        <span class="c"># any sensible compiler will give precedence to later</span>
+        <span class="c"># command line args.  Hence we combine them in order:</span>
+        <span class="n">extra_args</span> <span class="o">=</span> <span class="n">ext</span><span class="o">.</span><span class="n">extra_compile_args</span> <span class="ow">or</span> <span class="p">[]</span>
+
+        <span class="n">macros</span> <span class="o">=</span> <span class="n">ext</span><span class="o">.</span><span class="n">define_macros</span><span class="p">[:]</span>
+        <span class="k">for</span> <span class="n">undef</span> <span class="ow">in</span> <span class="n">ext</span><span class="o">.</span><span class="n">undef_macros</span><span class="p">:</span>
+            <span class="n">macros</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">undef</span><span class="p">,))</span>
+
+        <span class="n">objects</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span>
+                                         <span class="n">output_dir</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span><span class="p">,</span>
+                                         <span class="n">macros</span><span class="o">=</span><span class="n">macros</span><span class="p">,</span>
+                                         <span class="n">include_dirs</span><span class="o">=</span><span class="n">ext</span><span class="o">.</span><span class="n">include_dirs</span><span class="p">,</span>
+                                         <span class="n">debug</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">,</span>
+                                         <span class="n">extra_postargs</span><span class="o">=</span><span class="n">extra_args</span><span class="p">,</span>
+                                         <span class="n">depends</span><span class="o">=</span><span class="n">ext</span><span class="o">.</span><span class="n">depends</span><span class="p">)</span>
+
+        <span class="c"># XXX -- this is a Vile HACK!</span>
+        <span class="c">#</span>
+        <span class="c"># The setup.py script for Python on Unix needs to be able to</span>
+        <span class="c"># get this list so it can perform all the clean up needed to</span>
+        <span class="c"># avoid keeping object files around when cleaning out a failed</span>
+        <span class="c"># build of an extension module.  Since Distutils does not</span>
+        <span class="c"># track dependencies, we have to get rid of intermediates to</span>
+        <span class="c"># ensure all the intermediates will be properly re-built.</span>
+        <span class="c">#</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_built_objects</span> <span class="o">=</span> <span class="n">objects</span><span class="p">[:]</span>
+
+        <span class="c"># Now link the object files together into a &quot;shared object&quot; --</span>
+        <span class="c"># of course, first we have to figure out all the other things</span>
+        <span class="c"># that go into the mix.</span>
+        <span class="k">if</span> <span class="n">ext</span><span class="o">.</span><span class="n">extra_objects</span><span class="p">:</span>
+            <span class="n">objects</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">ext</span><span class="o">.</span><span class="n">extra_objects</span><span class="p">)</span>
+        <span class="n">extra_args</span> <span class="o">=</span> <span class="n">ext</span><span class="o">.</span><span class="n">extra_link_args</span> <span class="ow">or</span> <span class="p">[]</span>
+
+        <span class="c"># Detect target language, if not provided</span>
+        <span class="n">language</span> <span class="o">=</span> <span class="n">ext</span><span class="o">.</span><span class="n">language</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">detect_language</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">link_shared_object</span><span class="p">(</span>
+            <span class="n">objects</span><span class="p">,</span> <span class="n">ext_path</span><span class="p">,</span>
+            <span class="n">libraries</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_libraries</span><span class="p">(</span><span class="n">ext</span><span class="p">),</span>
+            <span class="n">library_dirs</span><span class="o">=</span><span class="n">ext</span><span class="o">.</span><span class="n">library_dirs</span><span class="p">,</span>
+            <span class="n">runtime_library_dirs</span><span class="o">=</span><span class="n">ext</span><span class="o">.</span><span class="n">runtime_library_dirs</span><span class="p">,</span>
+            <span class="n">extra_postargs</span><span class="o">=</span><span class="n">extra_args</span><span class="p">,</span>
+            <span class="n">export_symbols</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">get_export_symbols</span><span class="p">(</span><span class="n">ext</span><span class="p">),</span>
+            <span class="n">debug</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">,</span>
+            <span class="n">build_temp</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span><span class="p">,</span>
+            <span class="n">target_lang</span><span class="o">=</span><span class="n">language</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="build_ext.swig_sources"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.swig_sources">[docs]</a>    <span class="k">def</span> <span class="nf">swig_sources</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">extension</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Walk the list of source files in &#39;sources&#39;, looking for SWIG</span>
+<span class="sd">        interface (.i) files.  Run SWIG on all that are found, and</span>
+<span class="sd">        return a modified &#39;sources&#39; list with SWIG source files replaced</span>
+<span class="sd">        by the generated C (or C++) files.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">new_sources</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">swig_sources</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">swig_targets</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="c"># XXX this drops generated C/C++ files into the source tree, which</span>
+        <span class="c"># is fine for developers who want to distribute the generated</span>
+        <span class="c"># source -- but there should be an option to put SWIG output in</span>
+        <span class="c"># the temp dir.</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig_cpp</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;--swig-cpp is deprecated - use --swig-opts=-c++&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig_cpp</span> <span class="ow">or</span> <span class="p">(</span><span class="s">&#39;-c++&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig_opts</span><span class="p">)</span> <span class="ow">or</span> \
+           <span class="p">(</span><span class="s">&#39;-c++&#39;</span> <span class="ow">in</span> <span class="n">extension</span><span class="o">.</span><span class="n">swig_opts</span><span class="p">):</span>
+            <span class="n">target_ext</span> <span class="o">=</span> <span class="s">&#39;.cpp&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">target_ext</span> <span class="o">=</span> <span class="s">&#39;.c&#39;</span>
+
+        <span class="k">for</span> <span class="n">source</span> <span class="ow">in</span> <span class="n">sources</span><span class="p">:</span>
+            <span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">ext</span><span class="p">)</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ext</span> <span class="o">==</span> <span class="s">&quot;.i&quot;</span><span class="p">:</span>             <span class="c"># SWIG interface file</span>
+                <span class="n">new_sources</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">base</span> <span class="o">+</span> <span class="s">&#39;_wrap&#39;</span> <span class="o">+</span> <span class="n">target_ext</span><span class="p">)</span>
+                <span class="n">swig_sources</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+                <span class="n">swig_targets</span><span class="p">[</span><span class="n">source</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_sources</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">new_sources</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">swig_sources</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">new_sources</span>
+
+        <span class="n">swig</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_swig</span><span class="p">()</span>
+        <span class="n">swig_cmd</span> <span class="o">=</span> <span class="p">[</span><span class="n">swig</span><span class="p">,</span> <span class="s">&quot;-python&quot;</span><span class="p">]</span>
+        <span class="n">swig_cmd</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">swig_opts</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig_cpp</span><span class="p">:</span>
+            <span class="n">swig_cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;-c++&quot;</span><span class="p">)</span>
+
+        <span class="c"># Do not override commandline arguments</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">swig_opts</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">extension</span><span class="o">.</span><span class="n">swig_opts</span><span class="p">:</span>
+                <span class="n">swig_cmd</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">source</span> <span class="ow">in</span> <span class="n">swig_sources</span><span class="p">:</span>
+            <span class="n">target</span> <span class="o">=</span> <span class="n">swig_targets</span><span class="p">[</span><span class="n">source</span><span class="p">]</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;swigging </span><span class="si">%s</span><span class="s"> to </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">target</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="n">swig_cmd</span> <span class="o">+</span> <span class="p">[</span><span class="s">&quot;-o&quot;</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">source</span><span class="p">])</span>
+
+        <span class="k">return</span> <span class="n">new_sources</span>
+</div>
+<div class="viewcode-block" id="build_ext.find_swig"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.find_swig">[docs]</a>    <span class="k">def</span> <span class="nf">find_swig</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the name of the SWIG executable.  On Unix, this is</span>
+<span class="sd">        just &quot;swig&quot; -- it should be in the PATH.  Tries a bit harder on</span>
+<span class="sd">        Windows.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&quot;posix&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&quot;swig&quot;</span>
+        <span class="k">elif</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&quot;nt&quot;</span><span class="p">:</span>
+            <span class="c"># Look for SWIG in its standard installation directory on</span>
+            <span class="c"># Windows (or so I presume!).  If we find it there, great;</span>
+            <span class="c"># if not, act like Unix and assume it&#39;s in the PATH.</span>
+            <span class="k">for</span> <span class="n">vers</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;1.3&quot;</span><span class="p">,</span> <span class="s">&quot;1.2&quot;</span><span class="p">,</span> <span class="s">&quot;1.1&quot;</span><span class="p">):</span>
+                <span class="n">fn</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&quot;c:</span><span class="se">\\</span><span class="s">swig</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">vers</span><span class="p">,</span> <span class="s">&quot;swig.exe&quot;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">fn</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="n">fn</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="s">&quot;swig.exe&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DistutilsPlatformError</span><span class="p">(</span>
+                  <span class="s">&quot;I don&#39;t know how to find (much less run) SWIG &quot;</span>
+                  <span class="s">&quot;on platform &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+
+    <span class="c"># -- Name generators -----------------------------------------------</span>
+    <span class="c"># (extension names, filenames, whatever)</span></div>
+<div class="viewcode-block" id="build_ext.get_ext_fullpath"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.get_ext_fullpath">[docs]</a>    <span class="k">def</span> <span class="nf">get_ext_fullpath</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ext_name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the path of the filename for a given extension.</span>
+
+<span class="sd">        The file is located in `build_lib` or directly in the package</span>
+<span class="sd">        (inplace option).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">fullname</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_ext_fullname</span><span class="p">(</span><span class="n">ext_name</span><span class="p">)</span>
+        <span class="n">modpath</span> <span class="o">=</span> <span class="n">fullname</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_ext_filename</span><span class="p">(</span><span class="n">modpath</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">inplace</span><span class="p">:</span>
+            <span class="c"># no further work needed</span>
+            <span class="c"># returning :</span>
+            <span class="c">#   build_dir/package/path/filename</span>
+            <span class="n">filename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="o">*</span><span class="n">modpath</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">+</span><span class="p">[</span><span class="n">filename</span><span class="p">])</span>
+            <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">build_lib</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+
+        <span class="c"># the inplace option requires to find the package directory</span>
+        <span class="c"># using the build_py command for that</span>
+        <span class="n">package</span> <span class="o">=</span> <span class="s">&#39;.&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">modpath</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+        <span class="n">build_py</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_finalized_command</span><span class="p">(</span><span class="s">&#39;build_py&#39;</span><span class="p">)</span>
+        <span class="n">package_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="n">build_py</span><span class="o">.</span><span class="n">get_package_dir</span><span class="p">(</span><span class="n">package</span><span class="p">))</span>
+
+        <span class="c"># returning</span>
+        <span class="c">#   package_dir/filename</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">package_dir</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="build_ext.get_ext_fullname"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.get_ext_fullname">[docs]</a>    <span class="k">def</span> <span class="nf">get_ext_fullname</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ext_name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the fullname of a given extension name.</span>
+
+<span class="sd">        Adds the `package.` prefix&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">package</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">ext_name</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">package</span> <span class="o">+</span> <span class="s">&#39;.&#39;</span> <span class="o">+</span> <span class="n">ext_name</span>
+</div>
+<div class="viewcode-block" id="build_ext.get_ext_filename"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.get_ext_filename">[docs]</a>    <span class="k">def</span> <span class="nf">get_ext_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ext_name</span><span class="p">):</span>
+        <span class="sd">r&quot;&quot;&quot;Convert the name of an extension (eg. &quot;foo.bar&quot;) into the name</span>
+<span class="sd">        of the file from which it will be loaded (eg. &quot;foo/bar.so&quot;, or</span>
+<span class="sd">        &quot;foo\bar.pyd&quot;).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span> <span class="nn">distutils.sysconfig</span> <span class="kn">import</span> <span class="n">get_config_var</span>
+        <span class="n">ext_path</span> <span class="o">=</span> <span class="n">ext_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+        <span class="c"># extensions in debug_mode are named &#39;module_d.pyd&#39; under windows</span>
+        <span class="n">ext_suffix</span> <span class="o">=</span> <span class="n">get_config_var</span><span class="p">(</span><span class="s">&#39;EXT_SUFFIX&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;nt&#39;</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="o">*</span><span class="n">ext_path</span><span class="p">)</span> <span class="o">+</span> <span class="s">&#39;_d&#39;</span> <span class="o">+</span> <span class="n">ext_suffix</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="o">*</span><span class="n">ext_path</span><span class="p">)</span> <span class="o">+</span> <span class="n">ext_suffix</span>
+</div>
+<div class="viewcode-block" id="build_ext.get_export_symbols"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.get_export_symbols">[docs]</a>    <span class="k">def</span> <span class="nf">get_export_symbols</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ext</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the list of symbols that a shared extension has to</span>
+<span class="sd">        export.  This either uses &#39;ext.export_symbols&#39; or, if it&#39;s not</span>
+<span class="sd">        provided, &quot;PyInit_&quot; + module_name.  Only relevant on Windows, where</span>
+<span class="sd">        the .pyd file (DLL) must export the module &quot;PyInit_&quot; function.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">initfunc_name</span> <span class="o">=</span> <span class="s">&quot;PyInit_&quot;</span> <span class="o">+</span> <span class="n">ext</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">initfunc_name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">ext</span><span class="o">.</span><span class="n">export_symbols</span><span class="p">:</span>
+            <span class="n">ext</span><span class="o">.</span><span class="n">export_symbols</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">initfunc_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">export_symbols</span>
+</div>
+<div class="viewcode-block" id="build_ext.get_libraries"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_ext.build_ext.get_libraries">[docs]</a>    <span class="k">def</span> <span class="nf">get_libraries</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ext</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the list of libraries to link against when building a</span>
+<span class="sd">        shared extension.  On most platforms, this is just &#39;ext.libraries&#39;;</span>
+<span class="sd">        on Windows, we add the Python library (eg. python20.dll).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># The python library is always needed on Windows.  For MSVC, this</span>
+        <span class="c"># is redundant, since the library is mentioned in a pragma in</span>
+        <span class="c"># pyconfig.h that MSVC groks.  The other Windows compilers all seem</span>
+        <span class="c"># to need it mentioned explicitly, though, so that&#39;s what we do.</span>
+        <span class="c"># Append &#39;_d&#39; to the python import library on debug builds.</span>
+        <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&quot;win32&quot;</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">distutils.msvccompiler</span> <span class="kn">import</span> <span class="n">MSVCCompiler</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="p">,</span> <span class="n">MSVCCompiler</span><span class="p">):</span>
+                <span class="n">template</span> <span class="o">=</span> <span class="s">&quot;python</span><span class="si">%d%d</span><span class="s">&quot;</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">:</span>
+                    <span class="n">template</span> <span class="o">=</span> <span class="n">template</span> <span class="o">+</span> <span class="s">&#39;_d&#39;</span>
+                <span class="n">pythonlib</span> <span class="o">=</span> <span class="p">(</span><span class="n">template</span> <span class="o">%</span>
+                       <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">hexversion</span> <span class="o">&gt;&gt;</span> <span class="mi">24</span><span class="p">,</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">hexversion</span> <span class="o">&gt;&gt;</span> <span class="mi">16</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xff</span><span class="p">))</span>
+                <span class="c"># don&#39;t extend ext.libraries, it may be shared with other</span>
+                <span class="c"># extensions, it is a reference to the original list</span>
+                <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">libraries</span> <span class="o">+</span> <span class="p">[</span><span class="n">pythonlib</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">libraries</span>
+        <span class="k">elif</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;cygwin&quot;</span><span class="p">:</span>
+            <span class="n">template</span> <span class="o">=</span> <span class="s">&quot;python</span><span class="si">%d</span><span class="s">.</span><span class="si">%d</span><span class="s">&quot;</span>
+            <span class="n">pythonlib</span> <span class="o">=</span> <span class="p">(</span><span class="n">template</span> <span class="o">%</span>
+                   <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">hexversion</span> <span class="o">&gt;&gt;</span> <span class="mi">24</span><span class="p">,</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">hexversion</span> <span class="o">&gt;&gt;</span> <span class="mi">16</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xff</span><span class="p">))</span>
+            <span class="c"># don&#39;t extend ext.libraries, it may be shared with other</span>
+            <span class="c"># extensions, it is a reference to the original list</span>
+            <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">libraries</span> <span class="o">+</span> <span class="p">[</span><span class="n">pythonlib</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;atheos&quot;</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">sysconfig</span>
+
+            <span class="n">template</span> <span class="o">=</span> <span class="s">&quot;python</span><span class="si">%d</span><span class="s">.</span><span class="si">%d</span><span class="s">&quot;</span>
+            <span class="n">pythonlib</span> <span class="o">=</span> <span class="p">(</span><span class="n">template</span> <span class="o">%</span>
+                   <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">hexversion</span> <span class="o">&gt;&gt;</span> <span class="mi">24</span><span class="p">,</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">hexversion</span> <span class="o">&gt;&gt;</span> <span class="mi">16</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xff</span><span class="p">))</span>
+            <span class="c"># Get SHLIBS from Makefile</span>
+            <span class="n">extra</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">lib</span> <span class="ow">in</span> <span class="n">sysconfig</span><span class="o">.</span><span class="n">get_config_var</span><span class="p">(</span><span class="s">&#39;SHLIBS&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">lib</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;-l&#39;</span><span class="p">):</span>
+                    <span class="n">extra</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lib</span><span class="p">[</span><span class="mi">2</span><span class="p">:])</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">extra</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lib</span><span class="p">)</span>
+            <span class="c"># don&#39;t extend ext.libraries, it may be shared with other</span>
+            <span class="c"># extensions, it is a reference to the original list</span>
+            <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">libraries</span> <span class="o">+</span> <span class="p">[</span><span class="n">pythonlib</span><span class="p">,</span> <span class="s">&quot;m&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="n">extra</span>
+        <span class="k">elif</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span><span class="p">:</span>
+            <span class="c"># Don&#39;t use the default code below</span>
+            <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">libraries</span>
+        <span class="k">elif</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;aix&#39;</span><span class="p">:</span>
+            <span class="c"># Don&#39;t use the default code below</span>
+            <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">libraries</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">sysconfig</span>
+            <span class="k">if</span> <span class="n">sysconfig</span><span class="o">.</span><span class="n">get_config_var</span><span class="p">(</span><span class="s">&#39;Py_ENABLE_SHARED&#39;</span><span class="p">):</span>
+                <span class="n">pythonlib</span> <span class="o">=</span> <span class="s">&#39;python{}.{}{}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                    <span class="n">sys</span><span class="o">.</span><span class="n">hexversion</span> <span class="o">&gt;&gt;</span> <span class="mi">24</span><span class="p">,</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">hexversion</span> <span class="o">&gt;&gt;</span> <span class="mi">16</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0xff</span><span class="p">,</span>
+                    <span class="n">sys</span><span class="o">.</span><span class="n">abiflags</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">libraries</span> <span class="o">+</span> <span class="p">[</span><span class="n">pythonlib</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">ext</span><span class="o">.</span><span class="n">libraries</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

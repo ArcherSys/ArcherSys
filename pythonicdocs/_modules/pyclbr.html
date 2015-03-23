@@ -1,0 +1,443 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>pyclbr &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for pyclbr</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Parse a Python module and describe its classes and methods.</span>
+
+<span class="sd">Parse enough of a Python file to recognize imports and class and</span>
+<span class="sd">method definitions, and to find out the superclasses of a class.</span>
+
+<span class="sd">The interface consists of a single function:</span>
+<span class="sd">        readmodule_ex(module [, path])</span>
+<span class="sd">where module is the name of a Python module, and path is an optional</span>
+<span class="sd">list of directories where the module is to be searched.  If present,</span>
+<span class="sd">path is prepended to the system search path sys.path.  The return</span>
+<span class="sd">value is a dictionary.  The keys of the dictionary are the names of</span>
+<span class="sd">the classes defined in the module (including classes that are defined</span>
+<span class="sd">via the from XXX import YYY construct).  The values are class</span>
+<span class="sd">instances of the class Class defined here.  One special key/value pair</span>
+<span class="sd">is present for packages: the key &#39;__path__&#39; has a list as its value</span>
+<span class="sd">which contains the package search path.</span>
+
+<span class="sd">A class is described by the class Class in this module.  Instances</span>
+<span class="sd">of this class have the following instance variables:</span>
+<span class="sd">        module -- the module name</span>
+<span class="sd">        name -- the name of the class</span>
+<span class="sd">        super -- a list of super classes (Class instances)</span>
+<span class="sd">        methods -- a dictionary of methods</span>
+<span class="sd">        file -- the file in which the class was defined</span>
+<span class="sd">        lineno -- the line in the file on which the class statement occurred</span>
+<span class="sd">The dictionary of methods uses the method names as keys and the line</span>
+<span class="sd">numbers on which the method was defined as values.</span>
+<span class="sd">If the name of a super class is not recognized, the corresponding</span>
+<span class="sd">entry in the list of super classes is not a class instance but a</span>
+<span class="sd">string giving the name of the super class.  Since import statements</span>
+<span class="sd">are recognized and imported modules are scanned as well, this</span>
+<span class="sd">shouldn&#39;t happen often.</span>
+
+<span class="sd">A function is described by the class Function in this module.</span>
+<span class="sd">Instances of this class have the following instance variables:</span>
+<span class="sd">        module -- the module name</span>
+<span class="sd">        name -- the name of the class</span>
+<span class="sd">        file -- the file in which the class was defined</span>
+<span class="sd">        lineno -- the line in the file on which the class statement occurred</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">importlib.util</span>
+<span class="kn">import</span> <span class="nn">tokenize</span>
+<span class="kn">from</span> <span class="nn">token</span> <span class="kn">import</span> <span class="n">NAME</span><span class="p">,</span> <span class="n">DEDENT</span><span class="p">,</span> <span class="n">OP</span>
+<span class="kn">from</span> <span class="nn">operator</span> <span class="kn">import</span> <span class="n">itemgetter</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;readmodule&quot;</span><span class="p">,</span> <span class="s">&quot;readmodule_ex&quot;</span><span class="p">,</span> <span class="s">&quot;Class&quot;</span><span class="p">,</span> <span class="s">&quot;Function&quot;</span><span class="p">]</span>
+
+<span class="n">_modules</span> <span class="o">=</span> <span class="p">{}</span>                           <span class="c"># cache of modules we&#39;ve seen</span>
+
+<span class="c"># each Python class is represented by an instance of this class</span>
+<div class="viewcode-block" id="Class"><a class="viewcode-back" href="../pyclbr.html#pyclbr.Class">[docs]</a><span class="k">class</span> <span class="nc">Class</span><span class="p">:</span>
+    <span class="sd">&#39;&#39;&#39;Class to represent a Python class.&#39;&#39;&#39;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="nb">super</span><span class="p">,</span> <span class="nb">file</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">module</span> <span class="o">=</span> <span class="n">module</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
+        <span class="k">if</span> <span class="nb">super</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">super</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">super</span> <span class="o">=</span> <span class="nb">super</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">methods</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="o">=</span> <span class="nb">file</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lineno</span> <span class="o">=</span> <span class="n">lineno</span>
+
+    <span class="k">def</span> <span class="nf">_addmethod</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">methods</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">lineno</span>
+</div>
+<div class="viewcode-block" id="Function"><a class="viewcode-back" href="../pyclbr.html#pyclbr.Function">[docs]</a><span class="k">class</span> <span class="nc">Function</span><span class="p">:</span>
+    <span class="sd">&#39;&#39;&#39;Class to represent a top-level Python function&#39;&#39;&#39;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="nb">file</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">module</span> <span class="o">=</span> <span class="n">module</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="o">=</span> <span class="nb">file</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lineno</span> <span class="o">=</span> <span class="n">lineno</span>
+</div>
+<div class="viewcode-block" id="readmodule"><a class="viewcode-back" href="../pyclbr.html#pyclbr.readmodule">[docs]</a><span class="k">def</span> <span class="nf">readmodule</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Backwards compatible interface.</span>
+
+<span class="sd">    Call readmodule_ex() and then only keep Class objects from the</span>
+<span class="sd">    resulting dictionary.&#39;&#39;&#39;</span>
+
+    <span class="n">res</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">_readmodule</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">path</span> <span class="ow">or</span> <span class="p">[])</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">Class</span><span class="p">):</span>
+            <span class="n">res</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+    <span class="k">return</span> <span class="n">res</span>
+</div>
+<div class="viewcode-block" id="readmodule_ex"><a class="viewcode-back" href="../pyclbr.html#pyclbr.readmodule_ex">[docs]</a><span class="k">def</span> <span class="nf">readmodule_ex</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Read a module file and return a dictionary of classes.</span>
+
+<span class="sd">    Search for MODULE in PATH and sys.path, read and parse the</span>
+<span class="sd">    module and return a dictionary with one entry for each class</span>
+<span class="sd">    found in the module.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">return</span> <span class="n">_readmodule</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">path</span> <span class="ow">or</span> <span class="p">[])</span>
+</div>
+<span class="k">def</span> <span class="nf">_readmodule</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">inpackage</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Do the hard work for readmodule[_ex].</span>
+
+<span class="sd">    If INPACKAGE is given, it must be the dotted name of the package in</span>
+<span class="sd">    which we are searching for a submodule, and then PATH must be the</span>
+<span class="sd">    package search path; otherwise, we are searching for a top-level</span>
+<span class="sd">    module, and PATH is combined with sys.path.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="c"># Compute the full module name (prepending inpackage if set)</span>
+    <span class="k">if</span> <span class="n">inpackage</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">fullmodule</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">inpackage</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">fullmodule</span> <span class="o">=</span> <span class="n">module</span>
+
+    <span class="c"># Check in the cache</span>
+    <span class="k">if</span> <span class="n">fullmodule</span> <span class="ow">in</span> <span class="n">_modules</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_modules</span><span class="p">[</span><span class="n">fullmodule</span><span class="p">]</span>
+
+    <span class="c"># Initialize the dict for this module&#39;s contents</span>
+    <span class="nb">dict</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c"># Check if it is a built-in module; we don&#39;t do much for these</span>
+    <span class="k">if</span> <span class="n">module</span> <span class="ow">in</span> <span class="n">sys</span><span class="o">.</span><span class="n">builtin_module_names</span> <span class="ow">and</span> <span class="n">inpackage</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">_modules</span><span class="p">[</span><span class="n">module</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span>
+        <span class="k">return</span> <span class="nb">dict</span>
+
+    <span class="c"># Check for a dotted module name</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">rfind</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">package</span> <span class="o">=</span> <span class="n">module</span><span class="p">[:</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">submodule</span> <span class="o">=</span> <span class="n">module</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">:]</span>
+        <span class="n">parent</span> <span class="o">=</span> <span class="n">_readmodule</span><span class="p">(</span><span class="n">package</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">inpackage</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">inpackage</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">package</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">inpackage</span><span class="p">,</span> <span class="n">package</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="s">&#39;__path__&#39;</span> <span class="ow">in</span> <span class="n">parent</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ImportError</span><span class="p">(</span><span class="s">&#39;No package named {}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">package</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">_readmodule</span><span class="p">(</span><span class="n">submodule</span><span class="p">,</span> <span class="n">parent</span><span class="p">[</span><span class="s">&#39;__path__&#39;</span><span class="p">],</span> <span class="n">package</span><span class="p">)</span>
+
+    <span class="c"># Search the path for the module</span>
+    <span class="n">f</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">if</span> <span class="n">inpackage</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">search_path</span> <span class="o">=</span> <span class="n">path</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">search_path</span> <span class="o">=</span> <span class="n">path</span> <span class="o">+</span> <span class="n">sys</span><span class="o">.</span><span class="n">path</span>
+    <span class="c"># XXX This will change once issue19944 lands.</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">_find_spec_from_path</span><span class="p">(</span><span class="n">fullmodule</span><span class="p">,</span> <span class="n">search_path</span><span class="p">)</span>
+    <span class="n">fname</span> <span class="o">=</span> <span class="n">spec</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">get_filename</span><span class="p">(</span><span class="n">fullmodule</span><span class="p">)</span>
+    <span class="n">_modules</span><span class="p">[</span><span class="n">fullmodule</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">is_package</span><span class="p">(</span><span class="n">fullmodule</span><span class="p">):</span>
+        <span class="nb">dict</span><span class="p">[</span><span class="s">&#39;__path__&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">fname</span><span class="p">)]</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="n">spec</span><span class="o">.</span><span class="n">loader</span><span class="o">.</span><span class="n">get_source</span><span class="p">(</span><span class="n">fullmodule</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">source</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">dict</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">ImportError</span><span class="p">):</span>
+        <span class="c"># not Python source, can&#39;t do anything with this module</span>
+        <span class="k">return</span> <span class="nb">dict</span>
+
+    <span class="n">f</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+
+    <span class="n">stack</span> <span class="o">=</span> <span class="p">[]</span> <span class="c"># stack of (class, indent) pairs</span>
+
+    <span class="n">g</span> <span class="o">=</span> <span class="n">tokenize</span><span class="o">.</span><span class="n">generate_tokens</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">tokentype</span><span class="p">,</span> <span class="n">token</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">_end</span><span class="p">,</span> <span class="n">_line</span> <span class="ow">in</span> <span class="n">g</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">tokentype</span> <span class="o">==</span> <span class="n">DEDENT</span><span class="p">:</span>
+                <span class="n">lineno</span><span class="p">,</span> <span class="n">thisindent</span> <span class="o">=</span> <span class="n">start</span>
+                <span class="c"># close nested classes and defs</span>
+                <span class="k">while</span> <span class="n">stack</span> <span class="ow">and</span> <span class="n">stack</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">thisindent</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="n">stack</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;def&#39;</span><span class="p">:</span>
+                <span class="n">lineno</span><span class="p">,</span> <span class="n">thisindent</span> <span class="o">=</span> <span class="n">start</span>
+                <span class="c"># close previous nested classes and defs</span>
+                <span class="k">while</span> <span class="n">stack</span> <span class="ow">and</span> <span class="n">stack</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">thisindent</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="n">stack</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">tokentype</span><span class="p">,</span> <span class="n">meth_name</span><span class="p">,</span> <span class="n">start</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">tokentype</span> <span class="o">!=</span> <span class="n">NAME</span><span class="p">:</span>
+                    <span class="k">continue</span> <span class="c"># Syntax error</span>
+                <span class="k">if</span> <span class="n">stack</span><span class="p">:</span>
+                    <span class="n">cur_class</span> <span class="o">=</span> <span class="n">stack</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">cur_class</span><span class="p">,</span> <span class="n">Class</span><span class="p">):</span>
+                        <span class="c"># it&#39;s a method</span>
+                        <span class="n">cur_class</span><span class="o">.</span><span class="n">_addmethod</span><span class="p">(</span><span class="n">meth_name</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+                    <span class="c"># else it&#39;s a nested def</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># it&#39;s a function</span>
+                    <span class="nb">dict</span><span class="p">[</span><span class="n">meth_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">Function</span><span class="p">(</span><span class="n">fullmodule</span><span class="p">,</span> <span class="n">meth_name</span><span class="p">,</span>
+                                               <span class="n">fname</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+                <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="bp">None</span><span class="p">,</span> <span class="n">thisindent</span><span class="p">))</span> <span class="c"># Marker for nested fns</span>
+            <span class="k">elif</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;class&#39;</span><span class="p">:</span>
+                <span class="n">lineno</span><span class="p">,</span> <span class="n">thisindent</span> <span class="o">=</span> <span class="n">start</span>
+                <span class="c"># close previous nested classes and defs</span>
+                <span class="k">while</span> <span class="n">stack</span> <span class="ow">and</span> <span class="n">stack</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">thisindent</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="n">stack</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">tokentype</span><span class="p">,</span> <span class="n">class_name</span><span class="p">,</span> <span class="n">start</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">tokentype</span> <span class="o">!=</span> <span class="n">NAME</span><span class="p">:</span>
+                    <span class="k">continue</span> <span class="c"># Syntax error</span>
+                <span class="c"># parse what follows the class name</span>
+                <span class="n">tokentype</span><span class="p">,</span> <span class="n">token</span><span class="p">,</span> <span class="n">start</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span>
+                <span class="n">inherit</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">if</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;(&#39;</span><span class="p">:</span>
+                    <span class="n">names</span> <span class="o">=</span> <span class="p">[]</span> <span class="c"># List of superclasses</span>
+                    <span class="c"># there&#39;s a list of superclasses</span>
+                    <span class="n">level</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="nb">super</span> <span class="o">=</span> <span class="p">[]</span> <span class="c"># Tokens making up current superclass</span>
+                    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+                        <span class="n">tokentype</span><span class="p">,</span> <span class="n">token</span><span class="p">,</span> <span class="n">start</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">]</span>
+                        <span class="k">if</span> <span class="n">token</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;)&#39;</span><span class="p">,</span> <span class="s">&#39;,&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">level</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                            <span class="n">n</span> <span class="o">=</span> <span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">super</span><span class="p">)</span>
+                            <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">dict</span><span class="p">:</span>
+                                <span class="c"># we know this super class</span>
+                                <span class="n">n</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">[</span><span class="n">n</span><span class="p">]</span>
+                            <span class="k">else</span><span class="p">:</span>
+                                <span class="n">c</span> <span class="o">=</span> <span class="n">n</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+                                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                                    <span class="c"># super class is of the form</span>
+                                    <span class="c"># module.class: look in module for</span>
+                                    <span class="c"># class</span>
+                                    <span class="n">m</span> <span class="o">=</span> <span class="n">c</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+                                    <span class="n">c</span> <span class="o">=</span> <span class="n">c</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                                    <span class="k">if</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">_modules</span><span class="p">:</span>
+                                        <span class="n">d</span> <span class="o">=</span> <span class="n">_modules</span><span class="p">[</span><span class="n">m</span><span class="p">]</span>
+                                        <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">d</span><span class="p">:</span>
+                                            <span class="n">n</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="n">c</span><span class="p">]</span>
+                            <span class="n">names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+                            <span class="nb">super</span> <span class="o">=</span> <span class="p">[]</span>
+                        <span class="k">if</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;(&#39;</span><span class="p">:</span>
+                            <span class="n">level</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="k">elif</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;)&#39;</span><span class="p">:</span>
+                            <span class="n">level</span> <span class="o">-=</span> <span class="mi">1</span>
+                            <span class="k">if</span> <span class="n">level</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                                <span class="k">break</span>
+                        <span class="k">elif</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;,&#39;</span> <span class="ow">and</span> <span class="n">level</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                            <span class="k">pass</span>
+                        <span class="c"># only use NAME and OP (== dot) tokens for type name</span>
+                        <span class="k">elif</span> <span class="n">tokentype</span> <span class="ow">in</span> <span class="p">(</span><span class="n">NAME</span><span class="p">,</span> <span class="n">OP</span><span class="p">)</span> <span class="ow">and</span> <span class="n">level</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                            <span class="nb">super</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+                        <span class="c"># expressions in the base list are not supported</span>
+                    <span class="n">inherit</span> <span class="o">=</span> <span class="n">names</span>
+                <span class="n">cur_class</span> <span class="o">=</span> <span class="n">Class</span><span class="p">(</span><span class="n">fullmodule</span><span class="p">,</span> <span class="n">class_name</span><span class="p">,</span> <span class="n">inherit</span><span class="p">,</span>
+                                  <span class="n">fname</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">stack</span><span class="p">:</span>
+                    <span class="nb">dict</span><span class="p">[</span><span class="n">class_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">cur_class</span>
+                <span class="n">stack</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">cur_class</span><span class="p">,</span> <span class="n">thisindent</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;import&#39;</span> <span class="ow">and</span> <span class="n">start</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">modules</span> <span class="o">=</span> <span class="n">_getnamelist</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">mod</span><span class="p">,</span> <span class="n">_mod2</span> <span class="ow">in</span> <span class="n">modules</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="c"># Recursively read the imported module</span>
+                        <span class="k">if</span> <span class="n">inpackage</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                            <span class="n">_readmodule</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="k">try</span><span class="p">:</span>
+                                <span class="n">_readmodule</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">inpackage</span><span class="p">)</span>
+                            <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+                                <span class="n">_readmodule</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="p">[])</span>
+                    <span class="k">except</span><span class="p">:</span>
+                        <span class="c"># If we can&#39;t find or parse the imported module,</span>
+                        <span class="c"># too bad -- don&#39;t die here.</span>
+                        <span class="k">pass</span>
+            <span class="k">elif</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;from&#39;</span> <span class="ow">and</span> <span class="n">start</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">mod</span><span class="p">,</span> <span class="n">token</span> <span class="o">=</span> <span class="n">_getname</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">mod</span> <span class="ow">or</span> <span class="n">token</span> <span class="o">!=</span> <span class="s">&quot;import&quot;</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="n">names</span> <span class="o">=</span> <span class="n">_getnamelist</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="c"># Recursively read the imported module</span>
+                    <span class="n">d</span> <span class="o">=</span> <span class="n">_readmodule</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">inpackage</span><span class="p">)</span>
+                <span class="k">except</span><span class="p">:</span>
+                    <span class="c"># If we can&#39;t find or parse the imported module,</span>
+                    <span class="c"># too bad -- don&#39;t die here.</span>
+                    <span class="k">continue</span>
+                <span class="c"># add any classes that were defined in the imported module</span>
+                <span class="c"># to our name space if they were mentioned in the list</span>
+                <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">n2</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">d</span><span class="p">:</span>
+                        <span class="nb">dict</span><span class="p">[</span><span class="n">n2</span> <span class="ow">or</span> <span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="n">n</span><span class="p">]</span>
+                    <span class="k">elif</span> <span class="n">n</span> <span class="o">==</span> <span class="s">&#39;*&#39;</span><span class="p">:</span>
+                        <span class="c"># don&#39;t add names that start with _</span>
+                        <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">d</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">n</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;_&#39;</span><span class="p">:</span>
+                                <span class="nb">dict</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="n">n</span><span class="p">]</span>
+    <span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+        <span class="k">pass</span>
+
+    <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="k">return</span> <span class="nb">dict</span>
+
+<span class="k">def</span> <span class="nf">_getnamelist</span><span class="p">(</span><span class="n">g</span><span class="p">):</span>
+    <span class="c"># Helper to get a comma-separated list of dotted names plus &#39;as&#39;</span>
+    <span class="c"># clauses.  Return a list of pairs (name, name2) where name2 is</span>
+    <span class="c"># the &#39;as&#39; name, or None if there is no &#39;as&#39; clause.</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="n">name</span><span class="p">,</span> <span class="n">token</span> <span class="o">=</span> <span class="n">_getname</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">name</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="k">if</span> <span class="n">token</span> <span class="o">==</span> <span class="s">&#39;as&#39;</span><span class="p">:</span>
+            <span class="n">name2</span><span class="p">,</span> <span class="n">token</span> <span class="o">=</span> <span class="n">_getname</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">name2</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">names</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">name2</span><span class="p">))</span>
+        <span class="k">while</span> <span class="n">token</span> <span class="o">!=</span> <span class="s">&quot;,&quot;</span> <span class="ow">and</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">token</span><span class="p">:</span>
+            <span class="n">token</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">token</span> <span class="o">!=</span> <span class="s">&quot;,&quot;</span><span class="p">:</span>
+            <span class="k">break</span>
+    <span class="k">return</span> <span class="n">names</span>
+
+<span class="k">def</span> <span class="nf">_getname</span><span class="p">(</span><span class="n">g</span><span class="p">):</span>
+    <span class="c"># Helper to get a dotted name, return a pair (name, token) where</span>
+    <span class="c"># name is the dotted name, or None if there was no dotted name,</span>
+    <span class="c"># and token is the next input token.</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">tokentype</span><span class="p">,</span> <span class="n">token</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)[</span><span class="mi">0</span><span class="p">:</span><span class="mi">2</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">tokentype</span> <span class="o">!=</span> <span class="n">NAME</span> <span class="ow">and</span> <span class="n">token</span> <span class="o">!=</span> <span class="s">&#39;*&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">token</span><span class="p">)</span>
+    <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="n">tokentype</span><span class="p">,</span> <span class="n">token</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)[</span><span class="mi">0</span><span class="p">:</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">token</span> <span class="o">!=</span> <span class="s">&#39;.&#39;</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">tokentype</span><span class="p">,</span> <span class="n">token</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)[</span><span class="mi">0</span><span class="p">:</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">tokentype</span> <span class="o">!=</span> <span class="n">NAME</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span><span class="s">&quot;.&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">),</span> <span class="n">token</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_main</span><span class="p">():</span>
+    <span class="c"># Main program for testing.</span>
+    <span class="kn">import</span> <span class="nn">os</span>
+    <span class="n">mod</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">mod</span><span class="p">):</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="p">[</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">mod</span><span class="p">)]</span>
+        <span class="n">mod</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">mod</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">mod</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">):</span>
+            <span class="n">mod</span> <span class="o">=</span> <span class="n">mod</span><span class="p">[:</span><span class="o">-</span><span class="mi">3</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="nb">dict</span> <span class="o">=</span> <span class="n">readmodule_ex</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+    <span class="n">objs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">dict</span><span class="o">.</span><span class="n">values</span><span class="p">())</span>
+    <span class="n">objs</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">a</span><span class="p">:</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="s">&#39;lineno&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">objs</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">Class</span><span class="p">):</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;class&quot;</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">super</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">lineno</span><span class="p">)</span>
+            <span class="n">methods</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">methods</span><span class="o">.</span><span class="n">items</span><span class="p">(),</span> <span class="n">key</span><span class="o">=</span><span class="n">itemgetter</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">lineno</span> <span class="ow">in</span> <span class="n">methods</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">name</span> <span class="o">!=</span> <span class="s">&quot;__path__&quot;</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="s">&quot;  def&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">Function</span><span class="p">):</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;def&quot;</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">obj</span><span class="o">.</span><span class="n">lineno</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

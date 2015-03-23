@@ -1,0 +1,299 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>idlelib.ScriptBinding &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for idlelib.ScriptBinding</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Extension to execute code outside the Python shell window.</span>
+
+<span class="sd">This adds the following commands:</span>
+
+<span class="sd">- Check module does a full syntax check of the current module.</span>
+<span class="sd">  It also runs the tabnanny to catch any inconsistent tabs.</span>
+
+<span class="sd">- Run module executes the module&#39;s code in the __main__ namespace.  The window</span>
+<span class="sd">  must have been saved previously. The module is added to sys.modules, and is</span>
+<span class="sd">  also added to the __main__ namespace.</span>
+
+<span class="sd">XXX GvR Redesign this interface (yet again) as follows:</span>
+
+<span class="sd">- Present a dialog box for ``Run Module&#39;&#39;</span>
+
+<span class="sd">- Allow specify command line arguments in the dialog box</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">string</span>
+<span class="kn">import</span> <span class="nn">tabnanny</span>
+<span class="kn">import</span> <span class="nn">tokenize</span>
+<span class="kn">import</span> <span class="nn">tkinter.messagebox</span> <span class="kn">as</span> <span class="nn">tkMessageBox</span>
+<span class="kn">from</span> <span class="nn">idlelib.EditorWindow</span> <span class="kn">import</span> <span class="n">EditorWindow</span>
+<span class="kn">from</span> <span class="nn">idlelib</span> <span class="kn">import</span> <span class="n">PyShell</span><span class="p">,</span> <span class="n">IOBinding</span>
+
+<span class="kn">from</span> <span class="nn">idlelib.configHandler</span> <span class="kn">import</span> <span class="n">idleConf</span>
+<span class="kn">from</span> <span class="nn">idlelib</span> <span class="kn">import</span> <span class="n">macosxSupport</span>
+
+<span class="n">indent_message</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;Error: Inconsistent indentation detected!</span>
+
+<span class="s">1) Your indentation is outright incorrect (easy to fix), OR</span>
+
+<span class="s">2) Your indentation mixes tabs and spaces.</span>
+
+<span class="s">To fix case 2, change all tabs to spaces by using Edit-&gt;Select All followed </span><span class="se">\</span>
+<span class="s">by Format-&gt;Untabify Region and specify the number of columns used by each tab.</span>
+<span class="s">&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ScriptBinding"><a class="viewcode-back" href="../../idlelib.html#idlelib.ScriptBinding.ScriptBinding">[docs]</a><span class="k">class</span> <span class="nc">ScriptBinding</span><span class="p">:</span>
+
+    <span class="n">menudefs</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s">&#39;run&#39;</span><span class="p">,</span> <span class="p">[</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="p">(</span><span class="s">&#39;Check Module&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;&lt;check-module&gt;&gt;&#39;</span><span class="p">),</span>
+                 <span class="p">(</span><span class="s">&#39;Run Module&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;&lt;run-module&gt;&gt;&#39;</span><span class="p">),</span> <span class="p">]),</span> <span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">editwin</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span> <span class="o">=</span> <span class="n">editwin</span>
+        <span class="c"># Provide instance variables referenced by Debugger</span>
+        <span class="c"># XXX This should be done differently</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">flist</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">flist</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">root</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">root</span>
+
+        <span class="k">if</span> <span class="n">macosxSupport</span><span class="o">.</span><span class="n">isCocoaTk</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">text_frame</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="s">&#39;&lt;&lt;run-module-event-2&gt;&gt;&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_module_event</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ScriptBinding.check_module_event"><a class="viewcode-back" href="../../idlelib.html#idlelib.ScriptBinding.ScriptBinding.check_module_event">[docs]</a>    <span class="k">def</span> <span class="nf">check_module_event</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getfilename</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;break&#39;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">checksyntax</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+            <span class="k">return</span> <span class="s">&#39;break&#39;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">tabnanny</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+            <span class="k">return</span> <span class="s">&#39;break&#39;</span>
+</div>
+<div class="viewcode-block" id="ScriptBinding.tabnanny"><a class="viewcode-back" href="../../idlelib.html#idlelib.ScriptBinding.ScriptBinding.tabnanny">[docs]</a>    <span class="k">def</span> <span class="nf">tabnanny</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="c"># XXX: tabnanny should work on binary files as well</span>
+        <span class="k">with</span> <span class="n">tokenize</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">tabnanny</span><span class="o">.</span><span class="n">process_tokens</span><span class="p">(</span><span class="n">tokenize</span><span class="o">.</span><span class="n">generate_tokens</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">))</span>
+            <span class="k">except</span> <span class="n">tokenize</span><span class="o">.</span><span class="n">TokenError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="n">msgtxt</span><span class="p">,</span> <span class="p">(</span><span class="n">lineno</span><span class="p">,</span> <span class="n">start</span><span class="p">)</span> <span class="o">=</span> <span class="n">msg</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">gotoline</span><span class="p">(</span><span class="n">lineno</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">errorbox</span><span class="p">(</span><span class="s">&quot;Tabnanny Tokenizing Error&quot;</span><span class="p">,</span>
+                              <span class="s">&quot;Token Error: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">msgtxt</span><span class="p">)</span>
+                <span class="k">return</span> <span class="bp">False</span>
+            <span class="k">except</span> <span class="n">tabnanny</span><span class="o">.</span><span class="n">NannyNag</span> <span class="k">as</span> <span class="n">nag</span><span class="p">:</span>
+                <span class="c"># The error messages from tabnanny are too confusing...</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">gotoline</span><span class="p">(</span><span class="n">nag</span><span class="o">.</span><span class="n">get_lineno</span><span class="p">())</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">errorbox</span><span class="p">(</span><span class="s">&quot;Tab/space error&quot;</span><span class="p">,</span> <span class="n">indent_message</span><span class="p">)</span>
+                <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="ScriptBinding.checksyntax"><a class="viewcode-back" href="../../idlelib.html#idlelib.ScriptBinding.ScriptBinding.checksyntax">[docs]</a>    <span class="k">def</span> <span class="nf">checksyntax</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shell</span> <span class="o">=</span> <span class="n">shell</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">flist</span><span class="o">.</span><span class="n">open_shell</span><span class="p">()</span>
+        <span class="n">saved_stream</span> <span class="o">=</span> <span class="n">shell</span><span class="o">.</span><span class="n">get_warning_stream</span><span class="p">()</span>
+        <span class="n">shell</span><span class="o">.</span><span class="n">set_warning_stream</span><span class="p">(</span><span class="n">shell</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">source</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span> <span class="ow">in</span> <span class="n">source</span><span class="p">:</span>
+            <span class="n">source</span> <span class="o">=</span> <span class="n">source</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+            <span class="n">source</span> <span class="o">=</span> <span class="n">source</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">source</span> <span class="ow">and</span> <span class="n">source</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="nb">ord</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">):</span>
+            <span class="n">source</span> <span class="o">=</span> <span class="n">source</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span>
+        <span class="n">editwin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span>
+        <span class="n">text</span> <span class="o">=</span> <span class="n">editwin</span><span class="o">.</span><span class="n">text</span>
+        <span class="n">text</span><span class="o">.</span><span class="n">tag_remove</span><span class="p">(</span><span class="s">&quot;ERROR&quot;</span><span class="p">,</span> <span class="s">&quot;1.0&quot;</span><span class="p">,</span> <span class="s">&quot;end&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c"># If successful, return the compiled code</span>
+            <span class="k">return</span> <span class="nb">compile</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="s">&quot;exec&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="ne">OverflowError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">value</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s">&#39;msg&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">value</span> <span class="ow">or</span> <span class="s">&quot;&lt;no detail available&gt;&quot;</span>
+            <span class="n">lineno</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s">&#39;lineno&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">1</span>
+            <span class="n">offset</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s">&#39;offset&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span>
+            <span class="k">if</span> <span class="n">offset</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">lineno</span> <span class="o">+=</span> <span class="mi">1</span>  <span class="c">#mark end of offending line</span>
+            <span class="n">pos</span> <span class="o">=</span> <span class="s">&quot;0.0 + </span><span class="si">%d</span><span class="s"> lines + </span><span class="si">%d</span><span class="s"> chars&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">lineno</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">offset</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">editwin</span><span class="o">.</span><span class="n">colorize_syntax_error</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">pos</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">errorbox</span><span class="p">(</span><span class="s">&quot;SyntaxError&quot;</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%-20s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">msg</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">shell</span><span class="o">.</span><span class="n">set_warning_stream</span><span class="p">(</span><span class="n">saved_stream</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ScriptBinding.run_module_event"><a class="viewcode-back" href="../../idlelib.html#idlelib.ScriptBinding.ScriptBinding.run_module_event">[docs]</a>    <span class="k">def</span> <span class="nf">run_module_event</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">macosxSupport</span><span class="o">.</span><span class="n">isCocoaTk</span><span class="p">():</span>
+            <span class="c"># Tk-Cocoa in MacOSX is broken until at least</span>
+            <span class="c"># Tk 8.5.9, and without this rather</span>
+            <span class="c"># crude workaround IDLE would hang when a user</span>
+            <span class="c"># tries to run a module using the keyboard shortcut</span>
+            <span class="c"># (the menu item works fine).</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">text_frame</span><span class="o">.</span><span class="n">after</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span>
+                <span class="k">lambda</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">text_frame</span><span class="o">.</span><span class="n">event_generate</span><span class="p">(</span><span class="s">&#39;&lt;&lt;run-module-event-2&gt;&gt;&#39;</span><span class="p">))</span>
+            <span class="k">return</span> <span class="s">&#39;break&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_run_module_event</span><span class="p">(</span><span class="n">event</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_run_module_event</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Run the module after setting up the environment.</span>
+
+<span class="sd">        First check the syntax.  If OK, make sure the shell is active and</span>
+<span class="sd">        then transfer the arguments, set the run environment&#39;s working</span>
+<span class="sd">        directory to the directory of the module being executed and also</span>
+<span class="sd">        add that directory to its sys.path if not already included.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">filename</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getfilename</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">filename</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;break&#39;</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">checksyntax</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">code</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;break&#39;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">tabnanny</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+            <span class="k">return</span> <span class="s">&#39;break&#39;</span>
+        <span class="n">interp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">interp</span>
+        <span class="k">if</span> <span class="n">PyShell</span><span class="o">.</span><span class="n">use_subprocess</span><span class="p">:</span>
+            <span class="n">interp</span><span class="o">.</span><span class="n">restart_subprocess</span><span class="p">(</span><span class="n">with_cwd</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="n">dirname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="c"># XXX Too often this discards arguments the user just set...</span>
+        <span class="n">interp</span><span class="o">.</span><span class="n">runcommand</span><span class="p">(</span><span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            __file__ = {filename!r}</span>
+<span class="s">            import sys as _sys</span>
+<span class="s">            from os.path import basename as _basename</span>
+<span class="s">            if (not _sys.argv or</span>
+<span class="s">                _basename(_sys.argv[0]) != _basename(__file__)):</span>
+<span class="s">                _sys.argv = [__file__]</span>
+<span class="s">            import os as _os</span>
+<span class="s">            _os.chdir({dirname!r})</span>
+<span class="s">            del _sys, _basename, _os</span>
+<span class="s">            </span><span class="se">\n</span><span class="s">&quot;&quot;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="n">filename</span><span class="p">,</span> <span class="n">dirname</span><span class="o">=</span><span class="n">dirname</span><span class="p">))</span>
+        <span class="n">interp</span><span class="o">.</span><span class="n">prepend_syspath</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="c"># XXX KBK 03Jul04 When run w/o subprocess, runtime warnings still</span>
+        <span class="c">#         go to __stderr__.  With subprocess, they go to the shell.</span>
+        <span class="c">#         Need to change streams in PyShell.ModifiedInterpreter.</span>
+        <span class="n">interp</span><span class="o">.</span><span class="n">runcode</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s">&#39;break&#39;</span>
+
+<div class="viewcode-block" id="ScriptBinding.getfilename"><a class="viewcode-back" href="../../idlelib.html#idlelib.ScriptBinding.ScriptBinding.getfilename">[docs]</a>    <span class="k">def</span> <span class="nf">getfilename</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get source filename.  If not saved, offer to save (or create) file</span>
+
+<span class="sd">        The debugger requires a source file.  Make sure there is one, and that</span>
+<span class="sd">        the current version of the source buffer has been saved.  If the user</span>
+<span class="sd">        declines to save or cancels the Save As dialog, return None.</span>
+
+<span class="sd">        If the user has configured IDLE for Autosave, the file will be</span>
+<span class="sd">        silently saved if it already exists and is dirty.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">filename</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">get_saved</span><span class="p">():</span>
+            <span class="n">autosave</span> <span class="o">=</span> <span class="n">idleConf</span><span class="o">.</span><span class="n">GetOption</span><span class="p">(</span><span class="s">&#39;main&#39;</span><span class="p">,</span> <span class="s">&#39;General&#39;</span><span class="p">,</span>
+                                          <span class="s">&#39;autosave&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;bool&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">autosave</span> <span class="ow">and</span> <span class="n">filename</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">confirm</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ask_save_dialog</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">focus_set</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">confirm</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+                    <span class="n">filename</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">io</span><span class="o">.</span><span class="n">filename</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">filename</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">return</span> <span class="n">filename</span>
+</div>
+<div class="viewcode-block" id="ScriptBinding.ask_save_dialog"><a class="viewcode-back" href="../../idlelib.html#idlelib.ScriptBinding.ScriptBinding.ask_save_dialog">[docs]</a>    <span class="k">def</span> <span class="nf">ask_save_dialog</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;Source Must Be Saved</span><span class="se">\n</span><span class="s">&quot;</span> <span class="o">+</span> <span class="mi">5</span><span class="o">*</span><span class="s">&#39; &#39;</span> <span class="o">+</span> <span class="s">&quot;OK to Save?&quot;</span>
+        <span class="n">confirm</span> <span class="o">=</span> <span class="n">tkMessageBox</span><span class="o">.</span><span class="n">askokcancel</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s">&quot;Save Before Run or Check&quot;</span><span class="p">,</span>
+                                           <span class="n">message</span><span class="o">=</span><span class="n">msg</span><span class="p">,</span>
+                                           <span class="n">default</span><span class="o">=</span><span class="n">tkMessageBox</span><span class="o">.</span><span class="n">OK</span><span class="p">,</span>
+                                           <span class="n">master</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">confirm</span>
+</div>
+<div class="viewcode-block" id="ScriptBinding.errorbox"><a class="viewcode-back" href="../../idlelib.html#idlelib.ScriptBinding.ScriptBinding.errorbox">[docs]</a>    <span class="k">def</span> <span class="nf">errorbox</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">title</span><span class="p">,</span> <span class="n">message</span><span class="p">):</span>
+        <span class="c"># XXX This should really be a function of EditorWindow...</span>
+        <span class="n">tkMessageBox</span><span class="o">.</span><span class="n">showerror</span><span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">master</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">text</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">editwin</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">focus_set</span><span class="p">()</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

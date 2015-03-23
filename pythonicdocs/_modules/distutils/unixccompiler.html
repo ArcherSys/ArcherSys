@@ -1,0 +1,390 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>distutils.unixccompiler &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for distutils.unixccompiler</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.unixccompiler</span>
+
+<span class="sd">Contains the UnixCCompiler class, a subclass of CCompiler that handles</span>
+<span class="sd">the &quot;typical&quot; Unix-style command-line C compiler:</span>
+<span class="sd">  * macros defined with -Dname[=value]</span>
+<span class="sd">  * macros undefined with -Uname</span>
+<span class="sd">  * include search directories specified with -Idir</span>
+<span class="sd">  * libraries specified with -lllib</span>
+<span class="sd">  * library search directories specified with -Ldir</span>
+<span class="sd">  * compile handled by &#39;cc&#39; (or similar) executable with -c option:</span>
+<span class="sd">    compiles .c to .o</span>
+<span class="sd">  * link static library handled by &#39;ar&#39; command (possibly with &#39;ranlib&#39;)</span>
+<span class="sd">  * link shared library handled by &#39;cc -shared&#39;</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">re</span>
+
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">sysconfig</span>
+<span class="kn">from</span> <span class="nn">distutils.dep_util</span> <span class="kn">import</span> <span class="n">newer</span>
+<span class="kn">from</span> <span class="nn">distutils.ccompiler</span> <span class="kn">import</span> \
+     <span class="n">CCompiler</span><span class="p">,</span> <span class="n">gen_preprocess_options</span><span class="p">,</span> <span class="n">gen_lib_options</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> \
+     <span class="n">DistutilsExecError</span><span class="p">,</span> <span class="n">CompileError</span><span class="p">,</span> <span class="n">LibError</span><span class="p">,</span> <span class="n">LinkError</span>
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">log</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">_osx_support</span>
+
+<span class="c"># XXX Things not currently handled:</span>
+<span class="c">#   * optimization/debug/warning flags; we just use whatever&#39;s in Python&#39;s</span>
+<span class="c">#     Makefile and live with it.  Is this adequate?  If not, we might</span>
+<span class="c">#     have to have a bunch of subclasses GNUCCompiler, SGICCompiler,</span>
+<span class="c">#     SunCCompiler, and I suspect down that road lies madness.</span>
+<span class="c">#   * even if we don&#39;t know a warning flag from an optimization flag,</span>
+<span class="c">#     we need some way for outsiders to feed preprocessor/compiler/linker</span>
+<span class="c">#     flags in to us -- eg. a sysadmin might want to mandate certain flags</span>
+<span class="c">#     via a site config file, or a user might want to set something for</span>
+<span class="c">#     compiling this module distribution only via the setup.py command</span>
+<span class="c">#     line, whatever.  As long as these options come from something on the</span>
+<span class="c">#     current system, they can be as system-dependent as they like, and we</span>
+<span class="c">#     should just happily stuff them into the preprocessor/compiler/linker</span>
+<span class="c">#     options and carry on.</span>
+
+
+<div class="viewcode-block" id="UnixCCompiler"><a class="viewcode-back" href="../../distutils.html#distutils.unixccompiler.UnixCCompiler">[docs]</a><span class="k">class</span> <span class="nc">UnixCCompiler</span><span class="p">(</span><span class="n">CCompiler</span><span class="p">):</span>
+
+    <span class="n">compiler_type</span> <span class="o">=</span> <span class="s">&#39;unix&#39;</span>
+
+    <span class="c"># These are used by CCompiler in two places: the constructor sets</span>
+    <span class="c"># instance attributes &#39;preprocessor&#39;, &#39;compiler&#39;, etc. from them, and</span>
+    <span class="c"># &#39;set_executable()&#39; allows any of these to be set.  The defaults here</span>
+    <span class="c"># are pretty generic; they will probably have to be set by an outsider</span>
+    <span class="c"># (eg. using information discovered by the sysconfig about building</span>
+    <span class="c"># Python extensions).</span>
+    <span class="n">executables</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;preprocessor&#39;</span> <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+                   <span class="s">&#39;compiler&#39;</span>     <span class="p">:</span> <span class="p">[</span><span class="s">&quot;cc&quot;</span><span class="p">],</span>
+                   <span class="s">&#39;compiler_so&#39;</span>  <span class="p">:</span> <span class="p">[</span><span class="s">&quot;cc&quot;</span><span class="p">],</span>
+                   <span class="s">&#39;compiler_cxx&#39;</span> <span class="p">:</span> <span class="p">[</span><span class="s">&quot;cc&quot;</span><span class="p">],</span>
+                   <span class="s">&#39;linker_so&#39;</span>    <span class="p">:</span> <span class="p">[</span><span class="s">&quot;cc&quot;</span><span class="p">,</span> <span class="s">&quot;-shared&quot;</span><span class="p">],</span>
+                   <span class="s">&#39;linker_exe&#39;</span>   <span class="p">:</span> <span class="p">[</span><span class="s">&quot;cc&quot;</span><span class="p">],</span>
+                   <span class="s">&#39;archiver&#39;</span>     <span class="p">:</span> <span class="p">[</span><span class="s">&quot;ar&quot;</span><span class="p">,</span> <span class="s">&quot;-cr&quot;</span><span class="p">],</span>
+                   <span class="s">&#39;ranlib&#39;</span>       <span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+                  <span class="p">}</span>
+
+    <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;darwin&quot;</span><span class="p">:</span>
+        <span class="n">executables</span><span class="p">[</span><span class="s">&#39;ranlib&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;ranlib&quot;</span><span class="p">]</span>
+
+    <span class="c"># Needed for the filename generation methods provided by the base</span>
+    <span class="c"># class, CCompiler.  NB. whoever instantiates/uses a particular</span>
+    <span class="c"># UnixCCompiler instance should set &#39;shared_lib_ext&#39; -- we set a</span>
+    <span class="c"># reasonable common default here, but it&#39;s not necessarily used on all</span>
+    <span class="c"># Unices!</span>
+
+    <span class="n">src_extensions</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;.c&quot;</span><span class="p">,</span><span class="s">&quot;.C&quot;</span><span class="p">,</span><span class="s">&quot;.cc&quot;</span><span class="p">,</span><span class="s">&quot;.cxx&quot;</span><span class="p">,</span><span class="s">&quot;.cpp&quot;</span><span class="p">,</span><span class="s">&quot;.m&quot;</span><span class="p">]</span>
+    <span class="n">obj_extension</span> <span class="o">=</span> <span class="s">&quot;.o&quot;</span>
+    <span class="n">static_lib_extension</span> <span class="o">=</span> <span class="s">&quot;.a&quot;</span>
+    <span class="n">shared_lib_extension</span> <span class="o">=</span> <span class="s">&quot;.so&quot;</span>
+    <span class="n">dylib_lib_extension</span> <span class="o">=</span> <span class="s">&quot;.dylib&quot;</span>
+    <span class="n">static_lib_format</span> <span class="o">=</span> <span class="n">shared_lib_format</span> <span class="o">=</span> <span class="n">dylib_lib_format</span> <span class="o">=</span> <span class="s">&quot;lib</span><span class="si">%s%s</span><span class="s">&quot;</span>
+    <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&quot;cygwin&quot;</span><span class="p">:</span>
+        <span class="n">exe_extension</span> <span class="o">=</span> <span class="s">&quot;.exe&quot;</span>
+
+<div class="viewcode-block" id="UnixCCompiler.preprocess"><a class="viewcode-back" href="../../distutils.html#distutils.unixccompiler.UnixCCompiler.preprocess">[docs]</a>    <span class="k">def</span> <span class="nf">preprocess</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">output_file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">macros</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                   <span class="n">include_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">fixed_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fix_compile_args</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">)</span>
+        <span class="n">ignore</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span> <span class="o">=</span> <span class="n">fixed_args</span>
+        <span class="n">pp_opts</span> <span class="o">=</span> <span class="n">gen_preprocess_options</span><span class="p">(</span><span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">)</span>
+        <span class="n">pp_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">preprocessor</span> <span class="o">+</span> <span class="n">pp_opts</span>
+        <span class="k">if</span> <span class="n">output_file</span><span class="p">:</span>
+            <span class="n">pp_args</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s">&#39;-o&#39;</span><span class="p">,</span> <span class="n">output_file</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">extra_preargs</span><span class="p">:</span>
+            <span class="n">pp_args</span><span class="p">[:</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">extra_preargs</span>
+        <span class="k">if</span> <span class="n">extra_postargs</span><span class="p">:</span>
+            <span class="n">pp_args</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">extra_postargs</span><span class="p">)</span>
+        <span class="n">pp_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+
+        <span class="c"># We need to preprocess: either we&#39;re being forced to, or we&#39;re</span>
+        <span class="c"># generating output to stdout, or there&#39;s a target output file and</span>
+        <span class="c"># the source file is newer than the target (or the target doesn&#39;t</span>
+        <span class="c"># exist).</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="ow">or</span> <span class="n">output_file</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">newer</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">output_file</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">output_file</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">mkpath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">output_file</span><span class="p">))</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="n">pp_args</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">CompileError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_compile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">src</span><span class="p">,</span> <span class="n">ext</span><span class="p">,</span> <span class="n">cc_args</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">,</span> <span class="n">pp_opts</span><span class="p">):</span>
+        <span class="n">compiler_so</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compiler_so</span>
+        <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span><span class="p">:</span>
+            <span class="n">compiler_so</span> <span class="o">=</span> <span class="n">_osx_support</span><span class="o">.</span><span class="n">compiler_fixup</span><span class="p">(</span><span class="n">compiler_so</span><span class="p">,</span>
+                                                    <span class="n">cc_args</span> <span class="o">+</span> <span class="n">extra_postargs</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="n">compiler_so</span> <span class="o">+</span> <span class="n">cc_args</span> <span class="o">+</span> <span class="p">[</span><span class="n">src</span><span class="p">,</span> <span class="s">&#39;-o&#39;</span><span class="p">,</span> <span class="n">obj</span><span class="p">]</span> <span class="o">+</span>
+                       <span class="n">extra_postargs</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">CompileError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+<div class="viewcode-block" id="UnixCCompiler.create_static_lib"><a class="viewcode-back" href="../../distutils.html#distutils.unixccompiler.UnixCCompiler.create_static_lib">[docs]</a>    <span class="k">def</span> <span class="nf">create_static_lib</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span> <span class="n">output_libname</span><span class="p">,</span>
+                          <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fix_object_args</span><span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
+
+        <span class="n">output_filename</span> <span class="o">=</span> \
+            <span class="bp">self</span><span class="o">.</span><span class="n">library_filename</span><span class="p">(</span><span class="n">output_libname</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_need_link</span><span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">mkpath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">output_filename</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">archiver</span> <span class="o">+</span>
+                       <span class="p">[</span><span class="n">output_filename</span><span class="p">]</span> <span class="o">+</span>
+                       <span class="n">objects</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">objects</span><span class="p">)</span>
+
+            <span class="c"># Not many Unices required ranlib anymore -- SunOS 4.x is, I</span>
+            <span class="c"># think the only major Unix that does.  Maybe we need some</span>
+            <span class="c"># platform intelligence here to skip ranlib if it&#39;s not</span>
+            <span class="c"># needed -- or maybe Python&#39;s configure script took care of</span>
+            <span class="c"># it for us, hence the check for leading colon.</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ranlib</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ranlib</span> <span class="o">+</span> <span class="p">[</span><span class="n">output_filename</span><span class="p">])</span>
+                <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">LibError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;skipping </span><span class="si">%s</span><span class="s"> (up-to-date)&quot;</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="UnixCCompiler.link"><a class="viewcode-back" href="../../distutils.html#distutils.unixccompiler.UnixCCompiler.link">[docs]</a>    <span class="k">def</span> <span class="nf">link</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">target_desc</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span>
+             <span class="n">output_filename</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">libraries</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">export_symbols</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">build_temp</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fix_object_args</span><span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
+        <span class="n">fixed_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fix_lib_args</span><span class="p">(</span><span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span>
+                                        <span class="n">runtime_library_dirs</span><span class="p">)</span>
+        <span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span> <span class="o">=</span> <span class="n">fixed_args</span>
+
+        <span class="n">lib_opts</span> <span class="o">=</span> <span class="n">gen_lib_options</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">,</span>
+                                   <span class="n">libraries</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="nb">type</span><span class="p">(</span><span class="bp">None</span><span class="p">))):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;output_dir&#39; must be a string or None&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">output_filename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_need_link</span><span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">):</span>
+            <span class="n">ld_args</span> <span class="o">=</span> <span class="p">(</span><span class="n">objects</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">objects</span> <span class="o">+</span>
+                       <span class="n">lib_opts</span> <span class="o">+</span> <span class="p">[</span><span class="s">&#39;-o&#39;</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+                <span class="n">ld_args</span><span class="p">[:</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;-g&#39;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">extra_preargs</span><span class="p">:</span>
+                <span class="n">ld_args</span><span class="p">[:</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">extra_preargs</span>
+            <span class="k">if</span> <span class="n">extra_postargs</span><span class="p">:</span>
+                <span class="n">ld_args</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">extra_postargs</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">mkpath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">output_filename</span><span class="p">))</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">target_desc</span> <span class="o">==</span> <span class="n">CCompiler</span><span class="o">.</span><span class="n">EXECUTABLE</span><span class="p">:</span>
+                    <span class="n">linker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linker_exe</span><span class="p">[:]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">linker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">linker_so</span><span class="p">[:]</span>
+                <span class="k">if</span> <span class="n">target_lang</span> <span class="o">==</span> <span class="s">&quot;c++&quot;</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">compiler_cxx</span><span class="p">:</span>
+                    <span class="c"># skip over environment variable settings if /usr/bin/env</span>
+                    <span class="c"># is used to set up the linker&#39;s environment.</span>
+                    <span class="c"># This is needed on OSX. Note: this assumes that the</span>
+                    <span class="c"># normal and C++ compiler have the same environment</span>
+                    <span class="c"># settings.</span>
+                    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+                    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">linker</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="o">==</span> <span class="s">&quot;env&quot;</span><span class="p">:</span>
+                        <span class="n">i</span> <span class="o">=</span> <span class="mi">1</span>
+                        <span class="k">while</span> <span class="s">&#39;=&#39;</span> <span class="ow">in</span> <span class="n">linker</span><span class="p">[</span><span class="n">i</span><span class="p">]:</span>
+                            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="n">linker</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compiler_cxx</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+                <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span><span class="p">:</span>
+                    <span class="n">linker</span> <span class="o">=</span> <span class="n">_osx_support</span><span class="o">.</span><span class="n">compiler_fixup</span><span class="p">(</span><span class="n">linker</span><span class="p">,</span> <span class="n">ld_args</span><span class="p">)</span>
+
+                <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="n">linker</span> <span class="o">+</span> <span class="n">ld_args</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">LinkError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;skipping </span><span class="si">%s</span><span class="s"> (up-to-date)&quot;</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">)</span>
+
+    <span class="c"># -- Miscellaneous methods -----------------------------------------</span>
+    <span class="c"># These are all used by the &#39;gen_lib_options() function, in</span>
+    <span class="c"># ccompiler.py.</span>
+</div>
+<div class="viewcode-block" id="UnixCCompiler.library_dir_option"><a class="viewcode-back" href="../../distutils.html#distutils.unixccompiler.UnixCCompiler.library_dir_option">[docs]</a>    <span class="k">def</span> <span class="nf">library_dir_option</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">dir</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;-L&quot;</span> <span class="o">+</span> <span class="nb">dir</span>
+</div>
+    <span class="k">def</span> <span class="nf">_is_gcc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">compiler_name</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;gcc&quot;</span> <span class="ow">in</span> <span class="n">compiler_name</span> <span class="ow">or</span> <span class="s">&quot;g++&quot;</span> <span class="ow">in</span> <span class="n">compiler_name</span>
+
+<div class="viewcode-block" id="UnixCCompiler.runtime_library_dir_option"><a class="viewcode-back" href="../../distutils.html#distutils.unixccompiler.UnixCCompiler.runtime_library_dir_option">[docs]</a>    <span class="k">def</span> <span class="nf">runtime_library_dir_option</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">dir</span><span class="p">):</span>
+        <span class="c"># XXX Hackish, at the very least.  See Python bug #445902:</span>
+        <span class="c"># http://sourceforge.net/tracker/index.php</span>
+        <span class="c">#   ?func=detail&amp;aid=445902&amp;group_id=5470&amp;atid=105470</span>
+        <span class="c"># Linkers on different platforms need different options to</span>
+        <span class="c"># specify that directories need to be added to the list of</span>
+        <span class="c"># directories searched for dependencies when a dynamic library</span>
+        <span class="c"># is sought.  GCC on GNU systems (Linux, FreeBSD, ...) has to</span>
+        <span class="c"># be told to pass the -R option through to the linker, whereas</span>
+        <span class="c"># other compilers and gcc on other systems just know this.</span>
+        <span class="c"># Other compilers may need something slightly different.  At</span>
+        <span class="c"># this time, there&#39;s no way to determine this information from</span>
+        <span class="c"># the configuration data stored in the Python installation, so</span>
+        <span class="c"># we use this hack.</span>
+        <span class="n">compiler</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">sysconfig</span><span class="o">.</span><span class="n">get_config_var</span><span class="p">(</span><span class="s">&quot;CC&quot;</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;darwin&quot;</span><span class="p">:</span>
+            <span class="c"># MacOSX&#39;s linker doesn&#39;t understand the -R flag at all</span>
+            <span class="k">return</span> <span class="s">&quot;-L&quot;</span> <span class="o">+</span> <span class="nb">dir</span>
+        <span class="k">elif</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;hp-ux&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_gcc</span><span class="p">(</span><span class="n">compiler</span><span class="p">):</span>
+                <span class="k">return</span> <span class="p">[</span><span class="s">&quot;-Wl,+s&quot;</span><span class="p">,</span> <span class="s">&quot;-L&quot;</span> <span class="o">+</span> <span class="nb">dir</span><span class="p">]</span>
+            <span class="k">return</span> <span class="p">[</span><span class="s">&quot;+s&quot;</span><span class="p">,</span> <span class="s">&quot;-L&quot;</span> <span class="o">+</span> <span class="nb">dir</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">7</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;irix646&quot;</span> <span class="ow">or</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span><span class="p">[:</span><span class="mi">6</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;osf1V5&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="s">&quot;-rpath&quot;</span><span class="p">,</span> <span class="nb">dir</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_is_gcc</span><span class="p">(</span><span class="n">compiler</span><span class="p">):</span>
+                <span class="c"># gcc on non-GNU systems does not need -Wl, but can</span>
+                <span class="c"># use it anyway.  Since distutils has always passed in</span>
+                <span class="c"># -Wl whenever gcc was used in the past it is probably</span>
+                <span class="c"># safest to keep doing so.</span>
+                <span class="k">if</span> <span class="n">sysconfig</span><span class="o">.</span><span class="n">get_config_var</span><span class="p">(</span><span class="s">&quot;GNULD&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s">&quot;yes&quot;</span><span class="p">:</span>
+                    <span class="c"># GNU ld needs an extra option to get a RUNPATH</span>
+                    <span class="c"># instead of just an RPATH.</span>
+                    <span class="k">return</span> <span class="s">&quot;-Wl,--enable-new-dtags,-R&quot;</span> <span class="o">+</span> <span class="nb">dir</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="s">&quot;-Wl,-R&quot;</span> <span class="o">+</span> <span class="nb">dir</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># No idea how --enable-new-dtags would be passed on to</span>
+                <span class="c"># ld if this system was using GNU ld.  Don&#39;t know if a</span>
+                <span class="c"># system like this even exists.</span>
+                <span class="k">return</span> <span class="s">&quot;-R&quot;</span> <span class="o">+</span> <span class="nb">dir</span>
+</div>
+<div class="viewcode-block" id="UnixCCompiler.library_option"><a class="viewcode-back" href="../../distutils.html#distutils.unixccompiler.UnixCCompiler.library_option">[docs]</a>    <span class="k">def</span> <span class="nf">library_option</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lib</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;-l&quot;</span> <span class="o">+</span> <span class="n">lib</span>
+</div>
+<div class="viewcode-block" id="UnixCCompiler.find_library_file"><a class="viewcode-back" href="../../distutils.html#distutils.unixccompiler.UnixCCompiler.find_library_file">[docs]</a>    <span class="k">def</span> <span class="nf">find_library_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirs</span><span class="p">,</span> <span class="n">lib</span><span class="p">,</span> <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="n">shared_f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">library_filename</span><span class="p">(</span><span class="n">lib</span><span class="p">,</span> <span class="n">lib_type</span><span class="o">=</span><span class="s">&#39;shared&#39;</span><span class="p">)</span>
+        <span class="n">dylib_f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">library_filename</span><span class="p">(</span><span class="n">lib</span><span class="p">,</span> <span class="n">lib_type</span><span class="o">=</span><span class="s">&#39;dylib&#39;</span><span class="p">)</span>
+        <span class="n">static_f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">library_filename</span><span class="p">(</span><span class="n">lib</span><span class="p">,</span> <span class="n">lib_type</span><span class="o">=</span><span class="s">&#39;static&#39;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span><span class="p">:</span>
+            <span class="c"># On OSX users can specify an alternate SDK using</span>
+            <span class="c"># &#39;-isysroot&#39;, calculate the SDK root if it is specified</span>
+            <span class="c"># (and use it further on)</span>
+            <span class="n">cflags</span> <span class="o">=</span> <span class="n">sysconfig</span><span class="o">.</span><span class="n">get_config_var</span><span class="p">(</span><span class="s">&#39;CFLAGS&#39;</span><span class="p">)</span>
+            <span class="n">m</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="s">r&#39;-isysroot\s+(\S+)&#39;</span><span class="p">,</span> <span class="n">cflags</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">m</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">sysroot</span> <span class="o">=</span> <span class="s">&#39;/&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">sysroot</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+
+
+        <span class="k">for</span> <span class="nb">dir</span> <span class="ow">in</span> <span class="n">dirs</span><span class="p">:</span>
+            <span class="n">shared</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">dir</span><span class="p">,</span> <span class="n">shared_f</span><span class="p">)</span>
+            <span class="n">dylib</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">dir</span><span class="p">,</span> <span class="n">dylib_f</span><span class="p">)</span>
+            <span class="n">static</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">dir</span><span class="p">,</span> <span class="n">static_f</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span> <span class="ow">and</span> <span class="p">(</span>
+                <span class="nb">dir</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;/System/&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="p">(</span>
+                <span class="nb">dir</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;/usr/&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">dir</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;/usr/local/&#39;</span><span class="p">))):</span>
+
+                <span class="n">shared</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sysroot</span><span class="p">,</span> <span class="nb">dir</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">shared_f</span><span class="p">)</span>
+                <span class="n">dylib</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sysroot</span><span class="p">,</span> <span class="nb">dir</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">dylib_f</span><span class="p">)</span>
+                <span class="n">static</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sysroot</span><span class="p">,</span> <span class="nb">dir</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">static_f</span><span class="p">)</span>
+
+            <span class="c"># We&#39;re second-guessing the linker here, with not much hard</span>
+            <span class="c"># data to go on: GCC seems to prefer the shared library, so I&#39;m</span>
+            <span class="c"># assuming that *all* Unix C compilers do.  And of course I&#39;m</span>
+            <span class="c"># ignoring even GCC&#39;s &quot;-static&quot; option.  So sue me.</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">dylib</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">dylib</span>
+            <span class="k">elif</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">shared</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">shared</span>
+            <span class="k">elif</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">static</span><span class="p">):</span>
+                <span class="k">return</span> <span class="n">static</span>
+
+        <span class="c"># Oops, didn&#39;t find it in *any* of &#39;dirs&#39;</span>
+        <span class="k">return</span> <span class="bp">None</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

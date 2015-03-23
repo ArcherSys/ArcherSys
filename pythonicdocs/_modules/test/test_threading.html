@@ -1,0 +1,1113 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_threading &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_threading</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Tests for the threading module.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">test.support</span>
+<span class="kn">from</span> <span class="nn">test.support</span> <span class="kn">import</span> <span class="n">verbose</span><span class="p">,</span> <span class="n">strip_python_stderr</span><span class="p">,</span> <span class="n">import_module</span><span class="p">,</span> <span class="n">cpython_only</span>
+<span class="kn">from</span> <span class="nn">test.script_helper</span> <span class="kn">import</span> <span class="n">assert_python_ok</span>
+
+<span class="kn">import</span> <span class="nn">random</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="n">_thread</span> <span class="o">=</span> <span class="n">import_module</span><span class="p">(</span><span class="s">&#39;_thread&#39;</span><span class="p">)</span>
+<span class="n">threading</span> <span class="o">=</span> <span class="n">import_module</span><span class="p">(</span><span class="s">&#39;threading&#39;</span><span class="p">)</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">import</span> <span class="nn">weakref</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">test.script_helper</span> <span class="kn">import</span> <span class="n">assert_python_ok</span><span class="p">,</span> <span class="n">assert_python_failure</span>
+<span class="kn">import</span> <span class="nn">subprocess</span>
+
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">lock_tests</span>
+
+
+<span class="c"># Between fork() and exec(), only async-safe functions are allowed (issues</span>
+<span class="c"># #12316 and #11870), and fork() from a worker thread is known to trigger</span>
+<span class="c"># problems with some operating systems (issue #3863): skip problematic tests</span>
+<span class="c"># on platforms known to behave badly.</span>
+<span class="n">platforms_to_skip</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;freebsd4&#39;</span><span class="p">,</span> <span class="s">&#39;freebsd5&#39;</span><span class="p">,</span> <span class="s">&#39;freebsd6&#39;</span><span class="p">,</span> <span class="s">&#39;netbsd5&#39;</span><span class="p">,</span>
+                     <span class="s">&#39;hp-ux11&#39;</span><span class="p">)</span>
+
+
+<span class="c"># A trivial mutable counter.</span>
+<div class="viewcode-block" id="Counter"><a class="viewcode-back" href="../../test.html#test.test_threading.Counter">[docs]</a><span class="k">class</span> <span class="nc">Counter</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="mi">0</span>
+<div class="viewcode-block" id="Counter.inc"><a class="viewcode-back" href="../../test.html#test.test_threading.Counter.inc">[docs]</a>    <span class="k">def</span> <span class="nf">inc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">value</span> <span class="o">+=</span> <span class="mi">1</span></div>
+<div class="viewcode-block" id="Counter.dec"><a class="viewcode-back" href="../../test.html#test.test_threading.Counter.dec">[docs]</a>    <span class="k">def</span> <span class="nf">dec</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">value</span> <span class="o">-=</span> <span class="mi">1</span></div>
+<div class="viewcode-block" id="Counter.get"><a class="viewcode-back" href="../../test.html#test.test_threading.Counter.get">[docs]</a>    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">value</span>
+</div></div>
+<div class="viewcode-block" id="TestThread"><a class="viewcode-back" href="../../test.html#test.test_threading.TestThread">[docs]</a><span class="k">class</span> <span class="nc">TestThread</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">testcase</span><span class="p">,</span> <span class="n">sema</span><span class="p">,</span> <span class="n">mutex</span><span class="p">,</span> <span class="n">nrunning</span><span class="p">):</span>
+        <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">testcase</span> <span class="o">=</span> <span class="n">testcase</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sema</span> <span class="o">=</span> <span class="n">sema</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mutex</span> <span class="o">=</span> <span class="n">mutex</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">nrunning</span> <span class="o">=</span> <span class="n">nrunning</span>
+
+<div class="viewcode-block" id="TestThread.run"><a class="viewcode-back" href="../../test.html#test.test_threading.TestThread.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">delay</span> <span class="o">=</span> <span class="n">random</span><span class="o">.</span><span class="n">random</span><span class="p">()</span> <span class="o">/</span> <span class="mf">10000.0</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;task </span><span class="si">%s</span><span class="s"> will run for </span><span class="si">%.1f</span><span class="s"> usec&#39;</span> <span class="o">%</span>
+                  <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">delay</span> <span class="o">*</span> <span class="mf">1e6</span><span class="p">))</span>
+
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">sema</span><span class="p">:</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">mutex</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">nrunning</span><span class="o">.</span><span class="n">inc</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nrunning</span><span class="o">.</span><span class="n">get</span><span class="p">(),</span> <span class="s">&#39;tasks are running&#39;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">testcase</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nrunning</span><span class="o">.</span><span class="n">get</span><span class="p">()</span> <span class="o">&lt;=</span> <span class="mi">3</span><span class="p">)</span>
+
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">delay</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                <span class="k">print</span><span class="p">(</span><span class="s">&#39;task&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s">&#39;done&#39;</span><span class="p">)</span>
+
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">mutex</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">nrunning</span><span class="o">.</span><span class="n">dec</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">testcase</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">nrunning</span><span class="o">.</span><span class="n">get</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s"> is finished. </span><span class="si">%d</span><span class="s"> tasks are running&#39;</span> <span class="o">%</span>
+                          <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">nrunning</span><span class="o">.</span><span class="n">get</span><span class="p">()))</span>
+
+</div></div>
+<div class="viewcode-block" id="BaseTestCase"><a class="viewcode-back" href="../../test.html#test.test_threading.BaseTestCase">[docs]</a><span class="k">class</span> <span class="nc">BaseTestCase</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="BaseTestCase.setUp"><a class="viewcode-back" href="../../test.html#test.test_threading.BaseTestCase.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_threads</span> <span class="o">=</span> <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">threading_setup</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BaseTestCase.tearDown"><a class="viewcode-back" href="../../test.html#test.test_threading.BaseTestCase.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">threading_cleanup</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">_threads</span><span class="p">)</span>
+        <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">reap_children</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="ThreadTests"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests">[docs]</a><span class="k">class</span> <span class="nc">ThreadTests</span><span class="p">(</span><span class="n">BaseTestCase</span><span class="p">):</span>
+
+    <span class="c"># Create a bunch of threads, let each do some work, wait until all are</span>
+    <span class="c"># done.</span>
+<div class="viewcode-block" id="ThreadTests.test_various_ops"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_various_ops">[docs]</a>    <span class="k">def</span> <span class="nf">test_various_ops</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># This takes about n/3 seconds to run (about n/3 clumps of tasks,</span>
+        <span class="c"># times about 1 second per clump).</span>
+        <span class="n">NUMTASKS</span> <span class="o">=</span> <span class="mi">10</span>
+
+        <span class="c"># no more than 3 of the 10 can run at once</span>
+        <span class="n">sema</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">BoundedSemaphore</span><span class="p">(</span><span class="n">value</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">mutex</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">RLock</span><span class="p">()</span>
+        <span class="n">numrunning</span> <span class="o">=</span> <span class="n">Counter</span><span class="p">()</span>
+
+        <span class="n">threads</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NUMTASKS</span><span class="p">):</span>
+            <span class="n">t</span> <span class="o">=</span> <span class="n">TestThread</span><span class="p">(</span><span class="s">&quot;&lt;thread </span><span class="si">%d</span><span class="s">&gt;&quot;</span><span class="o">%</span><span class="n">i</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span> <span class="n">sema</span><span class="p">,</span> <span class="n">mutex</span><span class="p">,</span> <span class="n">numrunning</span><span class="p">)</span>
+            <span class="n">threads</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">ident</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s">&#39;&lt;TestThread\(.*, initial\)&gt;&#39;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">t</span><span class="p">)))</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;waiting for all tasks to complete&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="ow">not</span> <span class="n">t</span><span class="o">.</span><span class="n">is_alive</span><span class="p">())</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">ident</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">ident</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s">&#39;&lt;TestThread\(.*, stopped -?\d+\)&gt;&#39;</span><span class="p">,</span>
+                                     <span class="nb">repr</span><span class="p">(</span><span class="n">t</span><span class="p">)))</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;all tasks done&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">numrunning</span><span class="o">.</span><span class="n">get</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_ident_of_no_threading_threads"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_ident_of_no_threading_threads">[docs]</a>    <span class="k">def</span> <span class="nf">test_ident_of_no_threading_threads</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># The ident still must work for the main thread and dummy threads.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">currentThread</span><span class="p">()</span><span class="o">.</span><span class="n">ident</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">f</span><span class="p">():</span>
+            <span class="n">ident</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">currentThread</span><span class="p">()</span><span class="o">.</span><span class="n">ident</span><span class="p">)</span>
+            <span class="n">done</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="n">done</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="n">ident</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">_thread</span><span class="o">.</span><span class="n">start_new_thread</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="p">())</span>
+        <span class="n">done</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">ident</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="c"># Kill the &quot;immortal&quot; _DummyThread</span>
+        <span class="k">del</span> <span class="n">threading</span><span class="o">.</span><span class="n">_active</span><span class="p">[</span><span class="n">ident</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
+
+    <span class="c"># run with a small(ish) thread stack size (256kB)</span></div>
+<div class="viewcode-block" id="ThreadTests.test_various_ops_small_stack"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_various_ops_small_stack">[docs]</a>    <span class="k">def</span> <span class="nf">test_various_ops_small_stack</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;with 256kB thread stack size...&#39;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">threading</span><span class="o">.</span><span class="n">stack_size</span><span class="p">(</span><span class="mi">262144</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">_thread</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">unittest</span><span class="o">.</span><span class="n">SkipTest</span><span class="p">(</span>
+                <span class="s">&#39;platform does not support changing thread stack size&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">test_various_ops</span><span class="p">()</span>
+        <span class="n">threading</span><span class="o">.</span><span class="n">stack_size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="c"># run with a large thread stack size (1MB)</span></div>
+<div class="viewcode-block" id="ThreadTests.test_various_ops_large_stack"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_various_ops_large_stack">[docs]</a>    <span class="k">def</span> <span class="nf">test_various_ops_large_stack</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;with 1MB thread stack size...&#39;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">threading</span><span class="o">.</span><span class="n">stack_size</span><span class="p">(</span><span class="mh">0x100000</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">_thread</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">unittest</span><span class="o">.</span><span class="n">SkipTest</span><span class="p">(</span>
+                <span class="s">&#39;platform does not support changing thread stack size&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">test_various_ops</span><span class="p">()</span>
+        <span class="n">threading</span><span class="o">.</span><span class="n">stack_size</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_foreign_thread"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_foreign_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_foreign_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Check that a &quot;foreign&quot; thread can use the threading module.</span>
+        <span class="k">def</span> <span class="nf">f</span><span class="p">(</span><span class="n">mutex</span><span class="p">):</span>
+            <span class="c"># Calling current_thread() forces an entry for the foreign</span>
+            <span class="c"># thread to get made in the threading._active map.</span>
+            <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span>
+            <span class="n">mutex</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+
+        <span class="n">mutex</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="n">mutex</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="n">tid</span> <span class="o">=</span> <span class="n">_thread</span><span class="o">.</span><span class="n">start_new_thread</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="p">(</span><span class="n">mutex</span><span class="p">,))</span>
+        <span class="c"># Wait for the thread to finish.</span>
+        <span class="n">mutex</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">tid</span><span class="p">,</span> <span class="n">threading</span><span class="o">.</span><span class="n">_active</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsInstance</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">_active</span><span class="p">[</span><span class="n">tid</span><span class="p">],</span> <span class="n">threading</span><span class="o">.</span><span class="n">_DummyThread</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">threading</span><span class="o">.</span><span class="n">_active</span><span class="p">[</span><span class="n">tid</span><span class="p">]</span>
+
+    <span class="c"># PyThreadState_SetAsyncExc() is a CPython-only gimmick, not (currently)</span>
+    <span class="c"># exposed at the Python level.  This test relies on ctypes to get at it.</span></div>
+<div class="viewcode-block" id="ThreadTests.test_PyThreadState_SetAsyncExc"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_PyThreadState_SetAsyncExc">[docs]</a>    <span class="k">def</span> <span class="nf">test_PyThreadState_SetAsyncExc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">ctypes</span> <span class="o">=</span> <span class="n">import_module</span><span class="p">(</span><span class="s">&quot;ctypes&quot;</span><span class="p">)</span>
+
+        <span class="n">set_async_exc</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">pythonapi</span><span class="o">.</span><span class="n">PyThreadState_SetAsyncExc</span>
+
+        <span class="k">class</span> <span class="nc">AsyncExc</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+            <span class="k">pass</span>
+
+        <span class="n">exception</span> <span class="o">=</span> <span class="n">ctypes</span><span class="o">.</span><span class="n">py_object</span><span class="p">(</span><span class="n">AsyncExc</span><span class="p">)</span>
+
+        <span class="c"># First check it works when setting the exception from the same thread.</span>
+        <span class="n">tid</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">get_ident</span><span class="p">()</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">set_async_exc</span><span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_long</span><span class="p">(</span><span class="n">tid</span><span class="p">),</span> <span class="n">exception</span><span class="p">)</span>
+            <span class="c"># The exception is async, so we might have to keep the VM busy until</span>
+            <span class="c"># it notices.</span>
+            <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+                <span class="k">pass</span>
+        <span class="k">except</span> <span class="n">AsyncExc</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># This code is unreachable but it reflects the intent. If we wanted</span>
+            <span class="c"># to be smarter the above loop wouldn&#39;t be infinite.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;AsyncExc not raised&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="c"># one thread state modified</span>
+        <span class="k">except</span> <span class="ne">UnboundLocalError</span><span class="p">:</span>
+            <span class="c"># The exception was raised too quickly for us to get the result.</span>
+            <span class="k">pass</span>
+
+        <span class="c"># `worker_started` is set by the thread when it&#39;s inside a try/except</span>
+        <span class="c"># block waiting to catch the asynchronously set AsyncExc exception.</span>
+        <span class="c"># `worker_saw_exception` is set by the thread upon catching that</span>
+        <span class="c"># exception.</span>
+        <span class="n">worker_started</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="n">worker_saw_exception</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+
+        <span class="k">class</span> <span class="nc">Worker</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">get_ident</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">finished</span> <span class="o">=</span> <span class="bp">False</span>
+
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+                        <span class="n">worker_started</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+                        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>
+                <span class="k">except</span> <span class="n">AsyncExc</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">finished</span> <span class="o">=</span> <span class="bp">True</span>
+                    <span class="n">worker_saw_exception</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+
+        <span class="n">t</span> <span class="o">=</span> <span class="n">Worker</span><span class="p">()</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span> <span class="c"># so if this fails, we don&#39;t hang Python at shutdown</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;    started worker thread&quot;</span><span class="p">)</span>
+
+        <span class="c"># Try a thread id that doesn&#39;t make sense.</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;    trying nonsensical thread id&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">set_async_exc</span><span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_long</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">exception</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>  <span class="c"># no thread states modified</span>
+
+        <span class="c"># Now raise an exception in the worker thread.</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;    waiting for worker thread to get started&quot;</span><span class="p">)</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="n">worker_started</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">ret</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;    verifying worker hasn&#39;t exited&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="ow">not</span> <span class="n">t</span><span class="o">.</span><span class="n">finished</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;    attempting to raise asynch exception in worker&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">set_async_exc</span><span class="p">(</span><span class="n">ctypes</span><span class="o">.</span><span class="n">c_long</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">id</span><span class="p">),</span> <span class="n">exception</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span> <span class="c"># one thread state modified</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;    waiting for worker to say it caught the exception&quot;</span><span class="p">)</span>
+        <span class="n">worker_saw_exception</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">finished</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;    all OK -- joining worker&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">finished</span><span class="p">:</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="c"># else the thread is still running, and we have no way to kill it</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_limbo_cleanup"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_limbo_cleanup">[docs]</a>    <span class="k">def</span> <span class="nf">test_limbo_cleanup</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue 7481: Failure to start thread should cleanup the limbo map.</span>
+        <span class="k">def</span> <span class="nf">fail_new_thread</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">threading</span><span class="o">.</span><span class="n">ThreadError</span><span class="p">()</span>
+        <span class="n">_start_new_thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">_start_new_thread</span>
+        <span class="n">threading</span><span class="o">.</span><span class="n">_start_new_thread</span> <span class="o">=</span> <span class="n">fail_new_thread</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">ThreadError</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span>
+                <span class="n">t</span> <span class="ow">in</span> <span class="n">threading</span><span class="o">.</span><span class="n">_limbo</span><span class="p">,</span>
+                <span class="s">&quot;Failed to cleanup _limbo map on failure of Thread.start().&quot;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">threading</span><span class="o">.</span><span class="n">_start_new_thread</span> <span class="o">=</span> <span class="n">_start_new_thread</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_finalize_runnning_thread"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_finalize_runnning_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_finalize_runnning_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue 1402: the PyGILState_Ensure / _Release functions may be called</span>
+        <span class="c"># very late on python exit: on deallocation of a running thread for</span>
+        <span class="c"># example.</span>
+        <span class="n">import_module</span><span class="p">(</span><span class="s">&quot;ctypes&quot;</span><span class="p">)</span>
+
+        <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_failure</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import ctypes, sys, time, _thread</span>
+
+<span class="s">            # This lock is used as a simple event variable.</span>
+<span class="s">            ready = _thread.allocate_lock()</span>
+<span class="s">            ready.acquire()</span>
+
+<span class="s">            # Module globals are cleared before __del__ is run</span>
+<span class="s">            # So we save the functions in class dict</span>
+<span class="s">            class C:</span>
+<span class="s">                ensure = ctypes.pythonapi.PyGILState_Ensure</span>
+<span class="s">                release = ctypes.pythonapi.PyGILState_Release</span>
+<span class="s">                def __del__(self):</span>
+<span class="s">                    state = self.ensure()</span>
+<span class="s">                    self.release(state)</span>
+
+<span class="s">            def waitingThread():</span>
+<span class="s">                x = C()</span>
+<span class="s">                ready.release()</span>
+<span class="s">                time.sleep(100)</span>
+
+<span class="s">            _thread.start_new_thread(waitingThread, ())</span>
+<span class="s">            ready.acquire()  # Be sure the other thread is waiting.</span>
+<span class="s">            sys.exit(42)</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">rc</span><span class="p">,</span> <span class="mi">42</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_finalize_with_trace"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_finalize_with_trace">[docs]</a>    <span class="k">def</span> <span class="nf">test_finalize_with_trace</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue1733757</span>
+        <span class="c"># Avoid a deadlock when sys.settrace steps into threading._shutdown</span>
+        <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import sys, threading</span>
+
+<span class="s">            # A deadlock-killer, to prevent the</span>
+<span class="s">            # testsuite to hang forever</span>
+<span class="s">            def killer():</span>
+<span class="s">                import os, time</span>
+<span class="s">                time.sleep(2)</span>
+<span class="s">                print(&#39;program blocked; aborting&#39;)</span>
+<span class="s">                os._exit(2)</span>
+<span class="s">            t = threading.Thread(target=killer)</span>
+<span class="s">            t.daemon = True</span>
+<span class="s">            t.start()</span>
+
+<span class="s">            # This is the trace function</span>
+<span class="s">            def func(frame, event, arg):</span>
+<span class="s">                threading.current_thread()</span>
+<span class="s">                return func</span>
+
+<span class="s">            sys.settrace(func)</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_join_nondaemon_on_shutdown"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_join_nondaemon_on_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_join_nondaemon_on_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue 1722344</span>
+        <span class="c"># Raising SystemExit skipped threading._shutdown</span>
+        <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">                import threading</span>
+<span class="s">                from time import sleep</span>
+
+<span class="s">                def child():</span>
+<span class="s">                    sleep(1)</span>
+<span class="s">                    # As a non-daemon thread we SHOULD wake up and nothing</span>
+<span class="s">                    # should be torn down yet</span>
+<span class="s">                    print(&quot;Woke up, sleep function is:&quot;, sleep)</span>
+
+<span class="s">                threading.Thread(target=child).start()</span>
+<span class="s">                raise SystemExit</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span>
+            <span class="n">b</span><span class="s">&quot;Woke up, sleep function is: &lt;built-in function sleep&gt;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_enumerate_after_join"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_enumerate_after_join">[docs]</a>    <span class="k">def</span> <span class="nf">test_enumerate_after_join</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Try hard to trigger #1703448: a thread is still returned in</span>
+        <span class="c"># threading.enumerate() after it has been join()ed.</span>
+        <span class="n">enum</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">enumerate</span>
+        <span class="n">old_interval</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">getswitchinterval</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">100</span><span class="p">):</span>
+                <span class="n">sys</span><span class="o">.</span><span class="n">setswitchinterval</span><span class="p">(</span><span class="n">i</span> <span class="o">*</span> <span class="mf">0.0002</span><span class="p">)</span>
+                <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="bp">None</span><span class="p">)</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+                <span class="n">l</span> <span class="o">=</span> <span class="n">enum</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertNotIn</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">l</span><span class="p">,</span>
+                    <span class="s">&quot;#1703448 triggered after </span><span class="si">%d</span><span class="s"> trials: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">l</span><span class="p">))</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">setswitchinterval</span><span class="p">(</span><span class="n">old_interval</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_no_refcycle_through_target"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_no_refcycle_through_target">[docs]</a>    <span class="k">def</span> <span class="nf">test_no_refcycle_through_target</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">RunSelfFunction</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">should_raise</span><span class="p">):</span>
+                <span class="c"># The links in this refcycle from Thread back to self</span>
+                <span class="c"># should be cleaned up when the thread completes.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">should_raise</span> <span class="o">=</span> <span class="n">should_raise</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_run</span><span class="p">,</span>
+                                               <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="p">,),</span>
+                                               <span class="n">kwargs</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;yet_another&#39;</span><span class="p">:</span><span class="bp">self</span><span class="p">})</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+            <span class="k">def</span> <span class="nf">_run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other_ref</span><span class="p">,</span> <span class="n">yet_another</span><span class="p">):</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">should_raise</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">SystemExit</span>
+
+        <span class="n">cyclic_object</span> <span class="o">=</span> <span class="n">RunSelfFunction</span><span class="p">(</span><span class="n">should_raise</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="n">weak_cyclic_object</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">cyclic_object</span><span class="p">)</span>
+        <span class="n">cyclic_object</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">cyclic_object</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">weak_cyclic_object</span><span class="p">(),</span>
+                         <span class="n">msg</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%d</span><span class="s"> references still around&#39;</span> <span class="o">%</span>
+                              <span class="n">sys</span><span class="o">.</span><span class="n">getrefcount</span><span class="p">(</span><span class="n">weak_cyclic_object</span><span class="p">())))</span>
+
+        <span class="n">raising_cyclic_object</span> <span class="o">=</span> <span class="n">RunSelfFunction</span><span class="p">(</span><span class="n">should_raise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">weak_raising_cyclic_object</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">raising_cyclic_object</span><span class="p">)</span>
+        <span class="n">raising_cyclic_object</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">raising_cyclic_object</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">weak_raising_cyclic_object</span><span class="p">(),</span>
+                         <span class="n">msg</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%d</span><span class="s"> references still around&#39;</span> <span class="o">%</span>
+                              <span class="n">sys</span><span class="o">.</span><span class="n">getrefcount</span><span class="p">(</span><span class="n">weak_raising_cyclic_object</span><span class="p">())))</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_old_threading_api"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_old_threading_api">[docs]</a>    <span class="k">def</span> <span class="nf">test_old_threading_api</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Just a quick sanity check to make sure the old method names are</span>
+        <span class="c"># still present</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">()</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">isDaemon</span><span class="p">()</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">setDaemon</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">getName</span><span class="p">()</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">setName</span><span class="p">(</span><span class="s">&quot;name&quot;</span><span class="p">)</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">isAlive</span><span class="p">()</span>
+        <span class="n">e</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="n">e</span><span class="o">.</span><span class="n">isSet</span><span class="p">()</span>
+        <span class="n">threading</span><span class="o">.</span><span class="n">activeCount</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_repr_daemon"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_repr_daemon">[docs]</a>    <span class="k">def</span> <span class="nf">test_repr_daemon</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="s">&#39;daemon&#39;</span> <span class="ow">in</span> <span class="nb">repr</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="s">&#39;daemon&#39;</span> <span class="ow">in</span> <span class="nb">repr</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_deamon_param"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_deamon_param">[docs]</a>    <span class="k">def</span> <span class="nf">test_deamon_param</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">daemon</span><span class="p">)</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">daemon</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">daemon</span><span class="p">)</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">daemon</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">daemon</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&#39;test needs fork()&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadTests.test_dummy_thread_after_fork"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_dummy_thread_after_fork">[docs]</a>    <span class="k">def</span> <span class="nf">test_dummy_thread_after_fork</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #14308: a dummy thread in the active list doesn&#39;t mess up</span>
+        <span class="c"># the after-fork mechanism.</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import _thread, threading, os, time</span>
+
+<span class="s">            def background_thread(evt):</span>
+<span class="s">                # Creates and registers the _DummyThread instance</span>
+<span class="s">                threading.current_thread()</span>
+<span class="s">                evt.set()</span>
+<span class="s">                time.sleep(10)</span>
+
+<span class="s">            evt = threading.Event()</span>
+<span class="s">            _thread.start_new_thread(background_thread, (evt,))</span>
+<span class="s">            evt.wait()</span>
+<span class="s">            assert threading.active_count() == 2, threading.active_count()</span>
+<span class="s">            if os.fork() == 0:</span>
+<span class="s">                assert threading.active_count() == 1, threading.active_count()</span>
+<span class="s">                os._exit(0)</span>
+<span class="s">            else:</span>
+<span class="s">                os.wait()</span>
+<span class="s">        &quot;&quot;&quot;</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&quot;needs os.fork()&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadTests.test_is_alive_after_fork"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_is_alive_after_fork">[docs]</a>    <span class="k">def</span> <span class="nf">test_is_alive_after_fork</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Try hard to trigger #18418: is_alive() could sometimes be True on</span>
+        <span class="c"># threads that vanished after a fork.</span>
+        <span class="n">old_interval</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">getswitchinterval</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">setswitchinterval</span><span class="p">,</span> <span class="n">old_interval</span><span class="p">)</span>
+
+        <span class="c"># Make the bug more likely to manifest.</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">setswitchinterval</span><span class="p">(</span><span class="mf">1e-6</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">20</span><span class="p">):</span>
+            <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">)</span>
+            <span class="n">pid</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">fork</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">pid</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">_exit</span><span class="p">(</span><span class="mi">1</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">is_alive</span><span class="p">()</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">pid</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">waitpid</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">status</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_main_thread"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_main_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_main_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">main</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">main_thread</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">main</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s">&#39;MainThread&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">main</span><span class="o">.</span><span class="n">ident</span><span class="p">,</span> <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span><span class="o">.</span><span class="n">ident</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">main</span><span class="o">.</span><span class="n">ident</span><span class="p">,</span> <span class="n">threading</span><span class="o">.</span><span class="n">get_ident</span><span class="p">())</span>
+
+        <span class="k">def</span> <span class="nf">f</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">main_thread</span><span class="p">()</span><span class="o">.</span><span class="n">ident</span><span class="p">,</span>
+                                <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span><span class="o">.</span><span class="n">ident</span><span class="p">)</span>
+        <span class="n">th</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">f</span><span class="p">)</span>
+        <span class="n">th</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="n">th</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&quot;test needs os.fork()&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;waitpid&#39;</span><span class="p">),</span> <span class="s">&quot;test needs os.waitpid()&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadTests.test_main_thread_after_fork"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_main_thread_after_fork">[docs]</a>    <span class="k">def</span> <span class="nf">test_main_thread_after_fork</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import os, threading</span>
+
+<span class="s">            pid = os.fork()</span>
+<span class="s">            if pid == 0:</span>
+<span class="s">                main = threading.main_thread()</span>
+<span class="s">                print(main.name)</span>
+<span class="s">                print(main.ident == threading.current_thread().ident)</span>
+<span class="s">                print(main.ident == threading.get_ident())</span>
+<span class="s">            else:</span>
+<span class="s">                os.waitpid(pid, 0)</span>
+<span class="s">        &quot;&quot;&quot;</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s">&quot;MainThread</span><span class="se">\n</span><span class="s">True</span><span class="se">\n</span><span class="s">True</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="ow">in</span> <span class="n">platforms_to_skip</span><span class="p">,</span> <span class="s">&quot;due to known OS bug&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&quot;test needs os.fork()&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;waitpid&#39;</span><span class="p">),</span> <span class="s">&quot;test needs os.waitpid()&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadTests.test_main_thread_after_fork_from_nonmain_thread"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_main_thread_after_fork_from_nonmain_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_main_thread_after_fork_from_nonmain_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import os, threading, sys</span>
+
+<span class="s">            def f():</span>
+<span class="s">                pid = os.fork()</span>
+<span class="s">                if pid == 0:</span>
+<span class="s">                    main = threading.main_thread()</span>
+<span class="s">                    print(main.name)</span>
+<span class="s">                    print(main.ident == threading.current_thread().ident)</span>
+<span class="s">                    print(main.ident == threading.get_ident())</span>
+<span class="s">                    # stdout is fully buffered because not a tty,</span>
+<span class="s">                    # we have to flush before exit.</span>
+<span class="s">                    sys.stdout.flush()</span>
+<span class="s">                else:</span>
+<span class="s">                    os.waitpid(pid, 0)</span>
+
+<span class="s">            th = threading.Thread(target=f)</span>
+<span class="s">            th.start()</span>
+<span class="s">            th.join()</span>
+<span class="s">        &quot;&quot;&quot;</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s">&quot;Thread-1</span><span class="se">\n</span><span class="s">True</span><span class="se">\n</span><span class="s">True</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_tstate_lock"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_tstate_lock">[docs]</a>    <span class="k">def</span> <span class="nf">test_tstate_lock</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test an implementation detail of Thread objects.</span>
+        <span class="n">started</span> <span class="o">=</span> <span class="n">_thread</span><span class="o">.</span><span class="n">allocate_lock</span><span class="p">()</span>
+        <span class="n">finish</span> <span class="o">=</span> <span class="n">_thread</span><span class="o">.</span><span class="n">allocate_lock</span><span class="p">()</span>
+        <span class="n">started</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="n">finish</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="k">def</span> <span class="nf">f</span><span class="p">():</span>
+            <span class="n">started</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+            <span class="n">finish</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="c"># The tstate lock is None until the thread is started</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">f</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">_tstate_lock</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="n">started</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">is_alive</span><span class="p">())</span>
+        <span class="c"># The tstate lock can&#39;t be acquired when the thread is running</span>
+        <span class="c"># (or suspended).</span>
+        <span class="n">tstate_lock</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">_tstate_lock</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">tstate_lock</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="bp">False</span><span class="p">)</span>
+        <span class="n">finish</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+        <span class="c"># When the thread ends, the state_lock can be successfully</span>
+        <span class="c"># acquired.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">tstate_lock</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="bp">False</span><span class="p">)</span>
+        <span class="c"># But is_alive() is still True:  we hold _tstate_lock now, which</span>
+        <span class="c"># prevents is_alive() from knowing the thread&#39;s end-of-life C code</span>
+        <span class="c"># is done.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">is_alive</span><span class="p">())</span>
+        <span class="c"># Let is_alive() find out the C code is done.</span>
+        <span class="n">tstate_lock</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">is_alive</span><span class="p">())</span>
+        <span class="c"># And verify the thread disposed of _tstate_lock.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">_tstate_lock</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_repr_stopped"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_repr_stopped">[docs]</a>    <span class="k">def</span> <span class="nf">test_repr_stopped</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Verify that &quot;stopped&quot; shows up in repr(Thread) appropriately.</span>
+        <span class="n">started</span> <span class="o">=</span> <span class="n">_thread</span><span class="o">.</span><span class="n">allocate_lock</span><span class="p">()</span>
+        <span class="n">finish</span> <span class="o">=</span> <span class="n">_thread</span><span class="o">.</span><span class="n">allocate_lock</span><span class="p">()</span>
+        <span class="n">started</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="n">finish</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="k">def</span> <span class="nf">f</span><span class="p">():</span>
+            <span class="n">started</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+            <span class="n">finish</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">f</span><span class="p">)</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="n">started</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&quot;started&quot;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">t</span><span class="p">))</span>
+        <span class="n">finish</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+        <span class="c"># &quot;stopped&quot; should appear in the repr in a reasonable amount of time.</span>
+        <span class="c"># Implementation detail:  as of this writing, that&#39;s trivially true</span>
+        <span class="c"># if .join() is called, and almost trivially true if .is_alive() is</span>
+        <span class="c"># called.  The detail we&#39;re testing here is that &quot;stopped&quot; shows up</span>
+        <span class="c"># &quot;all on its own&quot;.</span>
+        <span class="n">LOOKING_FOR</span> <span class="o">=</span> <span class="s">&quot;stopped&quot;</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">500</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">LOOKING_FOR</span> <span class="ow">in</span> <span class="nb">repr</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+                <span class="k">break</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">LOOKING_FOR</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">t</span><span class="p">))</span> <span class="c"># we waited at least 5 seconds</span>
+</div>
+<div class="viewcode-block" id="ThreadTests.test_BoundedSemaphore_limit"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_BoundedSemaphore_limit">[docs]</a>    <span class="k">def</span> <span class="nf">test_BoundedSemaphore_limit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># BoundedSemaphore should raise ValueError if released too often.</span>
+        <span class="k">for</span> <span class="n">limit</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">10</span><span class="p">):</span>
+            <span class="n">bs</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">BoundedSemaphore</span><span class="p">(</span><span class="n">limit</span><span class="p">)</span>
+            <span class="n">threads</span> <span class="o">=</span> <span class="p">[</span><span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">bs</span><span class="o">.</span><span class="n">acquire</span><span class="p">)</span>
+                       <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">limit</span><span class="p">)]</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+            <span class="n">threads</span> <span class="o">=</span> <span class="p">[</span><span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">bs</span><span class="o">.</span><span class="n">release</span><span class="p">)</span>
+                       <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">limit</span><span class="p">)]</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="n">bs</span><span class="o">.</span><span class="n">release</span><span class="p">)</span>
+</div>
+    <span class="nd">@cpython_only</span>
+<div class="viewcode-block" id="ThreadTests.test_frame_tstate_tracing"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadTests.test_frame_tstate_tracing">[docs]</a>    <span class="k">def</span> <span class="nf">test_frame_tstate_tracing</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #14432: Crash when a generator is created in a C thread that is</span>
+        <span class="c"># destroyed while the generator is still used. The issue was that a</span>
+        <span class="c"># generator contains a frame, and the frame kept a reference to the</span>
+        <span class="c"># Python state of the destroyed C thread. The crash occurs when a trace</span>
+        <span class="c"># function is setup.</span>
+
+        <span class="k">def</span> <span class="nf">noop_trace</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">event</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+            <span class="c"># no operation</span>
+            <span class="k">return</span> <span class="n">noop_trace</span>
+
+        <span class="k">def</span> <span class="nf">generator</span><span class="p">():</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">yield</span> <span class="s">&quot;genereator&quot;</span>
+
+        <span class="k">def</span> <span class="nf">callback</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">callback</span><span class="o">.</span><span class="n">gen</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">callback</span><span class="o">.</span><span class="n">gen</span> <span class="o">=</span> <span class="n">generator</span><span class="p">()</span>
+            <span class="k">return</span> <span class="nb">next</span><span class="p">(</span><span class="n">callback</span><span class="o">.</span><span class="n">gen</span><span class="p">)</span>
+        <span class="n">callback</span><span class="o">.</span><span class="n">gen</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="n">old_trace</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">gettrace</span><span class="p">()</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">settrace</span><span class="p">(</span><span class="n">noop_trace</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c"># Install a trace function</span>
+            <span class="n">threading</span><span class="o">.</span><span class="n">settrace</span><span class="p">(</span><span class="n">noop_trace</span><span class="p">)</span>
+
+            <span class="c"># Create a generator in a C thread which exits after the call</span>
+            <span class="kn">import</span> <span class="nn">_testcapi</span>
+            <span class="n">_testcapi</span><span class="o">.</span><span class="n">call_in_temporary_c_thread</span><span class="p">(</span><span class="n">callback</span><span class="p">)</span>
+
+            <span class="c"># Call the generator in a different Python thread, check that the</span>
+            <span class="c"># generator didn&#39;t keep a reference to the destroyed thread state</span>
+            <span class="k">for</span> <span class="n">test</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">3</span><span class="p">):</span>
+                <span class="c"># The trace function is still called here</span>
+                <span class="n">callback</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">settrace</span><span class="p">(</span><span class="n">old_trace</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ThreadJoinOnShutdown"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadJoinOnShutdown">[docs]</a><span class="k">class</span> <span class="nc">ThreadJoinOnShutdown</span><span class="p">(</span><span class="n">BaseTestCase</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">_run_and_join</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">script</span><span class="p">):</span>
+        <span class="n">script</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import sys, os, time, threading</span>
+
+<span class="s">            # a thread, which waits for the main program to terminate</span>
+<span class="s">            def joiningfunc(mainthread):</span>
+<span class="s">                mainthread.join()</span>
+<span class="s">                print(&#39;end of thread&#39;)</span>
+<span class="s">                # stdout is fully buffered because not a tty, we have to flush</span>
+<span class="s">                # before exit.</span>
+<span class="s">                sys.stdout.flush()</span>
+<span class="s">        </span><span class="se">\n</span><span class="s">&quot;&quot;&quot;</span> <span class="o">+</span> <span class="n">script</span>
+
+        <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">script</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s">&quot;end of main</span><span class="se">\n</span><span class="s">end of thread</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ThreadJoinOnShutdown.test_1_join_on_shutdown"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadJoinOnShutdown.test_1_join_on_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_1_join_on_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># The usual case: on exit, wait for a non-daemon thread</span>
+        <span class="n">script</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import os</span>
+<span class="s">            t = threading.Thread(target=joiningfunc,</span>
+<span class="s">                                 args=(threading.current_thread(),))</span>
+<span class="s">            t.start()</span>
+<span class="s">            time.sleep(0.1)</span>
+<span class="s">            print(&#39;end of main&#39;)</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_run_and_join</span><span class="p">(</span><span class="n">script</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&quot;needs os.fork()&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="ow">in</span> <span class="n">platforms_to_skip</span><span class="p">,</span> <span class="s">&quot;due to known OS bug&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadJoinOnShutdown.test_2_join_in_forked_process"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadJoinOnShutdown.test_2_join_in_forked_process">[docs]</a>    <span class="k">def</span> <span class="nf">test_2_join_in_forked_process</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Like the test above, but from a forked interpreter</span>
+        <span class="n">script</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            childpid = os.fork()</span>
+<span class="s">            if childpid != 0:</span>
+<span class="s">                os.waitpid(childpid, 0)</span>
+<span class="s">                sys.exit(0)</span>
+
+<span class="s">            t = threading.Thread(target=joiningfunc,</span>
+<span class="s">                                 args=(threading.current_thread(),))</span>
+<span class="s">            t.start()</span>
+<span class="s">            print(&#39;end of main&#39;)</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_run_and_join</span><span class="p">(</span><span class="n">script</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&quot;needs os.fork()&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="ow">in</span> <span class="n">platforms_to_skip</span><span class="p">,</span> <span class="s">&quot;due to known OS bug&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadJoinOnShutdown.test_3_join_in_forked_from_thread"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadJoinOnShutdown.test_3_join_in_forked_from_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_3_join_in_forked_from_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Like the test above, but fork() was called from a worker thread</span>
+        <span class="c"># In the forked process, the main Thread object must be marked as stopped.</span>
+
+        <span class="n">script</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            main_thread = threading.current_thread()</span>
+<span class="s">            def worker():</span>
+<span class="s">                childpid = os.fork()</span>
+<span class="s">                if childpid != 0:</span>
+<span class="s">                    os.waitpid(childpid, 0)</span>
+<span class="s">                    sys.exit(0)</span>
+
+<span class="s">                t = threading.Thread(target=joiningfunc,</span>
+<span class="s">                                     args=(main_thread,))</span>
+<span class="s">                print(&#39;end of main&#39;)</span>
+<span class="s">                t.start()</span>
+<span class="s">                t.join() # Should not block: main_thread is already stopped</span>
+
+<span class="s">            w = threading.Thread(target=worker)</span>
+<span class="s">            w.start()</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_run_and_join</span><span class="p">(</span><span class="n">script</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="ow">in</span> <span class="n">platforms_to_skip</span><span class="p">,</span> <span class="s">&quot;due to known OS bug&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadJoinOnShutdown.test_4_daemon_threads"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadJoinOnShutdown.test_4_daemon_threads">[docs]</a>    <span class="k">def</span> <span class="nf">test_4_daemon_threads</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Check that a daemon thread cannot crash the interpreter on shutdown</span>
+        <span class="c"># by manipulating internal structures that are being disposed of in</span>
+        <span class="c"># the main thread.</span>
+        <span class="n">script</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if True:</span>
+<span class="s">            import os</span>
+<span class="s">            import random</span>
+<span class="s">            import sys</span>
+<span class="s">            import time</span>
+<span class="s">            import threading</span>
+
+<span class="s">            thread_has_run = set()</span>
+
+<span class="s">            def random_io():</span>
+<span class="s">                &#39;&#39;&#39;Loop for a while sleeping random tiny amounts and doing some I/O.&#39;&#39;&#39;</span>
+<span class="s">                while True:</span>
+<span class="s">                    in_f = open(os.__file__, &#39;rb&#39;)</span>
+<span class="s">                    stuff = in_f.read(200)</span>
+<span class="s">                    null_f = open(os.devnull, &#39;wb&#39;)</span>
+<span class="s">                    null_f.write(stuff)</span>
+<span class="s">                    time.sleep(random.random() / 1995)</span>
+<span class="s">                    null_f.close()</span>
+<span class="s">                    in_f.close()</span>
+<span class="s">                    thread_has_run.add(threading.current_thread())</span>
+
+<span class="s">            def main():</span>
+<span class="s">                count = 0</span>
+<span class="s">                for _ in range(40):</span>
+<span class="s">                    new_thread = threading.Thread(target=random_io)</span>
+<span class="s">                    new_thread.daemon = True</span>
+<span class="s">                    new_thread.start()</span>
+<span class="s">                    count += 1</span>
+<span class="s">                while len(thread_has_run) &lt; count:</span>
+<span class="s">                    time.sleep(0.001)</span>
+<span class="s">                # Trigger process shutdown</span>
+<span class="s">                sys.exit(0)</span>
+
+<span class="s">            main()</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">script</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&quot;needs os.fork()&quot;</span><span class="p">)</span>
+    <span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="ow">in</span> <span class="n">platforms_to_skip</span><span class="p">,</span> <span class="s">&quot;due to known OS bug&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadJoinOnShutdown.test_reinit_tls_after_fork"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadJoinOnShutdown.test_reinit_tls_after_fork">[docs]</a>    <span class="k">def</span> <span class="nf">test_reinit_tls_after_fork</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #13817: fork() would deadlock in a multithreaded program with</span>
+        <span class="c"># the ad-hoc TLS implementation.</span>
+
+        <span class="k">def</span> <span class="nf">do_fork_and_wait</span><span class="p">():</span>
+            <span class="c"># just fork a child process and wait it</span>
+            <span class="n">pid</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">fork</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">pid</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">waitpid</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">_exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+        <span class="c"># start a bunch of threads that will fork() child processes</span>
+        <span class="n">threads</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">16</span><span class="p">):</span>
+            <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">do_fork_and_wait</span><span class="p">)</span>
+            <span class="n">threads</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">os</span><span class="p">,</span> <span class="s">&#39;fork&#39;</span><span class="p">),</span> <span class="s">&quot;needs os.fork()&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadJoinOnShutdown.test_clear_threads_states_after_fork"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadJoinOnShutdown.test_clear_threads_states_after_fork">[docs]</a>    <span class="k">def</span> <span class="nf">test_clear_threads_states_after_fork</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #17094: check that threads states are cleared after fork()</span>
+
+        <span class="c"># start a bunch of threads</span>
+        <span class="n">threads</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">16</span><span class="p">):</span>
+            <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="k">lambda</span> <span class="p">:</span> <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.3</span><span class="p">))</span>
+            <span class="n">threads</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="n">pid</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">fork</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">pid</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c"># check that threads states have been cleared</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">_current_frames</span><span class="p">())</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">_exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">_exit</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">_</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">waitpid</span><span class="p">(</span><span class="n">pid</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">status</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="SubinterpThreadingTests"><a class="viewcode-back" href="../../test.html#test.test_threading.SubinterpThreadingTests">[docs]</a><span class="k">class</span> <span class="nc">SubinterpThreadingTests</span><span class="p">(</span><span class="n">BaseTestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="SubinterpThreadingTests.test_threads_join"><a class="viewcode-back" href="../../test.html#test.test_threading.SubinterpThreadingTests.test_threads_join">[docs]</a>    <span class="k">def</span> <span class="nf">test_threads_join</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Non-daemon threads should be joined at subinterpreter shutdown</span>
+        <span class="c"># (issue #18808)</span>
+        <span class="n">r</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">pipe</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">,</span> <span class="n">r</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">,</span> <span class="n">w</span><span class="p">)</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">r&quot;&quot;&quot;if 1:</span>
+<span class="s">            import os</span>
+<span class="s">            import threading</span>
+<span class="s">            import time</span>
+
+<span class="s">            def f():</span>
+<span class="s">                # Sleep a bit so that the thread is still running when</span>
+<span class="s">                # Py_EndInterpreter is called.</span>
+<span class="s">                time.sleep(0.05)</span>
+<span class="s">                os.write(</span><span class="si">%d</span><span class="s">, b&quot;x&quot;)</span>
+<span class="s">            threading.Thread(target=f).start()</span>
+<span class="s">            &quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">w</span><span class="p">,)</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">run_in_subinterp</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="c"># The thread was joined properly.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">b</span><span class="s">&quot;x&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SubinterpThreadingTests.test_threads_join_2"><a class="viewcode-back" href="../../test.html#test.test_threading.SubinterpThreadingTests.test_threads_join_2">[docs]</a>    <span class="k">def</span> <span class="nf">test_threads_join_2</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Same as above, but a delay gets introduced after the thread&#39;s</span>
+        <span class="c"># Python code returned but before the thread state is deleted.</span>
+        <span class="c"># To achieve this, we register a thread-local object which sleeps</span>
+        <span class="c"># a bit when deallocated.</span>
+        <span class="n">r</span><span class="p">,</span> <span class="n">w</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">pipe</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">,</span> <span class="n">r</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">,</span> <span class="n">w</span><span class="p">)</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">r&quot;&quot;&quot;if 1:</span>
+<span class="s">            import os</span>
+<span class="s">            import threading</span>
+<span class="s">            import time</span>
+
+<span class="s">            class Sleeper:</span>
+<span class="s">                def __del__(self):</span>
+<span class="s">                    time.sleep(0.05)</span>
+
+<span class="s">            tls = threading.local()</span>
+
+<span class="s">            def f():</span>
+<span class="s">                # Sleep a bit so that the thread is still running when</span>
+<span class="s">                # Py_EndInterpreter is called.</span>
+<span class="s">                time.sleep(0.05)</span>
+<span class="s">                tls.x = Sleeper()</span>
+<span class="s">                os.write(</span><span class="si">%d</span><span class="s">, b&quot;x&quot;)</span>
+<span class="s">            threading.Thread(target=f).start()</span>
+<span class="s">            &quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">w</span><span class="p">,)</span>
+        <span class="n">ret</span> <span class="o">=</span> <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">run_in_subinterp</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">ret</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="c"># The thread was joined properly.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="n">b</span><span class="s">&quot;x&quot;</span><span class="p">)</span>
+</div>
+    <span class="nd">@cpython_only</span>
+<div class="viewcode-block" id="SubinterpThreadingTests.test_daemon_threads_fatal_error"><a class="viewcode-back" href="../../test.html#test.test_threading.SubinterpThreadingTests.test_daemon_threads_fatal_error">[docs]</a>    <span class="k">def</span> <span class="nf">test_daemon_threads_fatal_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">subinterp_code</span> <span class="o">=</span> <span class="s">r&quot;&quot;&quot;if 1:</span>
+<span class="s">            import os</span>
+<span class="s">            import threading</span>
+<span class="s">            import time</span>
+
+<span class="s">            def f():</span>
+<span class="s">                # Make sure the daemon thread is still running when</span>
+<span class="s">                # Py_EndInterpreter is called.</span>
+<span class="s">                time.sleep(10)</span>
+<span class="s">            threading.Thread(target=f, daemon=True).start()</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">script</span> <span class="o">=</span> <span class="s">r&quot;&quot;&quot;if 1:</span>
+<span class="s">            import _testcapi</span>
+
+<span class="s">            _testcapi.run_in_subinterp(</span><span class="si">%r</span><span class="s">)</span>
+<span class="s">            &quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">subinterp_code</span><span class="p">,)</span>
+        <span class="k">with</span> <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">SuppressCrashReport</span><span class="p">():</span>
+            <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_failure</span><span class="p">(</span><span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">script</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&quot;Fatal Python error: Py_EndInterpreter: &quot;</span>
+                      <span class="s">&quot;not the last thread&quot;</span><span class="p">,</span> <span class="n">err</span><span class="o">.</span><span class="n">decode</span><span class="p">())</span>
+
+</div></div>
+<div class="viewcode-block" id="ThreadingExceptionTests"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadingExceptionTests">[docs]</a><span class="k">class</span> <span class="nc">ThreadingExceptionTests</span><span class="p">(</span><span class="n">BaseTestCase</span><span class="p">):</span>
+    <span class="c"># A RuntimeError should be raised if Thread.start() is called</span>
+    <span class="c"># multiple times.</span>
+<div class="viewcode-block" id="ThreadingExceptionTests.test_start_thread_again"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadingExceptionTests.test_start_thread_again">[docs]</a>    <span class="k">def</span> <span class="nf">test_start_thread_again</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">()</span>
+        <span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadingExceptionTests.test_joining_current_thread"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadingExceptionTests.test_joining_current_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_joining_current_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">current_thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="n">current_thread</span><span class="o">.</span><span class="n">join</span><span class="p">);</span>
+</div>
+<div class="viewcode-block" id="ThreadingExceptionTests.test_joining_inactive_thread"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadingExceptionTests.test_joining_inactive_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_joining_inactive_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="n">thread</span><span class="o">.</span><span class="n">join</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadingExceptionTests.test_daemonize_active_thread"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadingExceptionTests.test_daemonize_active_thread">[docs]</a>    <span class="k">def</span> <span class="nf">test_daemonize_active_thread</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">()</span>
+        <span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="nb">setattr</span><span class="p">,</span> <span class="n">thread</span><span class="p">,</span> <span class="s">&quot;daemon&quot;</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ThreadingExceptionTests.test_releasing_unacquired_lock"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadingExceptionTests.test_releasing_unacquired_lock">[docs]</a>    <span class="k">def</span> <span class="nf">test_releasing_unacquired_lock</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="n">lock</span><span class="o">.</span><span class="n">release</span><span class="p">)</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span> <span class="ow">and</span> <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">python_is_optimized</span><span class="p">(),</span>
+                         <span class="s">&#39;test macosx problem&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="ThreadingExceptionTests.test_recursion_limit"><a class="viewcode-back" href="../../test.html#test.test_threading.ThreadingExceptionTests.test_recursion_limit">[docs]</a>    <span class="k">def</span> <span class="nf">test_recursion_limit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue 9670</span>
+        <span class="c"># test that excessive recursion within a non-main thread causes</span>
+        <span class="c"># an exception rather than crashing the interpreter on platforms</span>
+        <span class="c"># like Mac OS X or FreeBSD which have small default stack sizes</span>
+        <span class="c"># for threads</span>
+        <span class="n">script</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if True:</span>
+<span class="s">            import threading</span>
+
+<span class="s">            def recurse():</span>
+<span class="s">                return recurse()</span>
+
+<span class="s">            def outer():</span>
+<span class="s">                try:</span>
+<span class="s">                    recurse()</span>
+<span class="s">                except RuntimeError:</span>
+<span class="s">                    pass</span>
+
+<span class="s">            w = threading.Thread(target=outer)</span>
+<span class="s">            w.start()</span>
+<span class="s">            w.join()</span>
+<span class="s">            print(&#39;end of main thread&#39;)</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">expected_output</span> <span class="o">=</span> <span class="s">&quot;end of main thread</span><span class="se">\n</span><span class="s">&quot;</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">([</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">script</span><span class="p">],</span>
+                             <span class="n">stdout</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">)</span>
+        <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">communicate</span><span class="p">()</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">stdout</span><span class="o">.</span><span class="n">decode</span><span class="p">()</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">returncode</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="s">&quot;Unexpected error: &quot;</span> <span class="o">+</span> <span class="n">stderr</span><span class="o">.</span><span class="n">decode</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">expected_output</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="TimerTests"><a class="viewcode-back" href="../../test.html#test.test_threading.TimerTests">[docs]</a><span class="k">class</span> <span class="nc">TimerTests</span><span class="p">(</span><span class="n">BaseTestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="TimerTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_threading.TimerTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">BaseTestCase</span><span class="o">.</span><span class="n">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">callback_args</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">callback_event</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="TimerTests.test_init_immutable_default_args"><a class="viewcode-back" href="../../test.html#test.test_threading.TimerTests.test_init_immutable_default_args">[docs]</a>    <span class="k">def</span> <span class="nf">test_init_immutable_default_args</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue 17435: constructor defaults were mutable objects, they could be</span>
+        <span class="c"># mutated via the object attributes and affect other Timer objects.</span>
+        <span class="n">timer1</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Timer</span><span class="p">(</span><span class="mf">0.01</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callback_spy</span><span class="p">)</span>
+        <span class="n">timer1</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">callback_event</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="n">timer1</span><span class="o">.</span><span class="n">args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;blah&quot;</span><span class="p">)</span>
+        <span class="n">timer1</span><span class="o">.</span><span class="n">kwargs</span><span class="p">[</span><span class="s">&quot;foo&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;bar&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">callback_event</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">timer2</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Timer</span><span class="p">(</span><span class="mf">0.01</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callback_spy</span><span class="p">)</span>
+        <span class="n">timer2</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">callback_event</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">callback_args</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">callback_args</span><span class="p">,</span> <span class="p">[((),</span> <span class="p">{}),</span> <span class="p">((),</span> <span class="p">{})])</span>
+</div>
+    <span class="k">def</span> <span class="nf">_callback_spy</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">callback_args</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">args</span><span class="p">[:],</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">copy</span><span class="p">()))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">callback_event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="LockTests"><a class="viewcode-back" href="../../test.html#test.test_threading.LockTests">[docs]</a><span class="k">class</span> <span class="nc">LockTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">LockTests</span><span class="p">):</span>
+    <span class="n">locktype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="PyRLockTests"><a class="viewcode-back" href="../../test.html#test.test_threading.PyRLockTests">[docs]</a><span class="k">class</span> <span class="nc">PyRLockTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">RLockTests</span><span class="p">):</span>
+    <span class="n">locktype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">_PyRLock</span><span class="p">)</span>
+</div>
+<span class="nd">@unittest.skipIf</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">_CRLock</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&#39;RLock not implemented in C&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="CRLockTests"><a class="viewcode-back" href="../../test.html#test.test_threading.CRLockTests">[docs]</a><span class="k">class</span> <span class="nc">CRLockTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">RLockTests</span><span class="p">):</span>
+    <span class="n">locktype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">_CRLock</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="EventTests"><a class="viewcode-back" href="../../test.html#test.test_threading.EventTests">[docs]</a><span class="k">class</span> <span class="nc">EventTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">EventTests</span><span class="p">):</span>
+    <span class="n">eventtype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ConditionAsRLockTests"><a class="viewcode-back" href="../../test.html#test.test_threading.ConditionAsRLockTests">[docs]</a><span class="k">class</span> <span class="nc">ConditionAsRLockTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">RLockTests</span><span class="p">):</span>
+    <span class="c"># An Condition uses an RLock by default and exports its API.</span>
+    <span class="n">locktype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Condition</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ConditionTests"><a class="viewcode-back" href="../../test.html#test.test_threading.ConditionTests">[docs]</a><span class="k">class</span> <span class="nc">ConditionTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">ConditionTests</span><span class="p">):</span>
+    <span class="n">condtype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Condition</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SemaphoreTests"><a class="viewcode-back" href="../../test.html#test.test_threading.SemaphoreTests">[docs]</a><span class="k">class</span> <span class="nc">SemaphoreTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">SemaphoreTests</span><span class="p">):</span>
+    <span class="n">semtype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Semaphore</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BoundedSemaphoreTests"><a class="viewcode-back" href="../../test.html#test.test_threading.BoundedSemaphoreTests">[docs]</a><span class="k">class</span> <span class="nc">BoundedSemaphoreTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">BoundedSemaphoreTests</span><span class="p">):</span>
+    <span class="n">semtype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">BoundedSemaphore</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BarrierTests"><a class="viewcode-back" href="../../test.html#test.test_threading.BarrierTests">[docs]</a><span class="k">class</span> <span class="nc">BarrierTests</span><span class="p">(</span><span class="n">lock_tests</span><span class="o">.</span><span class="n">BarrierTests</span><span class="p">):</span>
+    <span class="n">barriertype</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Barrier</span><span class="p">)</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">unittest</span><span class="o">.</span><span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

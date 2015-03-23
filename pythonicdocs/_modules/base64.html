@@ -1,0 +1,694 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>base64 &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for base64</h1><div class="highlight"><pre>
+<span class="c">#! /usr/bin/env python3</span>
+
+<span class="sd">&quot;&quot;&quot;Base16, Base32, Base64 (RFC 3548), Base85 and Ascii85 data encodings&quot;&quot;&quot;</span>
+
+<span class="c"># Modified 04-Oct-1995 by Jack Jansen to use binascii module</span>
+<span class="c"># Modified 30-Dec-2003 by Barry Warsaw to add full RFC 3548 support</span>
+<span class="c"># Modified 22-May-2007 by Guido van Rossum to use bytes everywhere</span>
+
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+<span class="kn">import</span> <span class="nn">binascii</span>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="c"># Legacy interface exports traditional RFC 1521 Base64 encodings</span>
+    <span class="s">&#39;encode&#39;</span><span class="p">,</span> <span class="s">&#39;decode&#39;</span><span class="p">,</span> <span class="s">&#39;encodebytes&#39;</span><span class="p">,</span> <span class="s">&#39;decodebytes&#39;</span><span class="p">,</span>
+    <span class="c"># Generalized interface for other encodings</span>
+    <span class="s">&#39;b64encode&#39;</span><span class="p">,</span> <span class="s">&#39;b64decode&#39;</span><span class="p">,</span> <span class="s">&#39;b32encode&#39;</span><span class="p">,</span> <span class="s">&#39;b32decode&#39;</span><span class="p">,</span>
+    <span class="s">&#39;b16encode&#39;</span><span class="p">,</span> <span class="s">&#39;b16decode&#39;</span><span class="p">,</span>
+    <span class="c"># Base85 and Ascii85 encodings</span>
+    <span class="s">&#39;b85encode&#39;</span><span class="p">,</span> <span class="s">&#39;b85decode&#39;</span><span class="p">,</span> <span class="s">&#39;a85encode&#39;</span><span class="p">,</span> <span class="s">&#39;a85decode&#39;</span><span class="p">,</span>
+    <span class="c"># Standard Base64 encoding</span>
+    <span class="s">&#39;standard_b64encode&#39;</span><span class="p">,</span> <span class="s">&#39;standard_b64decode&#39;</span><span class="p">,</span>
+    <span class="c"># Some common Base64 alternatives.  As referenced by RFC 3458, see thread</span>
+    <span class="c"># starting at:</span>
+    <span class="c">#</span>
+    <span class="c"># http://zgp.org/pipermail/p2p-hackers/2001-September/000316.html</span>
+    <span class="s">&#39;urlsafe_b64encode&#39;</span><span class="p">,</span> <span class="s">&#39;urlsafe_b64decode&#39;</span><span class="p">,</span>
+    <span class="p">]</span>
+
+
+<span class="n">bytes_types</span> <span class="o">=</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">)</span>  <span class="c"># Types acceptable as binary data</span>
+
+<span class="k">def</span> <span class="nf">_bytes_from_decode_data</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">s</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">UnicodeEncodeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;string argument should contain only ASCII characters&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">bytes_types</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">s</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="o">.</span><span class="n">tobytes</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;argument should be a bytes-like object or ASCII &quot;</span>
+                        <span class="s">&quot;string, not </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">s</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+
+
+<span class="c"># Base64 encoding/decoding uses binascii</span>
+
+<div class="viewcode-block" id="b64encode"><a class="viewcode-back" href="../base64.html#base64.b64encode">[docs]</a><span class="k">def</span> <span class="nf">b64encode</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">altchars</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode a byte string using Base64.</span>
+
+<span class="sd">    s is the byte string to encode.  Optional altchars must be a byte</span>
+<span class="sd">    string of length 2 which specifies an alternative alphabet for the</span>
+<span class="sd">    &#39;+&#39; and &#39;/&#39; characters.  This allows an application to</span>
+<span class="sd">    e.g. generate url or filesystem safe Base64 strings.</span>
+
+<span class="sd">    The encoded byte string is returned.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># Strip off the trailing newline</span>
+    <span class="n">encoded</span> <span class="o">=</span> <span class="n">binascii</span><span class="o">.</span><span class="n">b2a_base64</span><span class="p">(</span><span class="n">s</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">altchars</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">altchars</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">altchars</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">encoded</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="nb">bytes</span><span class="o">.</span><span class="n">maketrans</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;+/&#39;</span><span class="p">,</span> <span class="n">altchars</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">encoded</span>
+
+</div>
+<div class="viewcode-block" id="b64decode"><a class="viewcode-back" href="../base64.html#base64.b64decode">[docs]</a><span class="k">def</span> <span class="nf">b64decode</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">altchars</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">validate</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode a Base64 encoded byte string.</span>
+
+<span class="sd">    s is the byte string to decode.  Optional altchars must be a</span>
+<span class="sd">    string of length 2 which specifies the alternative alphabet used</span>
+<span class="sd">    instead of the &#39;+&#39; and &#39;/&#39; characters.</span>
+
+<span class="sd">    The decoded string is returned.  A binascii.Error is raised if s is</span>
+<span class="sd">    incorrectly padded.</span>
+
+<span class="sd">    If validate is False (the default), non-base64-alphabet characters are</span>
+<span class="sd">    discarded prior to the padding check.  If validate is True,</span>
+<span class="sd">    non-base64-alphabet characters in the input result in a binascii.Error.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">_bytes_from_decode_data</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">altchars</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">altchars</span> <span class="o">=</span> <span class="n">_bytes_from_decode_data</span><span class="p">(</span><span class="n">altchars</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">altchars</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">altchars</span><span class="p">)</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="nb">bytes</span><span class="o">.</span><span class="n">maketrans</span><span class="p">(</span><span class="n">altchars</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;+/&#39;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">validate</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;^[A-Za-z0-9+/]*={0,2}$&#39;</span><span class="p">,</span> <span class="n">s</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">binascii</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="s">&#39;Non-base64 digit found&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">binascii</span><span class="o">.</span><span class="n">a2b_base64</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="standard_b64encode"><a class="viewcode-back" href="../base64.html#base64.standard_b64encode">[docs]</a><span class="k">def</span> <span class="nf">standard_b64encode</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode a byte string using the standard Base64 alphabet.</span>
+
+<span class="sd">    s is the byte string to encode.  The encoded byte string is returned.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">b64encode</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="standard_b64decode"><a class="viewcode-back" href="../base64.html#base64.standard_b64decode">[docs]</a><span class="k">def</span> <span class="nf">standard_b64decode</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode a byte string encoded with the standard Base64 alphabet.</span>
+
+<span class="sd">    s is the byte string to decode.  The decoded byte string is</span>
+<span class="sd">    returned.  binascii.Error is raised if the input is incorrectly</span>
+<span class="sd">    padded or if there are non-alphabet characters present in the</span>
+<span class="sd">    input.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">b64decode</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+</div>
+<span class="n">_urlsafe_encode_translation</span> <span class="o">=</span> <span class="nb">bytes</span><span class="o">.</span><span class="n">maketrans</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;+/&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;-_&#39;</span><span class="p">)</span>
+<span class="n">_urlsafe_decode_translation</span> <span class="o">=</span> <span class="nb">bytes</span><span class="o">.</span><span class="n">maketrans</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;-_&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;+/&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="urlsafe_b64encode"><a class="viewcode-back" href="../base64.html#base64.urlsafe_b64encode">[docs]</a><span class="k">def</span> <span class="nf">urlsafe_b64encode</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode a byte string using a url-safe Base64 alphabet.</span>
+
+<span class="sd">    s is the byte string to encode.  The encoded byte string is</span>
+<span class="sd">    returned.  The alphabet uses &#39;-&#39; instead of &#39;+&#39; and &#39;_&#39; instead of</span>
+<span class="sd">    &#39;/&#39;.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">b64encode</span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">_urlsafe_encode_translation</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="urlsafe_b64decode"><a class="viewcode-back" href="../base64.html#base64.urlsafe_b64decode">[docs]</a><span class="k">def</span> <span class="nf">urlsafe_b64decode</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode a byte string encoded with the standard Base64 alphabet.</span>
+
+<span class="sd">    s is the byte string to decode.  The decoded byte string is</span>
+<span class="sd">    returned.  binascii.Error is raised if the input is incorrectly</span>
+<span class="sd">    padded or if there are non-alphabet characters present in the</span>
+<span class="sd">    input.</span>
+
+<span class="sd">    The alphabet uses &#39;-&#39; instead of &#39;+&#39; and &#39;_&#39; instead of &#39;/&#39;.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">_bytes_from_decode_data</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">_urlsafe_decode_translation</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">b64decode</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+
+
+<span class="c"># Base32 encoding/decoding must be done in Python</span></div>
+<span class="n">_b32alphabet</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;ABCDEFGHIJKLMNOPQRSTUVWXYZ234567&#39;</span>
+<span class="n">_b32tab2</span> <span class="o">=</span> <span class="bp">None</span>
+<span class="n">_b32rev</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="b32encode"><a class="viewcode-back" href="../base64.html#base64.b32encode">[docs]</a><span class="k">def</span> <span class="nf">b32encode</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode a byte string using Base32.</span>
+
+<span class="sd">    s is the byte string to encode.  The encoded byte string is returned.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_b32tab2</span>
+    <span class="c"># Delay the initialization of the table to not waste memory</span>
+    <span class="c"># if the function is never called</span>
+    <span class="k">if</span> <span class="n">_b32tab2</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">b32tab</span> <span class="o">=</span> <span class="p">[</span><span class="nb">bytes</span><span class="p">((</span><span class="n">i</span><span class="p">,))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">_b32alphabet</span><span class="p">]</span>
+        <span class="n">_b32tab2</span> <span class="o">=</span> <span class="p">[</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">b32tab</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">b32tab</span><span class="p">]</span>
+        <span class="n">b32tab</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">bytes_types</span><span class="p">):</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="o">.</span><span class="n">tobytes</span><span class="p">()</span>
+    <span class="n">leftover</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="o">%</span> <span class="mi">5</span>
+    <span class="c"># Pad the last quantum with zero bits if necessary</span>
+    <span class="k">if</span> <span class="n">leftover</span><span class="p">:</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span> <span class="o">+</span> <span class="nb">bytes</span><span class="p">(</span><span class="mi">5</span> <span class="o">-</span> <span class="n">leftover</span><span class="p">)</span>  <span class="c"># Don&#39;t use += !</span>
+    <span class="n">encoded</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">()</span>
+    <span class="n">from_bytes</span> <span class="o">=</span> <span class="nb">int</span><span class="o">.</span><span class="n">from_bytes</span>
+    <span class="n">b32tab2</span> <span class="o">=</span> <span class="n">_b32tab2</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">),</span> <span class="mi">5</span><span class="p">):</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">from_bytes</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="n">i</span><span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">5</span><span class="p">],</span> <span class="s">&#39;big&#39;</span><span class="p">)</span>
+        <span class="n">encoded</span> <span class="o">+=</span> <span class="p">(</span><span class="n">b32tab2</span><span class="p">[</span><span class="n">c</span> <span class="o">&gt;&gt;</span> <span class="mi">30</span><span class="p">]</span> <span class="o">+</span>           <span class="c"># bits 1 - 10</span>
+                    <span class="n">b32tab2</span><span class="p">[(</span><span class="n">c</span> <span class="o">&gt;&gt;</span> <span class="mi">20</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0x3ff</span><span class="p">]</span> <span class="o">+</span> <span class="c"># bits 11 - 20</span>
+                    <span class="n">b32tab2</span><span class="p">[(</span><span class="n">c</span> <span class="o">&gt;&gt;</span> <span class="mi">10</span><span class="p">)</span> <span class="o">&amp;</span> <span class="mh">0x3ff</span><span class="p">]</span> <span class="o">+</span> <span class="c"># bits 21 - 30</span>
+                    <span class="n">b32tab2</span><span class="p">[</span><span class="n">c</span> <span class="o">&amp;</span> <span class="mh">0x3ff</span><span class="p">]</span>           <span class="c"># bits 31 - 40</span>
+                   <span class="p">)</span>
+    <span class="c"># Adjust for any leftover partial quanta</span>
+    <span class="k">if</span> <span class="n">leftover</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">encoded</span><span class="p">[</span><span class="o">-</span><span class="mi">6</span><span class="p">:]</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;======&#39;</span>
+    <span class="k">elif</span> <span class="n">leftover</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">encoded</span><span class="p">[</span><span class="o">-</span><span class="mi">4</span><span class="p">:]</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;====&#39;</span>
+    <span class="k">elif</span> <span class="n">leftover</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="n">encoded</span><span class="p">[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;===&#39;</span>
+    <span class="k">elif</span> <span class="n">leftover</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+        <span class="n">encoded</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;=&#39;</span>
+    <span class="k">return</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">encoded</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="b32decode"><a class="viewcode-back" href="../base64.html#base64.b32decode">[docs]</a><span class="k">def</span> <span class="nf">b32decode</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">casefold</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">map01</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode a Base32 encoded byte string.</span>
+
+<span class="sd">    s is the byte string to decode.  Optional casefold is a flag</span>
+<span class="sd">    specifying whether a lowercase alphabet is acceptable as input.</span>
+<span class="sd">    For security purposes, the default is False.</span>
+
+<span class="sd">    RFC 3548 allows for optional mapping of the digit 0 (zero) to the</span>
+<span class="sd">    letter O (oh), and for optional mapping of the digit 1 (one) to</span>
+<span class="sd">    either the letter I (eye) or letter L (el).  The optional argument</span>
+<span class="sd">    map01 when not None, specifies which letter the digit 1 should be</span>
+<span class="sd">    mapped to (when map01 is not None, the digit 0 is always mapped to</span>
+<span class="sd">    the letter O).  For security purposes the default is None, so that</span>
+<span class="sd">    0 and 1 are not allowed in the input.</span>
+
+<span class="sd">    The decoded byte string is returned.  binascii.Error is raised if</span>
+<span class="sd">    the input is incorrectly padded or if there are non-alphabet</span>
+<span class="sd">    characters present in the input.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_b32rev</span>
+    <span class="c"># Delay the initialization of the table to not waste memory</span>
+    <span class="c"># if the function is never called</span>
+    <span class="k">if</span> <span class="n">_b32rev</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">_b32rev</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">_b32alphabet</span><span class="p">)}</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">_bytes_from_decode_data</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="o">%</span> <span class="mi">8</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">binascii</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="s">&#39;Incorrect padding&#39;</span><span class="p">)</span>
+    <span class="c"># Handle section 2.4 zero and one mapping.  The flag map01 will be either</span>
+    <span class="c"># False, or the character to map the digit 1 (one) to.  It should be</span>
+    <span class="c"># either L (el) or I (eye).</span>
+    <span class="k">if</span> <span class="n">map01</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">map01</span> <span class="o">=</span> <span class="n">_bytes_from_decode_data</span><span class="p">(</span><span class="n">map01</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">map01</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">map01</span><span class="p">)</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="nb">bytes</span><span class="o">.</span><span class="n">maketrans</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;01&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;O&#39;</span> <span class="o">+</span> <span class="n">map01</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">casefold</span><span class="p">:</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+    <span class="c"># Strip off pad characters from the right.  We need to count the pad</span>
+    <span class="c"># characters because this will tell us how many null bytes to remove from</span>
+    <span class="c"># the end of the decoded string.</span>
+    <span class="n">l</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;=&#39;</span><span class="p">)</span>
+    <span class="n">padchars</span> <span class="o">=</span> <span class="n">l</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="c"># Now decode the full quanta</span>
+    <span class="n">decoded</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">()</span>
+    <span class="n">b32rev</span> <span class="o">=</span> <span class="n">_b32rev</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">),</span> <span class="mi">8</span><span class="p">):</span>
+        <span class="n">quanta</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="n">i</span><span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">8</span><span class="p">]</span>
+        <span class="n">acc</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">quanta</span><span class="p">:</span>
+                <span class="n">acc</span> <span class="o">=</span> <span class="p">(</span><span class="n">acc</span> <span class="o">&lt;&lt;</span> <span class="mi">5</span><span class="p">)</span> <span class="o">+</span> <span class="n">b32rev</span><span class="p">[</span><span class="n">c</span><span class="p">]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">binascii</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="s">&#39;Non-base32 digit found&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+        <span class="n">decoded</span> <span class="o">+=</span> <span class="n">acc</span><span class="o">.</span><span class="n">to_bytes</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="s">&#39;big&#39;</span><span class="p">)</span>
+    <span class="c"># Process the last, partial quanta</span>
+    <span class="k">if</span> <span class="n">padchars</span><span class="p">:</span>
+        <span class="n">acc</span> <span class="o">&lt;&lt;=</span> <span class="mi">5</span> <span class="o">*</span> <span class="n">padchars</span>
+        <span class="n">last</span> <span class="o">=</span> <span class="n">acc</span><span class="o">.</span><span class="n">to_bytes</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="s">&#39;big&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">padchars</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">decoded</span><span class="p">[</span><span class="o">-</span><span class="mi">5</span><span class="p">:]</span> <span class="o">=</span> <span class="n">last</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">padchars</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">decoded</span><span class="p">[</span><span class="o">-</span><span class="mi">5</span><span class="p">:]</span> <span class="o">=</span> <span class="n">last</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">padchars</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+            <span class="n">decoded</span><span class="p">[</span><span class="o">-</span><span class="mi">5</span><span class="p">:]</span> <span class="o">=</span> <span class="n">last</span><span class="p">[:</span><span class="o">-</span><span class="mi">3</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">padchars</span> <span class="o">==</span> <span class="mi">6</span><span class="p">:</span>
+            <span class="n">decoded</span><span class="p">[</span><span class="o">-</span><span class="mi">5</span><span class="p">:]</span> <span class="o">=</span> <span class="n">last</span><span class="p">[:</span><span class="o">-</span><span class="mi">4</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">binascii</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="s">&#39;Incorrect padding&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">decoded</span><span class="p">)</span>
+
+
+
+<span class="c"># RFC 3548, Base 16 Alphabet specifies uppercase, but hexlify() returns</span>
+<span class="c"># lowercase.  The RFC also recommends against accepting input case</span>
+<span class="c"># insensitively.</span></div>
+<div class="viewcode-block" id="b16encode"><a class="viewcode-back" href="../base64.html#base64.b16encode">[docs]</a><span class="k">def</span> <span class="nf">b16encode</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode a byte string using Base16.</span>
+
+<span class="sd">    s is the byte string to encode.  The encoded byte string is returned.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">binascii</span><span class="o">.</span><span class="n">hexlify</span><span class="p">(</span><span class="n">s</span><span class="p">)</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="b16decode"><a class="viewcode-back" href="../base64.html#base64.b16decode">[docs]</a><span class="k">def</span> <span class="nf">b16decode</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">casefold</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode a Base16 encoded byte string.</span>
+
+<span class="sd">    s is the byte string to decode.  Optional casefold is a flag</span>
+<span class="sd">    specifying whether a lowercase alphabet is acceptable as input.</span>
+<span class="sd">    For security purposes, the default is False.</span>
+
+<span class="sd">    The decoded byte string is returned.  binascii.Error is raised if</span>
+<span class="sd">    s were incorrectly padded or if there are non-alphabet characters</span>
+<span class="sd">    present in the string.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">_bytes_from_decode_data</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">casefold</span><span class="p">:</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;[^0-9A-F]&#39;</span><span class="p">,</span> <span class="n">s</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">binascii</span><span class="o">.</span><span class="n">Error</span><span class="p">(</span><span class="s">&#39;Non-base16 digit found&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">binascii</span><span class="o">.</span><span class="n">unhexlify</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Ascii85 encoding/decoding</span>
+<span class="c">#</span>
+</div>
+<span class="n">_a85chars</span> <span class="o">=</span> <span class="bp">None</span>
+<span class="n">_a85chars2</span> <span class="o">=</span> <span class="bp">None</span>
+<span class="n">_A85START</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;&lt;~&quot;</span>
+<span class="n">_A85END</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;~&gt;&quot;</span>
+
+<span class="k">def</span> <span class="nf">_85encode</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">chars</span><span class="p">,</span> <span class="n">chars2</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">foldnuls</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">foldspaces</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="c"># Helper function for a85encode and b85encode</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">bytes_types</span><span class="p">):</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">b</span><span class="p">)</span><span class="o">.</span><span class="n">tobytes</span><span class="p">()</span>
+
+    <span class="n">padding</span> <span class="o">=</span> <span class="p">(</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">))</span> <span class="o">%</span> <span class="mi">4</span>
+    <span class="k">if</span> <span class="n">padding</span><span class="p">:</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">b</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\0</span><span class="s">&#39;</span> <span class="o">*</span> <span class="n">padding</span>
+    <span class="n">words</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">Struct</span><span class="p">(</span><span class="s">&#39;!</span><span class="si">%d</span><span class="s">I&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">)</span> <span class="o">//</span> <span class="mi">4</span><span class="p">))</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+
+    <span class="n">chunks</span> <span class="o">=</span> <span class="p">[</span><span class="n">b</span><span class="s">&#39;z&#39;</span> <span class="k">if</span> <span class="n">foldnuls</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">word</span> <span class="k">else</span>
+              <span class="n">b</span><span class="s">&#39;y&#39;</span> <span class="k">if</span> <span class="n">foldspaces</span> <span class="ow">and</span> <span class="n">word</span> <span class="o">==</span> <span class="mh">0x20202020</span> <span class="k">else</span>
+              <span class="p">(</span><span class="n">chars2</span><span class="p">[</span><span class="n">word</span> <span class="o">//</span> <span class="mi">614125</span><span class="p">]</span> <span class="o">+</span>
+               <span class="n">chars2</span><span class="p">[</span><span class="n">word</span> <span class="o">//</span> <span class="mi">85</span> <span class="o">%</span> <span class="mi">7225</span><span class="p">]</span> <span class="o">+</span>
+               <span class="n">chars</span><span class="p">[</span><span class="n">word</span> <span class="o">%</span> <span class="mi">85</span><span class="p">])</span>
+              <span class="k">for</span> <span class="n">word</span> <span class="ow">in</span> <span class="n">words</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">padding</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">pad</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">chunks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;z&#39;</span><span class="p">:</span>
+            <span class="n">chunks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">chars</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">*</span> <span class="mi">5</span>
+        <span class="n">chunks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">chunks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][:</span><span class="o">-</span><span class="n">padding</span><span class="p">]</span>
+
+    <span class="k">return</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">chunks</span><span class="p">)</span>
+
+<div class="viewcode-block" id="a85encode"><a class="viewcode-back" href="../base64.html#base64.a85encode">[docs]</a><span class="k">def</span> <span class="nf">a85encode</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">foldspaces</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">wrapcol</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">adobe</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode a byte string using Ascii85.</span>
+
+<span class="sd">    b is the byte string to encode. The encoded byte string is returned.</span>
+
+<span class="sd">    foldspaces is an optional flag that uses the special short sequence &#39;y&#39;</span>
+<span class="sd">    instead of 4 consecutive spaces (ASCII 0x20) as supported by &#39;btoa&#39;. This</span>
+<span class="sd">    feature is not supported by the &quot;standard&quot; Adobe encoding.</span>
+
+<span class="sd">    wrapcol controls whether the output should have newline (&#39;\n&#39;) characters</span>
+<span class="sd">    added to it. If this is non-zero, each output line will be at most this</span>
+<span class="sd">    many characters long.</span>
+
+<span class="sd">    pad controls whether the input string is padded to a multiple of 4 before</span>
+<span class="sd">    encoding. Note that the btoa implementation always pads.</span>
+
+<span class="sd">    adobe controls whether the encoded byte sequence is framed with &lt;~ and ~&gt;,</span>
+<span class="sd">    which is used by the Adobe implementation.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_a85chars</span><span class="p">,</span> <span class="n">_a85chars2</span>
+    <span class="c"># Delay the initialization of tables to not waste memory</span>
+    <span class="c"># if the function is never called</span>
+    <span class="k">if</span> <span class="n">_a85chars</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">_a85chars</span> <span class="o">=</span> <span class="p">[</span><span class="nb">bytes</span><span class="p">((</span><span class="n">i</span><span class="p">,))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">33</span><span class="p">,</span> <span class="mi">118</span><span class="p">)]</span>
+        <span class="n">_a85chars2</span> <span class="o">=</span> <span class="p">[(</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">_a85chars</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">_a85chars</span><span class="p">]</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="n">_85encode</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">_a85chars</span><span class="p">,</span> <span class="n">_a85chars2</span><span class="p">,</span> <span class="n">pad</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="n">foldspaces</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">adobe</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">_A85START</span> <span class="o">+</span> <span class="n">result</span>
+    <span class="k">if</span> <span class="n">wrapcol</span><span class="p">:</span>
+        <span class="n">wrapcol</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">2</span> <span class="k">if</span> <span class="n">adobe</span> <span class="k">else</span> <span class="mi">1</span><span class="p">,</span> <span class="n">wrapcol</span><span class="p">)</span>
+        <span class="n">chunks</span> <span class="o">=</span> <span class="p">[</span><span class="n">result</span><span class="p">[</span><span class="n">i</span><span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">wrapcol</span><span class="p">]</span>
+                  <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">result</span><span class="p">),</span> <span class="n">wrapcol</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="n">adobe</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunks</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">&gt;</span> <span class="n">wrapcol</span><span class="p">:</span>
+                <span class="n">chunks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">chunks</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">adobe</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">+=</span> <span class="n">_A85END</span>
+
+    <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="a85decode"><a class="viewcode-back" href="../base64.html#base64.a85decode">[docs]</a><span class="k">def</span> <span class="nf">a85decode</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">foldspaces</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">adobe</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">ignorechars</span><span class="o">=</span><span class="n">b</span><span class="s">&#39; </span><span class="se">\t\n\r\v</span><span class="s">&#39;</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode an Ascii85 encoded byte string.</span>
+
+<span class="sd">    s is the byte string to decode.</span>
+
+<span class="sd">    foldspaces is a flag that specifies whether the &#39;y&#39; short sequence should be</span>
+<span class="sd">    accepted as shorthand for 4 consecutive spaces (ASCII 0x20). This feature is</span>
+<span class="sd">    not supported by the &quot;standard&quot; Adobe encoding.</span>
+
+<span class="sd">    adobe controls whether the input sequence is in Adobe Ascii85 format (i.e.</span>
+<span class="sd">    is framed with &lt;~ and ~&gt;).</span>
+
+<span class="sd">    ignorechars should be a byte string containing characters to ignore from the</span>
+<span class="sd">    input. This should only contain whitespace characters, and by default</span>
+<span class="sd">    contains all whitespace characters in ASCII.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">_bytes_from_decode_data</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">adobe</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">_A85START</span><span class="p">)</span> <span class="ow">and</span> <span class="n">b</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="n">_A85END</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Ascii85 encoded byte sequences must be bracketed &quot;</span>
+                             <span class="s">&quot;by {!r} and {!r}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">_A85START</span><span class="p">,</span> <span class="n">_A85END</span><span class="p">))</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">b</span><span class="p">[</span><span class="mi">2</span><span class="p">:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span> <span class="c"># Strip off start/end markers</span>
+    <span class="c">#</span>
+    <span class="c"># We have to go through this stepwise, so as to ignore spaces and handle</span>
+    <span class="c"># special short sequences</span>
+    <span class="c">#</span>
+    <span class="n">packI</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">Struct</span><span class="p">(</span><span class="s">&#39;!I&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">pack</span>
+    <span class="n">decoded</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">decoded_append</span> <span class="o">=</span> <span class="n">decoded</span><span class="o">.</span><span class="n">append</span>
+    <span class="n">curr</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">curr_append</span> <span class="o">=</span> <span class="n">curr</span><span class="o">.</span><span class="n">append</span>
+    <span class="n">curr_clear</span> <span class="o">=</span> <span class="n">curr</span><span class="o">.</span><span class="n">clear</span>
+    <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">b</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;u&#39;</span> <span class="o">*</span> <span class="mi">4</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">b</span><span class="s">&#39;!&#39;</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">x</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="s">&#39;u&#39;</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="n">curr_append</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">curr</span><span class="p">)</span> <span class="o">==</span> <span class="mi">5</span><span class="p">:</span>
+                <span class="n">acc</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">curr</span><span class="p">:</span>
+                    <span class="n">acc</span> <span class="o">=</span> <span class="mi">85</span> <span class="o">*</span> <span class="n">acc</span> <span class="o">+</span> <span class="p">(</span><span class="n">x</span> <span class="o">-</span> <span class="mi">33</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">decoded_append</span><span class="p">(</span><span class="n">packI</span><span class="p">(</span><span class="n">acc</span><span class="p">))</span>
+                <span class="k">except</span> <span class="n">struct</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Ascii85 overflow&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+                <span class="n">curr_clear</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="n">x</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;z&#39;</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">curr</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;z inside Ascii85 5-tuple&#39;</span><span class="p">)</span>
+            <span class="n">decoded_append</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\0\0\0\0</span><span class="s">&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">foldspaces</span> <span class="ow">and</span> <span class="n">x</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;y&#39;</span><span class="p">[</span><span class="mi">0</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="n">curr</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;y inside Ascii85 5-tuple&#39;</span><span class="p">)</span>
+            <span class="n">decoded_append</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\x20\x20\x20\x20</span><span class="s">&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ignorechars</span><span class="p">:</span>
+            <span class="c"># Skip whitespace</span>
+            <span class="k">continue</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Non-Ascii85 digit found: </span><span class="si">%c</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">x</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">decoded</span><span class="p">)</span>
+    <span class="n">padding</span> <span class="o">=</span> <span class="mi">4</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">curr</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">padding</span><span class="p">:</span>
+        <span class="c"># Throw away the extra padding</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">result</span><span class="p">[:</span><span class="o">-</span><span class="n">padding</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">result</span>
+
+<span class="c"># The following code is originally taken (with permission) from Mercurial</span>
+</div>
+<span class="n">_b85alphabet</span> <span class="o">=</span> <span class="p">(</span><span class="n">b</span><span class="s">&quot;0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ&quot;</span>
+                <span class="n">b</span><span class="s">&quot;abcdefghijklmnopqrstuvwxyz!#$%&amp;()*+-;&lt;=&gt;?@^_`{|}~&quot;</span><span class="p">)</span>
+<span class="n">_b85chars</span> <span class="o">=</span> <span class="bp">None</span>
+<span class="n">_b85chars2</span> <span class="o">=</span> <span class="bp">None</span>
+<span class="n">_b85dec</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="b85encode"><a class="viewcode-back" href="../base64.html#base64.b85encode">[docs]</a><span class="k">def</span> <span class="nf">b85encode</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode an ASCII-encoded byte array in base85 format.</span>
+
+<span class="sd">    If pad is true, the input is padded with &quot;\0&quot; so its length is a multiple of</span>
+<span class="sd">    4 characters before encoding.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_b85chars</span><span class="p">,</span> <span class="n">_b85chars2</span>
+    <span class="c"># Delay the initialization of tables to not waste memory</span>
+    <span class="c"># if the function is never called</span>
+    <span class="k">if</span> <span class="n">_b85chars</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">_b85chars</span> <span class="o">=</span> <span class="p">[</span><span class="nb">bytes</span><span class="p">((</span><span class="n">i</span><span class="p">,))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">_b85alphabet</span><span class="p">]</span>
+        <span class="n">_b85chars2</span> <span class="o">=</span> <span class="p">[(</span><span class="n">a</span> <span class="o">+</span> <span class="n">b</span><span class="p">)</span> <span class="k">for</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">_b85chars</span> <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">_b85chars</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">_85encode</span><span class="p">(</span><span class="n">b</span><span class="p">,</span> <span class="n">_b85chars</span><span class="p">,</span> <span class="n">_b85chars2</span><span class="p">,</span> <span class="n">pad</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="b85decode"><a class="viewcode-back" href="../base64.html#base64.b85decode">[docs]</a><span class="k">def</span> <span class="nf">b85decode</span><span class="p">(</span><span class="n">b</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode base85-encoded byte array&quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_b85dec</span>
+    <span class="c"># Delay the initialization of tables to not waste memory</span>
+    <span class="c"># if the function is never called</span>
+    <span class="k">if</span> <span class="n">_b85dec</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">_b85dec</span> <span class="o">=</span> <span class="p">[</span><span class="bp">None</span><span class="p">]</span> <span class="o">*</span> <span class="mi">256</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">c</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">_b85alphabet</span><span class="p">):</span>
+            <span class="n">_b85dec</span><span class="p">[</span><span class="n">c</span><span class="p">]</span> <span class="o">=</span> <span class="n">i</span>
+
+    <span class="n">b</span> <span class="o">=</span> <span class="n">_bytes_from_decode_data</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+    <span class="n">padding</span> <span class="o">=</span> <span class="p">(</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">))</span> <span class="o">%</span> <span class="mi">5</span>
+    <span class="n">b</span> <span class="o">=</span> <span class="n">b</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;~&#39;</span> <span class="o">*</span> <span class="n">padding</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">packI</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">Struct</span><span class="p">(</span><span class="s">&#39;!I&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">pack</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">),</span> <span class="mi">5</span><span class="p">):</span>
+        <span class="n">chunk</span> <span class="o">=</span> <span class="n">b</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="mi">5</span><span class="p">]</span>
+        <span class="n">acc</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">chunk</span><span class="p">:</span>
+                <span class="n">acc</span> <span class="o">=</span> <span class="n">acc</span> <span class="o">*</span> <span class="mi">85</span> <span class="o">+</span> <span class="n">_b85dec</span><span class="p">[</span><span class="n">c</span><span class="p">]</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="n">c</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">chunk</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">_b85dec</span><span class="p">[</span><span class="n">c</span><span class="p">]</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;bad base85 character at position </span><span class="si">%d</span><span class="s">&#39;</span>
+                                    <span class="o">%</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="n">j</span><span class="p">))</span> <span class="kn">from</span> <span class="bp">None</span>
+            <span class="k">raise</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">packI</span><span class="p">(</span><span class="n">acc</span><span class="p">))</span>
+        <span class="k">except</span> <span class="n">struct</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;base85 overflow in hunk starting at byte </span><span class="si">%d</span><span class="s">&#39;</span>
+                             <span class="o">%</span> <span class="n">i</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">padding</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">result</span><span class="p">[:</span><span class="o">-</span><span class="n">padding</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">result</span>
+
+<span class="c"># Legacy interface.  This code could be cleaned up since I don&#39;t believe</span>
+<span class="c"># binascii has any line length limitations.  It just doesn&#39;t seem worth it</span>
+<span class="c"># though.  The files should be opened in binary mode.</span>
+</div>
+<span class="n">MAXLINESIZE</span> <span class="o">=</span> <span class="mi">76</span> <span class="c"># Excluding the CRLF</span>
+<span class="n">MAXBINSIZE</span> <span class="o">=</span> <span class="p">(</span><span class="n">MAXLINESIZE</span><span class="o">//</span><span class="mi">4</span><span class="p">)</span><span class="o">*</span><span class="mi">3</span>
+
+<div class="viewcode-block" id="encode"><a class="viewcode-back" href="../base64.html#base64.encode">[docs]</a><span class="k">def</span> <span class="nf">encode</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">output</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode a file; input and output are binary files.&quot;&quot;&quot;</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">MAXBINSIZE</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">s</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">MAXBINSIZE</span><span class="p">:</span>
+            <span class="n">ns</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">MAXBINSIZE</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">))</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">ns</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="n">s</span> <span class="o">+=</span> <span class="n">ns</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">binascii</span><span class="o">.</span><span class="n">b2a_base64</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+        <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="decode"><a class="viewcode-back" href="../base64.html#base64.decode">[docs]</a><span class="k">def</span> <span class="nf">decode</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">output</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode a file; input and output are binary files.&quot;&quot;&quot;</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">binascii</span><span class="o">.</span><span class="n">a2b_base64</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+</div>
+<span class="k">def</span> <span class="nf">_input_type_check</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">TypeError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;expected bytes-like object, not </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">s</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span> <span class="kn">from</span> <span class="nn">err</span>
+    <span class="k">if</span> <span class="n">m</span><span class="o">.</span><span class="n">format</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;c&#39;</span><span class="p">,</span> <span class="s">&#39;b&#39;</span><span class="p">,</span> <span class="s">&#39;B&#39;</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span><span class="s">&quot;expected single byte elements, not </span><span class="si">%r</span><span class="s"> from </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span>
+                                          <span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">format</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">m</span><span class="o">.</span><span class="n">ndim</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span><span class="s">&quot;expected 1-D data, not </span><span class="si">%d</span><span class="s">-D data from </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span>
+                                          <span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">ndim</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="encodebytes"><a class="viewcode-back" href="../base64.html#base64.encodebytes">[docs]</a><span class="k">def</span> <span class="nf">encodebytes</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Encode a bytestring into a bytestring containing multiple lines</span>
+<span class="sd">    of base-64 data.&quot;&quot;&quot;</span>
+    <span class="n">_input_type_check</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">pieces</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">),</span> <span class="n">MAXBINSIZE</span><span class="p">):</span>
+        <span class="n">chunk</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="n">i</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="n">MAXBINSIZE</span><span class="p">]</span>
+        <span class="n">pieces</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">binascii</span><span class="o">.</span><span class="n">b2a_base64</span><span class="p">(</span><span class="n">chunk</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">pieces</span><span class="p">)</span>
+</div>
+<span class="k">def</span> <span class="nf">encodestring</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Legacy alias of encodebytes().&quot;&quot;&quot;</span>
+    <span class="kn">import</span> <span class="nn">warnings</span>
+    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;encodestring() is a deprecated alias, use encodebytes()&quot;</span><span class="p">,</span>
+                  <span class="ne">DeprecationWarning</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">encodebytes</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="decodebytes"><a class="viewcode-back" href="../base64.html#base64.decodebytes">[docs]</a><span class="k">def</span> <span class="nf">decodebytes</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decode a bytestring of base-64 data into a bytestring.&quot;&quot;&quot;</span>
+    <span class="n">_input_type_check</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">binascii</span><span class="o">.</span><span class="n">a2b_base64</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+</div>
+<span class="k">def</span> <span class="nf">decodestring</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Legacy alias of decodebytes().&quot;&quot;&quot;</span>
+    <span class="kn">import</span> <span class="nn">warnings</span>
+    <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;decodestring() is a deprecated alias, use decodebytes()&quot;</span><span class="p">,</span>
+                  <span class="ne">DeprecationWarning</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">decodebytes</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+
+<span class="c"># Usable as a script...</span>
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Small main program&quot;&quot;&quot;</span>
+    <span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">getopt</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">opts</span><span class="p">,</span> <span class="n">args</span> <span class="o">=</span> <span class="n">getopt</span><span class="o">.</span><span class="n">getopt</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="s">&#39;deut&#39;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">getopt</span><span class="o">.</span><span class="n">error</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="k">print</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;&quot;&quot;usage: </span><span class="si">%s</span><span class="s"> [-d|-e|-u|-t] [file|-]</span>
+<span class="s">        -d, -u: decode</span>
+<span class="s">        -e: encode (default)</span>
+<span class="s">        -t: encode and decode string &#39;Aladdin:open sesame&#39;&quot;&quot;&quot;</span><span class="o">%</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">func</span> <span class="o">=</span> <span class="n">encode</span>
+    <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">opts</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">o</span> <span class="o">==</span> <span class="s">&#39;-e&#39;</span><span class="p">:</span> <span class="n">func</span> <span class="o">=</span> <span class="n">encode</span>
+        <span class="k">if</span> <span class="n">o</span> <span class="o">==</span> <span class="s">&#39;-d&#39;</span><span class="p">:</span> <span class="n">func</span> <span class="o">=</span> <span class="n">decode</span>
+        <span class="k">if</span> <span class="n">o</span> <span class="o">==</span> <span class="s">&#39;-u&#39;</span><span class="p">:</span> <span class="n">func</span> <span class="o">=</span> <span class="n">decode</span>
+        <span class="k">if</span> <span class="n">o</span> <span class="o">==</span> <span class="s">&#39;-t&#39;</span><span class="p">:</span> <span class="n">test</span><span class="p">();</span> <span class="k">return</span>
+    <span class="k">if</span> <span class="n">args</span> <span class="ow">and</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;-&#39;</span><span class="p">:</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">func</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">func</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">test</span><span class="p">():</span>
+    <span class="n">s0</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;Aladdin:open sesame&quot;</span>
+    <span class="k">print</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">s0</span><span class="p">))</span>
+    <span class="n">s1</span> <span class="o">=</span> <span class="n">encodebytes</span><span class="p">(</span><span class="n">s0</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">s1</span><span class="p">))</span>
+    <span class="n">s2</span> <span class="o">=</span> <span class="n">decodebytes</span><span class="p">(</span><span class="n">s1</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">s2</span><span class="p">))</span>
+    <span class="k">assert</span> <span class="n">s0</span> <span class="o">==</span> <span class="n">s2</span>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

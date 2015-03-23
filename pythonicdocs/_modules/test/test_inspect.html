@@ -1,0 +1,3195 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_inspect &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_inspect</h1><div class="highlight"><pre>
+import collections
+import datetime
+import functools
+import importlib
+import inspect
+import io
+import linecache
+import os
+from os.path import normcase
+import _pickle
+import re
+import shutil
+import sys
+import types
+import unicodedata
+import unittest
+import unittest.mock
+
+try:
+    from concurrent.futures import ThreadPoolExecutor
+except ImportError:
+    ThreadPoolExecutor = None
+
+from test.support import run_unittest, TESTFN, DirsOnSysPath, cpython_only
+from test.support import MISSING_C_DOCSTRINGS
+from test.script_helper import assert_python_ok, assert_python_failure
+from test import inspect_fodder as mod
+from test import inspect_fodder2 as mod2
+
+
+# Functions tested in this suite:
+# ismodule, isclass, ismethod, isfunction, istraceback, isframe, iscode,
+# isbuiltin, isroutine, isgenerator, isgeneratorfunction, getmembers,
+# getdoc, getfile, getmodule, getsourcefile, getcomments, getsource,
+# getclasstree, getargspec, getargvalues, formatargspec, formatargvalues,
+# currentframe, stack, trace, isdatadescriptor
+
+# NOTE: There are some additional tests relating to interaction with
+#       zipimport in the test_zipimport_support test module.
+
+modfile = mod.__file__
+if modfile.endswith((&#39;c&#39;, &#39;o&#39;)):
+    modfile = modfile[:-1]
+
+# Normalize file names: on Windows, the case of file names of compiled
+# modules depends on the path used to start the python executable.
+modfile = normcase(modfile)
+
+<div class="viewcode-block" id="revise"><a class="viewcode-back" href="../../test.html#test.test_inspect.revise">[docs]</a>def revise(filename, *args):
+    return (normcase(filename),) + args
+</div>
+import builtins
+
+git = mod.StupidGit()
+
+<div class="viewcode-block" id="IsTestBase"><a class="viewcode-back" href="../../test.html#test.test_inspect.IsTestBase">[docs]</a>class IsTestBase(unittest.TestCase):
+    predicates = set([inspect.isbuiltin, inspect.isclass, inspect.iscode,
+                      inspect.isframe, inspect.isfunction, inspect.ismethod,
+                      inspect.ismodule, inspect.istraceback,
+                      inspect.isgenerator, inspect.isgeneratorfunction])
+
+<div class="viewcode-block" id="IsTestBase.istest"><a class="viewcode-back" href="../../test.html#test.test_inspect.IsTestBase.istest">[docs]</a>    def istest(self, predicate, exp):
+        obj = eval(exp)
+        self.assertTrue(predicate(obj), &#39;%s(%s)&#39; % (predicate.__name__, exp))
+
+        for other in self.predicates - set([predicate]):
+            if predicate == inspect.isgeneratorfunction and\
+               other == inspect.isfunction:
+                continue
+            self.assertFalse(other(obj), &#39;not %s(%s)&#39; % (other.__name__, exp))
+</div></div>
+<div class="viewcode-block" id="generator_function_example"><a class="viewcode-back" href="../../test.html#test.test_inspect.generator_function_example">[docs]</a>def generator_function_example(self):
+    for i in range(2):
+        yield i
+</div>
+<div class="viewcode-block" id="TestPredicates"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestPredicates">[docs]</a>class TestPredicates(IsTestBase):
+<div class="viewcode-block" id="TestPredicates.test_sixteen"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestPredicates.test_sixteen">[docs]</a>    def test_sixteen(self):
+        count = len([x for x in dir(inspect) if x.startswith(&#39;is&#39;)])
+        # This test is here for remember you to update Doc/library/inspect.rst
+        # which claims there are 16 such functions
+        expected = 16
+        err_msg = &quot;There are %d (not %d) is* functions&quot; % (count, expected)
+        self.assertEqual(count, expected, err_msg)
+
+</div>
+<div class="viewcode-block" id="TestPredicates.test_excluding_predicates"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestPredicates.test_excluding_predicates">[docs]</a>    def test_excluding_predicates(self):
+        global tb
+        self.istest(inspect.isbuiltin, &#39;sys.exit&#39;)
+        self.istest(inspect.isbuiltin, &#39;[].append&#39;)
+        self.istest(inspect.iscode, &#39;mod.spam.__code__&#39;)
+        try:
+            1/0
+        except:
+            tb = sys.exc_info()[2]
+            self.istest(inspect.isframe, &#39;tb.tb_frame&#39;)
+            self.istest(inspect.istraceback, &#39;tb&#39;)
+            if hasattr(types, &#39;GetSetDescriptorType&#39;):
+                self.istest(inspect.isgetsetdescriptor,
+                            &#39;type(tb.tb_frame).f_locals&#39;)
+            else:
+                self.assertFalse(inspect.isgetsetdescriptor(type(tb.tb_frame).f_locals))
+        finally:
+            # Clear traceback and all the frames and local variables hanging to it.
+            tb = None
+        self.istest(inspect.isfunction, &#39;mod.spam&#39;)
+        self.istest(inspect.isfunction, &#39;mod.StupidGit.abuse&#39;)
+        self.istest(inspect.ismethod, &#39;git.argue&#39;)
+        self.istest(inspect.ismodule, &#39;mod&#39;)
+        self.istest(inspect.isdatadescriptor, &#39;collections.defaultdict.default_factory&#39;)
+        self.istest(inspect.isgenerator, &#39;(x for x in range(2))&#39;)
+        self.istest(inspect.isgeneratorfunction, &#39;generator_function_example&#39;)
+        if hasattr(types, &#39;MemberDescriptorType&#39;):
+            self.istest(inspect.ismemberdescriptor, &#39;datetime.timedelta.days&#39;)
+        else:
+            self.assertFalse(inspect.ismemberdescriptor(datetime.timedelta.days))
+</div>
+<div class="viewcode-block" id="TestPredicates.test_isroutine"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestPredicates.test_isroutine">[docs]</a>    def test_isroutine(self):
+        self.assertTrue(inspect.isroutine(mod.spam))
+        self.assertTrue(inspect.isroutine([].count))
+</div>
+<div class="viewcode-block" id="TestPredicates.test_isclass"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestPredicates.test_isclass">[docs]</a>    def test_isclass(self):
+        self.istest(inspect.isclass, &#39;mod.StupidGit&#39;)
+        self.assertTrue(inspect.isclass(list))
+
+        class CustomGetattr(object):
+            def __getattr__(self, attr):
+                return None
+        self.assertFalse(inspect.isclass(CustomGetattr()))
+</div>
+<div class="viewcode-block" id="TestPredicates.test_get_slot_members"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestPredicates.test_get_slot_members">[docs]</a>    def test_get_slot_members(self):
+        class C(object):
+            __slots__ = (&quot;a&quot;, &quot;b&quot;)
+        x = C()
+        x.a = 42
+        members = dict(inspect.getmembers(x))
+        self.assertIn(&#39;a&#39;, members)
+        self.assertNotIn(&#39;b&#39;, members)
+</div>
+<div class="viewcode-block" id="TestPredicates.test_isabstract"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestPredicates.test_isabstract">[docs]</a>    def test_isabstract(self):
+        from abc import ABCMeta, abstractmethod
+
+        class AbstractClassExample(metaclass=ABCMeta):
+
+            @abstractmethod
+            def foo(self):
+                pass
+
+        class ClassExample(AbstractClassExample):
+            def foo(self):
+                pass
+
+        a = ClassExample()
+
+        # Test general behaviour.
+        self.assertTrue(inspect.isabstract(AbstractClassExample))
+        self.assertFalse(inspect.isabstract(ClassExample))
+        self.assertFalse(inspect.isabstract(a))
+        self.assertFalse(inspect.isabstract(int))
+        self.assertFalse(inspect.isabstract(5))
+
+</div></div>
+<div class="viewcode-block" id="TestInterpreterStack"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestInterpreterStack">[docs]</a>class TestInterpreterStack(IsTestBase):
+    def __init__(self, *args, **kwargs):
+        unittest.TestCase.__init__(self, *args, **kwargs)
+
+        git.abuse(7, 8, 9)
+
+<div class="viewcode-block" id="TestInterpreterStack.test_abuse_done"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestInterpreterStack.test_abuse_done">[docs]</a>    def test_abuse_done(self):
+        self.istest(inspect.istraceback, &#39;git.ex[2]&#39;)
+        self.istest(inspect.isframe, &#39;mod.fr&#39;)
+</div>
+<div class="viewcode-block" id="TestInterpreterStack.test_stack"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestInterpreterStack.test_stack">[docs]</a>    def test_stack(self):
+        self.assertTrue(len(mod.st) &gt;= 5)
+        self.assertEqual(revise(*mod.st[0][1:]),
+             (modfile, 16, &#39;eggs&#39;, [&#39;    st = inspect.stack()\n&#39;], 0))
+        self.assertEqual(revise(*mod.st[1][1:]),
+             (modfile, 9, &#39;spam&#39;, [&#39;    eggs(b + d, c + f)\n&#39;], 0))
+        self.assertEqual(revise(*mod.st[2][1:]),
+             (modfile, 43, &#39;argue&#39;, [&#39;            spam(a, b, c)\n&#39;], 0))
+        self.assertEqual(revise(*mod.st[3][1:]),
+             (modfile, 39, &#39;abuse&#39;, [&#39;        self.argue(a, b, c)\n&#39;], 0))
+</div>
+<div class="viewcode-block" id="TestInterpreterStack.test_trace"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestInterpreterStack.test_trace">[docs]</a>    def test_trace(self):
+        self.assertEqual(len(git.tr), 3)
+        self.assertEqual(revise(*git.tr[0][1:]),
+             (modfile, 43, &#39;argue&#39;, [&#39;            spam(a, b, c)\n&#39;], 0))
+        self.assertEqual(revise(*git.tr[1][1:]),
+             (modfile, 9, &#39;spam&#39;, [&#39;    eggs(b + d, c + f)\n&#39;], 0))
+        self.assertEqual(revise(*git.tr[2][1:]),
+             (modfile, 18, &#39;eggs&#39;, [&#39;    q = y / 0\n&#39;], 0))
+</div>
+<div class="viewcode-block" id="TestInterpreterStack.test_frame"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestInterpreterStack.test_frame">[docs]</a>    def test_frame(self):
+        args, varargs, varkw, locals = inspect.getargvalues(mod.fr)
+        self.assertEqual(args, [&#39;x&#39;, &#39;y&#39;])
+        self.assertEqual(varargs, None)
+        self.assertEqual(varkw, None)
+        self.assertEqual(locals, {&#39;x&#39;: 11, &#39;p&#39;: 11, &#39;y&#39;: 14})
+        self.assertEqual(inspect.formatargvalues(args, varargs, varkw, locals),
+                         &#39;(x=11, y=14)&#39;)
+</div>
+<div class="viewcode-block" id="TestInterpreterStack.test_previous_frame"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestInterpreterStack.test_previous_frame">[docs]</a>    def test_previous_frame(self):
+        args, varargs, varkw, locals = inspect.getargvalues(mod.fr.f_back)
+        self.assertEqual(args, [&#39;a&#39;, &#39;b&#39;, &#39;c&#39;, &#39;d&#39;, &#39;e&#39;, &#39;f&#39;])
+        self.assertEqual(varargs, &#39;g&#39;)
+        self.assertEqual(varkw, &#39;h&#39;)
+        self.assertEqual(inspect.formatargvalues(args, varargs, varkw, locals),
+             &#39;(a=7, b=8, c=9, d=3, e=4, f=5, *g=(), **h={})&#39;)
+</div></div>
+<div class="viewcode-block" id="GetSourceBase"><a class="viewcode-back" href="../../test.html#test.test_inspect.GetSourceBase">[docs]</a>class GetSourceBase(unittest.TestCase):
+    # Subclasses must override.
+    fodderModule = None
+
+    def __init__(self, *args, **kwargs):
+        unittest.TestCase.__init__(self, *args, **kwargs)
+
+        with open(inspect.getsourcefile(self.fodderModule)) as fp:
+            self.source = fp.read()
+
+<div class="viewcode-block" id="GetSourceBase.sourcerange"><a class="viewcode-back" href="../../test.html#test.test_inspect.GetSourceBase.sourcerange">[docs]</a>    def sourcerange(self, top, bottom):
+        lines = self.source.split(&quot;\n&quot;)
+        return &quot;\n&quot;.join(lines[top-1:bottom]) + &quot;\n&quot;
+</div>
+<div class="viewcode-block" id="GetSourceBase.assertSourceEqual"><a class="viewcode-back" href="../../test.html#test.test_inspect.GetSourceBase.assertSourceEqual">[docs]</a>    def assertSourceEqual(self, obj, top, bottom):
+        self.assertEqual(inspect.getsource(obj),
+                         self.sourcerange(top, bottom))
+</div></div>
+<div class="viewcode-block" id="TestRetrievingSourceCode"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode">[docs]</a>class TestRetrievingSourceCode(GetSourceBase):
+    fodderModule = mod
+
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getclasses"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getclasses">[docs]</a>    def test_getclasses(self):
+        classes = inspect.getmembers(mod, inspect.isclass)
+        self.assertEqual(classes,
+                         [(&#39;FesteringGob&#39;, mod.FesteringGob),
+                          (&#39;MalodorousPervert&#39;, mod.MalodorousPervert),
+                          (&#39;ParrotDroppings&#39;, mod.ParrotDroppings),
+                          (&#39;StupidGit&#39;, mod.StupidGit),
+                          (&#39;Tit&#39;, mod.MalodorousPervert),
+                         ])
+        tree = inspect.getclasstree([cls[1] for cls in classes])
+        self.assertEqual(tree,
+                         [(object, ()),
+                          [(mod.ParrotDroppings, (object,)),
+                           [(mod.FesteringGob, (mod.MalodorousPervert,
+                                                   mod.ParrotDroppings))
+                            ],
+                           (mod.StupidGit, (object,)),
+                           [(mod.MalodorousPervert, (mod.StupidGit,)),
+                            [(mod.FesteringGob, (mod.MalodorousPervert,
+                                                    mod.ParrotDroppings))
+                             ]
+                            ]
+                           ]
+                          ])
+        tree = inspect.getclasstree([cls[1] for cls in classes], True)
+        self.assertEqual(tree,
+                         [(object, ()),
+                          [(mod.ParrotDroppings, (object,)),
+                           (mod.StupidGit, (object,)),
+                           [(mod.MalodorousPervert, (mod.StupidGit,)),
+                            [(mod.FesteringGob, (mod.MalodorousPervert,
+                                                    mod.ParrotDroppings))
+                             ]
+                            ]
+                           ]
+                          ])
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getfunctions"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getfunctions">[docs]</a>    def test_getfunctions(self):
+        functions = inspect.getmembers(mod, inspect.isfunction)
+        self.assertEqual(functions, [(&#39;eggs&#39;, mod.eggs),
+                                     (&#39;spam&#39;, mod.spam)])
+</div>
+    @unittest.skipIf(sys.flags.optimize &gt;= 2,
+                     &quot;Docstrings are omitted with -O2 and above&quot;)
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getdoc"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getdoc">[docs]</a>    def test_getdoc(self):
+        self.assertEqual(inspect.getdoc(mod), &#39;A module docstring.&#39;)
+        self.assertEqual(inspect.getdoc(mod.StupidGit),
+                         &#39;A longer,\n\nindented\n\ndocstring.&#39;)
+        self.assertEqual(inspect.getdoc(git.abuse),
+                         &#39;Another\n\ndocstring\n\ncontaining\n\ntabs&#39;)
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_cleandoc"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_cleandoc">[docs]</a>    def test_cleandoc(self):
+        self.assertEqual(inspect.cleandoc(&#39;An\n    indented\n    docstring.&#39;),
+                         &#39;An\nindented\ndocstring.&#39;)
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getcomments"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getcomments">[docs]</a>    def test_getcomments(self):
+        self.assertEqual(inspect.getcomments(mod), &#39;# line 1\n&#39;)
+        self.assertEqual(inspect.getcomments(mod.StupidGit), &#39;# line 20\n&#39;)
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getmodule"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getmodule">[docs]</a>    def test_getmodule(self):
+        # Check actual module
+        self.assertEqual(inspect.getmodule(mod), mod)
+        # Check class (uses __module__ attribute)
+        self.assertEqual(inspect.getmodule(mod.StupidGit), mod)
+        # Check a method (no __module__ attribute, falls back to filename)
+        self.assertEqual(inspect.getmodule(mod.StupidGit.abuse), mod)
+        # Do it again (check the caching isn&#39;t broken)
+        self.assertEqual(inspect.getmodule(mod.StupidGit.abuse), mod)
+        # Check a builtin
+        self.assertEqual(inspect.getmodule(str), sys.modules[&quot;builtins&quot;])
+        # Check filename override
+        self.assertEqual(inspect.getmodule(None, modfile), mod)
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getsource"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getsource">[docs]</a>    def test_getsource(self):
+        self.assertSourceEqual(git.abuse, 29, 39)
+        self.assertSourceEqual(mod.StupidGit, 21, 46)
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getsourcefile"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getsourcefile">[docs]</a>    def test_getsourcefile(self):
+        self.assertEqual(normcase(inspect.getsourcefile(mod.spam)), modfile)
+        self.assertEqual(normcase(inspect.getsourcefile(git.abuse)), modfile)
+        fn = &quot;_non_existing_filename_used_for_sourcefile_test.py&quot;
+        co = compile(&quot;None&quot;, fn, &quot;exec&quot;)
+        self.assertEqual(inspect.getsourcefile(co), None)
+        linecache.cache[co.co_filename] = (1, None, &quot;None&quot;, co.co_filename)
+        try:
+            self.assertEqual(normcase(inspect.getsourcefile(co)), fn)
+        finally:
+            del linecache.cache[co.co_filename]
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getfile"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getfile">[docs]</a>    def test_getfile(self):
+        self.assertEqual(inspect.getfile(mod.StupidGit), mod.__file__)
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getfile_class_without_module"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getfile_class_without_module">[docs]</a>    def test_getfile_class_without_module(self):
+        class CM(type):
+            @property
+            def __module__(cls):
+                raise AttributeError
+        class C(metaclass=CM):
+            pass
+        with self.assertRaises(TypeError):
+            inspect.getfile(C)
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_getmodule_recursion"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_getmodule_recursion">[docs]</a>    def test_getmodule_recursion(self):
+        from types import ModuleType
+        name = &#39;__inspect_dummy&#39;
+        m = sys.modules[name] = ModuleType(name)
+        m.__file__ = &quot;&lt;string&gt;&quot; # hopefully not a real filename...
+        m.__loader__ = &quot;dummy&quot;  # pretend the filename is understood by a loader
+        exec(&quot;def x(): pass&quot;, m.__dict__)
+        self.assertEqual(inspect.getsourcefile(m.x.__code__), &#39;&lt;string&gt;&#39;)
+        del sys.modules[name]
+        inspect.getmodule(compile(&#39;a=10&#39;,&#39;&#39;,&#39;single&#39;))
+</div>
+<div class="viewcode-block" id="TestRetrievingSourceCode.test_proceed_with_fake_filename"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestRetrievingSourceCode.test_proceed_with_fake_filename">[docs]</a>    def test_proceed_with_fake_filename(self):
+        &#39;&#39;&#39;doctest monkeypatches linecache to enable inspection&#39;&#39;&#39;
+        fn, source = &#39;&lt;test&gt;&#39;, &#39;def x(): pass\n&#39;
+        getlines = linecache.getlines
+        def monkey(filename, module_globals=None):
+            if filename == fn:
+                return source.splitlines(keepends=True)
+            else:
+                return getlines(filename, module_globals)
+        linecache.getlines = monkey
+        try:
+            ns = {}
+            exec(compile(source, fn, &#39;single&#39;), ns)
+            inspect.getsource(ns[&quot;x&quot;])
+        finally:
+            linecache.getlines = getlines
+</div></div>
+<div class="viewcode-block" id="TestDecorators"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestDecorators">[docs]</a>class TestDecorators(GetSourceBase):
+    fodderModule = mod2
+
+<div class="viewcode-block" id="TestDecorators.test_wrapped_decorator"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestDecorators.test_wrapped_decorator">[docs]</a>    def test_wrapped_decorator(self):
+        self.assertSourceEqual(mod2.wrapped, 14, 17)
+</div>
+<div class="viewcode-block" id="TestDecorators.test_replacing_decorator"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestDecorators.test_replacing_decorator">[docs]</a>    def test_replacing_decorator(self):
+        self.assertSourceEqual(mod2.gone, 9, 10)
+</div></div>
+<div class="viewcode-block" id="TestOneliners"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners">[docs]</a>class TestOneliners(GetSourceBase):
+    fodderModule = mod2
+<div class="viewcode-block" id="TestOneliners.test_oneline_lambda"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners.test_oneline_lambda">[docs]</a>    def test_oneline_lambda(self):
+        # Test inspect.getsource with a one-line lambda function.
+        self.assertSourceEqual(mod2.oll, 25, 25)
+</div>
+<div class="viewcode-block" id="TestOneliners.test_threeline_lambda"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners.test_threeline_lambda">[docs]</a>    def test_threeline_lambda(self):
+        # Test inspect.getsource with a three-line lambda function,
+        # where the second and third lines are _not_ indented.
+        self.assertSourceEqual(mod2.tll, 28, 30)
+</div>
+<div class="viewcode-block" id="TestOneliners.test_twoline_indented_lambda"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners.test_twoline_indented_lambda">[docs]</a>    def test_twoline_indented_lambda(self):
+        # Test inspect.getsource with a two-line lambda function,
+        # where the second line _is_ indented.
+        self.assertSourceEqual(mod2.tlli, 33, 34)
+</div>
+<div class="viewcode-block" id="TestOneliners.test_onelinefunc"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners.test_onelinefunc">[docs]</a>    def test_onelinefunc(self):
+        # Test inspect.getsource with a regular one-line function.
+        self.assertSourceEqual(mod2.onelinefunc, 37, 37)
+</div>
+<div class="viewcode-block" id="TestOneliners.test_manyargs"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners.test_manyargs">[docs]</a>    def test_manyargs(self):
+        # Test inspect.getsource with a regular function where
+        # the arguments are on two lines and _not_ indented and
+        # the body on the second line with the last arguments.
+        self.assertSourceEqual(mod2.manyargs, 40, 41)
+</div>
+<div class="viewcode-block" id="TestOneliners.test_twolinefunc"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners.test_twolinefunc">[docs]</a>    def test_twolinefunc(self):
+        # Test inspect.getsource with a regular function where
+        # the body is on two lines, following the argument list and
+        # continued on the next line by a \\.
+        self.assertSourceEqual(mod2.twolinefunc, 44, 45)
+</div>
+<div class="viewcode-block" id="TestOneliners.test_lambda_in_list"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners.test_lambda_in_list">[docs]</a>    def test_lambda_in_list(self):
+        # Test inspect.getsource with a one-line lambda function
+        # defined in a list, indented.
+        self.assertSourceEqual(mod2.a[1], 49, 49)
+</div>
+<div class="viewcode-block" id="TestOneliners.test_anonymous"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestOneliners.test_anonymous">[docs]</a>    def test_anonymous(self):
+        # Test inspect.getsource with a lambda function defined
+        # as argument to another function.
+        self.assertSourceEqual(mod2.anonymous, 55, 55)
+</div></div>
+<div class="viewcode-block" id="TestBuggyCases"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases">[docs]</a>class TestBuggyCases(GetSourceBase):
+    fodderModule = mod2
+
+<div class="viewcode-block" id="TestBuggyCases.test_with_comment"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_with_comment">[docs]</a>    def test_with_comment(self):
+        self.assertSourceEqual(mod2.with_comment, 58, 59)
+</div>
+<div class="viewcode-block" id="TestBuggyCases.test_multiline_sig"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_multiline_sig">[docs]</a>    def test_multiline_sig(self):
+        self.assertSourceEqual(mod2.multiline_sig[0], 63, 64)
+</div>
+<div class="viewcode-block" id="TestBuggyCases.test_nested_class"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_nested_class">[docs]</a>    def test_nested_class(self):
+        self.assertSourceEqual(mod2.func69().func71, 71, 72)
+</div>
+<div class="viewcode-block" id="TestBuggyCases.test_one_liner_followed_by_non_name"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_one_liner_followed_by_non_name">[docs]</a>    def test_one_liner_followed_by_non_name(self):
+        self.assertSourceEqual(mod2.func77, 77, 77)
+</div>
+<div class="viewcode-block" id="TestBuggyCases.test_one_liner_dedent_non_name"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_one_liner_dedent_non_name">[docs]</a>    def test_one_liner_dedent_non_name(self):
+        self.assertSourceEqual(mod2.cls82.func83, 83, 83)
+</div>
+<div class="viewcode-block" id="TestBuggyCases.test_with_comment_instead_of_docstring"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_with_comment_instead_of_docstring">[docs]</a>    def test_with_comment_instead_of_docstring(self):
+        self.assertSourceEqual(mod2.func88, 88, 90)
+</div>
+<div class="viewcode-block" id="TestBuggyCases.test_method_in_dynamic_class"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_method_in_dynamic_class">[docs]</a>    def test_method_in_dynamic_class(self):
+        self.assertSourceEqual(mod2.method_in_dynamic_class, 95, 97)
+</div>
+    @unittest.skipIf(
+        not hasattr(unicodedata, &#39;__file__&#39;) or
+            unicodedata.__file__[-4:] in (&quot;.pyc&quot;, &quot;.pyo&quot;),
+        &quot;unicodedata is not an external binary module&quot;)
+<div class="viewcode-block" id="TestBuggyCases.test_findsource_binary"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_findsource_binary">[docs]</a>    def test_findsource_binary(self):
+        self.assertRaises(OSError, inspect.getsource, unicodedata)
+        self.assertRaises(OSError, inspect.findsource, unicodedata)
+</div>
+<div class="viewcode-block" id="TestBuggyCases.test_findsource_code_in_linecache"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_findsource_code_in_linecache">[docs]</a>    def test_findsource_code_in_linecache(self):
+        lines = [&quot;x=1&quot;]
+        co = compile(lines[0], &quot;_dynamically_created_file&quot;, &quot;exec&quot;)
+        self.assertRaises(OSError, inspect.findsource, co)
+        self.assertRaises(OSError, inspect.getsource, co)
+        linecache.cache[co.co_filename] = (1, None, lines, co.co_filename)
+        try:
+            self.assertEqual(inspect.findsource(co), (lines,0))
+            self.assertEqual(inspect.getsource(co), lines[0])
+        finally:
+            del linecache.cache[co.co_filename]
+</div>
+<div class="viewcode-block" id="TestBuggyCases.test_findsource_without_filename"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBuggyCases.test_findsource_without_filename">[docs]</a>    def test_findsource_without_filename(self):
+        for fname in [&#39;&#39;, &#39;&lt;string&gt;&#39;]:
+            co = compile(&#39;x=1&#39;, fname, &quot;exec&quot;)
+            self.assertRaises(IOError, inspect.findsource, co)
+            self.assertRaises(IOError, inspect.getsource, co)
+</div></div>
+<div class="viewcode-block" id="TestNoEOL"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestNoEOL">[docs]</a>class TestNoEOL(GetSourceBase):
+    def __init__(self, *args, **kwargs):
+        self.tempdir = TESTFN + &#39;_dir&#39;
+        os.mkdir(self.tempdir)
+        with open(os.path.join(self.tempdir,
+                               &#39;inspect_fodder3%spy&#39; % os.extsep), &#39;w&#39;) as f:
+            f.write(&quot;class X:\n    pass # No EOL&quot;)
+        with DirsOnSysPath(self.tempdir):
+            import inspect_fodder3 as mod3
+        self.fodderModule = mod3
+        GetSourceBase.__init__(self, *args, **kwargs)
+
+<div class="viewcode-block" id="TestNoEOL.tearDown"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestNoEOL.tearDown">[docs]</a>    def tearDown(self):
+        shutil.rmtree(self.tempdir)
+</div>
+<div class="viewcode-block" id="TestNoEOL.test_class"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestNoEOL.test_class">[docs]</a>    def test_class(self):
+        self.assertSourceEqual(self.fodderModule.X, 1, 2)
+
+</div></div>
+class _BrokenDataDescriptor(object):
+    &quot;&quot;&quot;
+    A broken data descriptor. See bug #1785.
+    &quot;&quot;&quot;
+    def __get__(*args):
+        raise AttributeError(&quot;broken data descriptor&quot;)
+
+    def __set__(*args):
+        raise RuntimeError
+
+    def __getattr__(*args):
+        raise AttributeError(&quot;broken data descriptor&quot;)
+
+
+class _BrokenMethodDescriptor(object):
+    &quot;&quot;&quot;
+    A broken method descriptor. See bug #1785.
+    &quot;&quot;&quot;
+    def __get__(*args):
+        raise AttributeError(&quot;broken method descriptor&quot;)
+
+    def __getattr__(*args):
+        raise AttributeError(&quot;broken method descriptor&quot;)
+
+
+# Helper for testing classify_class_attrs.
+<div class="viewcode-block" id="attrs_wo_objs"><a class="viewcode-back" href="../../test.html#test.test_inspect.attrs_wo_objs">[docs]</a>def attrs_wo_objs(cls):
+    return [t[:3] for t in inspect.classify_class_attrs(cls)]
+
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions">[docs]</a>class TestClassesAndFunctions(unittest.TestCase):
+<div class="viewcode-block" id="TestClassesAndFunctions.test_newstyle_mro"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_newstyle_mro">[docs]</a>    def test_newstyle_mro(self):
+        # The same w/ new-class MRO.
+        class A(object):    pass
+        class B(A): pass
+        class C(A): pass
+        class D(B, C): pass
+
+        expected = (D, B, C, A, object)
+        got = inspect.getmro(D)
+        self.assertEqual(expected, got)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.assertArgSpecEquals"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.assertArgSpecEquals">[docs]</a>    def assertArgSpecEquals(self, routine, args_e, varargs_e=None,
+                            varkw_e=None, defaults_e=None, formatted=None):
+        args, varargs, varkw, defaults = inspect.getargspec(routine)
+        self.assertEqual(args, args_e)
+        self.assertEqual(varargs, varargs_e)
+        self.assertEqual(varkw, varkw_e)
+        self.assertEqual(defaults, defaults_e)
+        if formatted is not None:
+            self.assertEqual(inspect.formatargspec(args, varargs, varkw, defaults),
+                             formatted)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.assertFullArgSpecEquals"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.assertFullArgSpecEquals">[docs]</a>    def assertFullArgSpecEquals(self, routine, args_e, varargs_e=None,
+                                    varkw_e=None, defaults_e=None,
+                                    kwonlyargs_e=[], kwonlydefaults_e=None,
+                                    ann_e={}, formatted=None):
+        args, varargs, varkw, defaults, kwonlyargs, kwonlydefaults, ann = \
+            inspect.getfullargspec(routine)
+        self.assertEqual(args, args_e)
+        self.assertEqual(varargs, varargs_e)
+        self.assertEqual(varkw, varkw_e)
+        self.assertEqual(defaults, defaults_e)
+        self.assertEqual(kwonlyargs, kwonlyargs_e)
+        self.assertEqual(kwonlydefaults, kwonlydefaults_e)
+        self.assertEqual(ann, ann_e)
+        if formatted is not None:
+            self.assertEqual(inspect.formatargspec(args, varargs, varkw, defaults,
+                                                    kwonlyargs, kwonlydefaults, ann),
+                             formatted)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getargspec"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getargspec">[docs]</a>    def test_getargspec(self):
+        self.assertArgSpecEquals(mod.eggs, [&#39;x&#39;, &#39;y&#39;], formatted=&#39;(x, y)&#39;)
+
+        self.assertArgSpecEquals(mod.spam,
+                                 [&#39;a&#39;, &#39;b&#39;, &#39;c&#39;, &#39;d&#39;, &#39;e&#39;, &#39;f&#39;],
+                                 &#39;g&#39;, &#39;h&#39;, (3, 4, 5),
+                                 &#39;(a, b, c, d=3, e=4, f=5, *g, **h)&#39;)
+
+        self.assertRaises(ValueError, self.assertArgSpecEquals,
+                          mod2.keyworded, [])
+
+        self.assertRaises(ValueError, self.assertArgSpecEquals,
+                          mod2.annotated, [])
+        self.assertRaises(ValueError, self.assertArgSpecEquals,
+                          mod2.keyword_only_arg, [])
+
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getfullargspec"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getfullargspec">[docs]</a>    def test_getfullargspec(self):
+        self.assertFullArgSpecEquals(mod2.keyworded, [], varargs_e=&#39;arg1&#39;,
+                                     kwonlyargs_e=[&#39;arg2&#39;],
+                                     kwonlydefaults_e={&#39;arg2&#39;:1},
+                                     formatted=&#39;(*arg1, arg2=1)&#39;)
+
+        self.assertFullArgSpecEquals(mod2.annotated, [&#39;arg1&#39;],
+                                     ann_e={&#39;arg1&#39; : list},
+                                     formatted=&#39;(arg1: list)&#39;)
+        self.assertFullArgSpecEquals(mod2.keyword_only_arg, [],
+                                     kwonlyargs_e=[&#39;arg&#39;],
+                                     formatted=&#39;(*, arg)&#39;)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_argspec_api_ignores_wrapped"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_argspec_api_ignores_wrapped">[docs]</a>    def test_argspec_api_ignores_wrapped(self):
+        # Issue 20684: low level introspection API must ignore __wrapped__
+        @functools.wraps(mod.spam)
+        def ham(x, y):
+            pass
+        # Basic check
+        self.assertArgSpecEquals(ham, [&#39;x&#39;, &#39;y&#39;], formatted=&#39;(x, y)&#39;)
+        self.assertFullArgSpecEquals(ham, [&#39;x&#39;, &#39;y&#39;], formatted=&#39;(x, y)&#39;)
+        self.assertFullArgSpecEquals(functools.partial(ham),
+                                     [&#39;x&#39;, &#39;y&#39;], formatted=&#39;(x, y)&#39;)
+        # Other variants
+        def check_method(f):
+            self.assertArgSpecEquals(f, [&#39;self&#39;, &#39;x&#39;, &#39;y&#39;],
+                                        formatted=&#39;(self, x, y)&#39;)
+        class C:
+            @functools.wraps(mod.spam)
+            def ham(self, x, y):
+                pass
+            pham = functools.partialmethod(ham)
+            @functools.wraps(mod.spam)
+            def __call__(self, x, y):
+                pass
+        check_method(C())
+        check_method(C.ham)
+        check_method(C().ham)
+        check_method(C.pham)
+        check_method(C().pham)
+
+        class C_new:
+            @functools.wraps(mod.spam)
+            def __new__(self, x, y):
+                pass
+        check_method(C_new)
+
+        class C_init:
+            @functools.wraps(mod.spam)
+            def __init__(self, x, y):
+                pass
+        check_method(C_init)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getfullargspec_signature_attr"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getfullargspec_signature_attr">[docs]</a>    def test_getfullargspec_signature_attr(self):
+        def test():
+            pass
+        spam_param = inspect.Parameter(&#39;spam&#39;, inspect.Parameter.POSITIONAL_ONLY)
+        test.__signature__ = inspect.Signature(parameters=(spam_param,))
+
+        self.assertFullArgSpecEquals(test, args_e=[&#39;spam&#39;], formatted=&#39;(spam)&#39;)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getfullargspec_signature_annos"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getfullargspec_signature_annos">[docs]</a>    def test_getfullargspec_signature_annos(self):
+        def test(a:&#39;spam&#39;) -&gt; &#39;ham&#39;: pass
+        spec = inspect.getfullargspec(test)
+        self.assertEqual(test.__annotations__, spec.annotations)
+
+        def test(): pass
+        spec = inspect.getfullargspec(test)
+        self.assertEqual(test.__annotations__, spec.annotations)
+</div>
+    @unittest.skipIf(MISSING_C_DOCSTRINGS,
+                     &quot;Signature information for builtins requires docstrings&quot;)
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getfullargspec_builtin_methods"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getfullargspec_builtin_methods">[docs]</a>    def test_getfullargspec_builtin_methods(self):
+        self.assertFullArgSpecEquals(_pickle.Pickler.dump,
+                                     args_e=[&#39;self&#39;, &#39;obj&#39;], formatted=&#39;(self, obj)&#39;)
+
+        self.assertFullArgSpecEquals(_pickle.Pickler(io.BytesIO()).dump,
+                                     args_e=[&#39;self&#39;, &#39;obj&#39;], formatted=&#39;(self, obj)&#39;)
+
+        self.assertFullArgSpecEquals(
+             os.stat,
+             args_e=[&#39;path&#39;],
+             kwonlyargs_e=[&#39;dir_fd&#39;, &#39;follow_symlinks&#39;],
+             kwonlydefaults_e={&#39;dir_fd&#39;: None, &#39;follow_symlinks&#39;: True},
+             formatted=&#39;(path, *, dir_fd=None, follow_symlinks=True)&#39;)
+</div>
+    @cpython_only
+    @unittest.skipIf(MISSING_C_DOCSTRINGS,
+                     &quot;Signature information for builtins requires docstrings&quot;)
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getfullagrspec_builtin_func"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getfullagrspec_builtin_func">[docs]</a>    def test_getfullagrspec_builtin_func(self):
+        import _testcapi
+        builtin = _testcapi.docstring_with_signature_with_defaults
+        spec = inspect.getfullargspec(builtin)
+        self.assertEqual(spec.defaults[0], &#39;avocado&#39;)
+</div>
+    @cpython_only
+    @unittest.skipIf(MISSING_C_DOCSTRINGS,
+                     &quot;Signature information for builtins requires docstrings&quot;)
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getfullagrspec_builtin_func_no_signature"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getfullagrspec_builtin_func_no_signature">[docs]</a>    def test_getfullagrspec_builtin_func_no_signature(self):
+        import _testcapi
+        builtin = _testcapi.docstring_no_signature
+        with self.assertRaises(TypeError):
+            inspect.getfullargspec(builtin)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getargspec_method"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getargspec_method">[docs]</a>    def test_getargspec_method(self):
+        class A(object):
+            def m(self):
+                pass
+        self.assertArgSpecEquals(A.m, [&#39;self&#39;])
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_classify_newstyle"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_classify_newstyle">[docs]</a>    def test_classify_newstyle(self):
+        class A(object):
+
+            def s(): pass
+            s = staticmethod(s)
+
+            def c(cls): pass
+            c = classmethod(c)
+
+            def getp(self): pass
+            p = property(getp)
+
+            def m(self): pass
+
+            def m1(self): pass
+
+            datablob = &#39;1&#39;
+
+            dd = _BrokenDataDescriptor()
+            md = _BrokenMethodDescriptor()
+
+        attrs = attrs_wo_objs(A)
+
+        self.assertIn((&#39;__new__&#39;, &#39;method&#39;, object), attrs, &#39;missing __new__&#39;)
+        self.assertIn((&#39;__init__&#39;, &#39;method&#39;, object), attrs, &#39;missing __init__&#39;)
+
+        self.assertIn((&#39;s&#39;, &#39;static method&#39;, A), attrs, &#39;missing static method&#39;)
+        self.assertIn((&#39;c&#39;, &#39;class method&#39;, A), attrs, &#39;missing class method&#39;)
+        self.assertIn((&#39;p&#39;, &#39;property&#39;, A), attrs, &#39;missing property&#39;)
+        self.assertIn((&#39;m&#39;, &#39;method&#39;, A), attrs,
+                      &#39;missing plain method: %r&#39; % attrs)
+        self.assertIn((&#39;m1&#39;, &#39;method&#39;, A), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;datablob&#39;, &#39;data&#39;, A), attrs, &#39;missing data&#39;)
+        self.assertIn((&#39;md&#39;, &#39;method&#39;, A), attrs, &#39;missing method descriptor&#39;)
+        self.assertIn((&#39;dd&#39;, &#39;data&#39;, A), attrs, &#39;missing data descriptor&#39;)
+
+        class B(A):
+
+            def m(self): pass
+
+        attrs = attrs_wo_objs(B)
+        self.assertIn((&#39;s&#39;, &#39;static method&#39;, A), attrs, &#39;missing static method&#39;)
+        self.assertIn((&#39;c&#39;, &#39;class method&#39;, A), attrs, &#39;missing class method&#39;)
+        self.assertIn((&#39;p&#39;, &#39;property&#39;, A), attrs, &#39;missing property&#39;)
+        self.assertIn((&#39;m&#39;, &#39;method&#39;, B), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;m1&#39;, &#39;method&#39;, A), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;datablob&#39;, &#39;data&#39;, A), attrs, &#39;missing data&#39;)
+        self.assertIn((&#39;md&#39;, &#39;method&#39;, A), attrs, &#39;missing method descriptor&#39;)
+        self.assertIn((&#39;dd&#39;, &#39;data&#39;, A), attrs, &#39;missing data descriptor&#39;)
+
+
+        class C(A):
+
+            def m(self): pass
+            def c(self): pass
+
+        attrs = attrs_wo_objs(C)
+        self.assertIn((&#39;s&#39;, &#39;static method&#39;, A), attrs, &#39;missing static method&#39;)
+        self.assertIn((&#39;c&#39;, &#39;method&#39;, C), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;p&#39;, &#39;property&#39;, A), attrs, &#39;missing property&#39;)
+        self.assertIn((&#39;m&#39;, &#39;method&#39;, C), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;m1&#39;, &#39;method&#39;, A), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;datablob&#39;, &#39;data&#39;, A), attrs, &#39;missing data&#39;)
+        self.assertIn((&#39;md&#39;, &#39;method&#39;, A), attrs, &#39;missing method descriptor&#39;)
+        self.assertIn((&#39;dd&#39;, &#39;data&#39;, A), attrs, &#39;missing data descriptor&#39;)
+
+        class D(B, C):
+
+            def m1(self): pass
+
+        attrs = attrs_wo_objs(D)
+        self.assertIn((&#39;s&#39;, &#39;static method&#39;, A), attrs, &#39;missing static method&#39;)
+        self.assertIn((&#39;c&#39;, &#39;method&#39;, C), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;p&#39;, &#39;property&#39;, A), attrs, &#39;missing property&#39;)
+        self.assertIn((&#39;m&#39;, &#39;method&#39;, B), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;m1&#39;, &#39;method&#39;, D), attrs, &#39;missing plain method&#39;)
+        self.assertIn((&#39;datablob&#39;, &#39;data&#39;, A), attrs, &#39;missing data&#39;)
+        self.assertIn((&#39;md&#39;, &#39;method&#39;, A), attrs, &#39;missing method descriptor&#39;)
+        self.assertIn((&#39;dd&#39;, &#39;data&#39;, A), attrs, &#39;missing data descriptor&#39;)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_classify_builtin_types"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_classify_builtin_types">[docs]</a>    def test_classify_builtin_types(self):
+        # Simple sanity check that all built-in types can have their
+        # attributes classified.
+        for name in dir(__builtins__):
+            builtin = getattr(__builtins__, name)
+            if isinstance(builtin, type):
+                inspect.classify_class_attrs(builtin)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_classify_DynamicClassAttribute"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_classify_DynamicClassAttribute">[docs]</a>    def test_classify_DynamicClassAttribute(self):
+        class Meta(type):
+            def __getattr__(self, name):
+                if name == &#39;ham&#39;:
+                    return &#39;spam&#39;
+                return super().__getattr__(name)
+        class VA(metaclass=Meta):
+            @types.DynamicClassAttribute
+            def ham(self):
+                return &#39;eggs&#39;
+        should_find_dca = inspect.Attribute(&#39;ham&#39;, &#39;data&#39;, VA, VA.__dict__[&#39;ham&#39;])
+        self.assertIn(should_find_dca, inspect.classify_class_attrs(VA))
+        should_find_ga = inspect.Attribute(&#39;ham&#39;, &#39;data&#39;, Meta, &#39;spam&#39;)
+        self.assertIn(should_find_ga, inspect.classify_class_attrs(VA))
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_classify_metaclass_class_attribute"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_classify_metaclass_class_attribute">[docs]</a>    def test_classify_metaclass_class_attribute(self):
+        class Meta(type):
+            fish = &#39;slap&#39;
+            def __dir__(self):
+                return [&#39;__class__&#39;, &#39;__modules__&#39;, &#39;__name__&#39;, &#39;fish&#39;]
+        class Class(metaclass=Meta):
+            pass
+        should_find = inspect.Attribute(&#39;fish&#39;, &#39;data&#39;, Meta, &#39;slap&#39;)
+        self.assertIn(should_find, inspect.classify_class_attrs(Class))
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_classify_VirtualAttribute"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_classify_VirtualAttribute">[docs]</a>    def test_classify_VirtualAttribute(self):
+        class Meta(type):
+            def __dir__(cls):
+                return [&#39;__class__&#39;, &#39;__module__&#39;, &#39;__name__&#39;, &#39;BOOM&#39;]
+            def __getattr__(self, name):
+                if name ==&#39;BOOM&#39;:
+                    return 42
+                return super().__getattr(name)
+        class Class(metaclass=Meta):
+            pass
+        should_find = inspect.Attribute(&#39;BOOM&#39;, &#39;data&#39;, Meta, 42)
+        self.assertIn(should_find, inspect.classify_class_attrs(Class))
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_classify_VirtualAttribute_multi_classes"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_classify_VirtualAttribute_multi_classes">[docs]</a>    def test_classify_VirtualAttribute_multi_classes(self):
+        class Meta1(type):
+            def __dir__(cls):
+                return [&#39;__class__&#39;, &#39;__module__&#39;, &#39;__name__&#39;, &#39;one&#39;]
+            def __getattr__(self, name):
+                if name ==&#39;one&#39;:
+                    return 1
+                return super().__getattr__(name)
+        class Meta2(type):
+            def __dir__(cls):
+                return [&#39;__class__&#39;, &#39;__module__&#39;, &#39;__name__&#39;, &#39;two&#39;]
+            def __getattr__(self, name):
+                if name ==&#39;two&#39;:
+                    return 2
+                return super().__getattr__(name)
+        class Meta3(Meta1, Meta2):
+            def __dir__(cls):
+                return list(sorted(set([&#39;__class__&#39;, &#39;__module__&#39;, &#39;__name__&#39;, &#39;three&#39;] +
+                    Meta1.__dir__(cls) + Meta2.__dir__(cls))))
+            def __getattr__(self, name):
+                if name ==&#39;three&#39;:
+                    return 3
+                return super().__getattr__(name)
+        class Class1(metaclass=Meta1):
+            pass
+        class Class2(Class1, metaclass=Meta3):
+            pass
+
+        should_find1 = inspect.Attribute(&#39;one&#39;, &#39;data&#39;, Meta1, 1)
+        should_find2 = inspect.Attribute(&#39;two&#39;, &#39;data&#39;, Meta2, 2)
+        should_find3 = inspect.Attribute(&#39;three&#39;, &#39;data&#39;, Meta3, 3)
+        cca = inspect.classify_class_attrs(Class2)
+        for sf in (should_find1, should_find2, should_find3):
+            self.assertIn(sf, cca)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_classify_class_attrs_with_buggy_dir"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_classify_class_attrs_with_buggy_dir">[docs]</a>    def test_classify_class_attrs_with_buggy_dir(self):
+        class M(type):
+            def __dir__(cls):
+                return [&#39;__class__&#39;, &#39;__name__&#39;, &#39;missing&#39;]
+        class C(metaclass=M):
+            pass
+        attrs = [a[0] for a in inspect.classify_class_attrs(C)]
+        self.assertNotIn(&#39;missing&#39;, attrs)
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getmembers_descriptors"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getmembers_descriptors">[docs]</a>    def test_getmembers_descriptors(self):
+        class A(object):
+            dd = _BrokenDataDescriptor()
+            md = _BrokenMethodDescriptor()
+
+        def pred_wrapper(pred):
+            # A quick&#39;n&#39;dirty way to discard standard attributes of new-style
+            # classes.
+            class Empty(object):
+                pass
+            def wrapped(x):
+                if &#39;__name__&#39; in dir(x) and hasattr(Empty, x.__name__):
+                    return False
+                return pred(x)
+            return wrapped
+
+        ismethoddescriptor = pred_wrapper(inspect.ismethoddescriptor)
+        isdatadescriptor = pred_wrapper(inspect.isdatadescriptor)
+
+        self.assertEqual(inspect.getmembers(A, ismethoddescriptor),
+            [(&#39;md&#39;, A.__dict__[&#39;md&#39;])])
+        self.assertEqual(inspect.getmembers(A, isdatadescriptor),
+            [(&#39;dd&#39;, A.__dict__[&#39;dd&#39;])])
+
+        class B(A):
+            pass
+
+        self.assertEqual(inspect.getmembers(B, ismethoddescriptor),
+            [(&#39;md&#39;, A.__dict__[&#39;md&#39;])])
+        self.assertEqual(inspect.getmembers(B, isdatadescriptor),
+            [(&#39;dd&#39;, A.__dict__[&#39;dd&#39;])])
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getmembers_method"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getmembers_method">[docs]</a>    def test_getmembers_method(self):
+        class B:
+            def f(self):
+                pass
+
+        self.assertIn((&#39;f&#39;, B.f), inspect.getmembers(B))
+        self.assertNotIn((&#39;f&#39;, B.f), inspect.getmembers(B, inspect.ismethod))
+        b = B()
+        self.assertIn((&#39;f&#39;, b.f), inspect.getmembers(b))
+        self.assertIn((&#39;f&#39;, b.f), inspect.getmembers(b, inspect.ismethod))
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getmembers_VirtualAttribute"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getmembers_VirtualAttribute">[docs]</a>    def test_getmembers_VirtualAttribute(self):
+        class M(type):
+            def __getattr__(cls, name):
+                if name == &#39;eggs&#39;:
+                    return &#39;scrambled&#39;
+                return super().__getattr__(name)
+        class A(metaclass=M):
+            @types.DynamicClassAttribute
+            def eggs(self):
+                return &#39;spam&#39;
+        self.assertIn((&#39;eggs&#39;, &#39;scrambled&#39;), inspect.getmembers(A))
+        self.assertIn((&#39;eggs&#39;, &#39;spam&#39;), inspect.getmembers(A()))
+</div>
+<div class="viewcode-block" id="TestClassesAndFunctions.test_getmembers_with_buggy_dir"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestClassesAndFunctions.test_getmembers_with_buggy_dir">[docs]</a>    def test_getmembers_with_buggy_dir(self):
+        class M(type):
+            def __dir__(cls):
+                return [&#39;__class__&#39;, &#39;__name__&#39;, &#39;missing&#39;]
+        class C(metaclass=M):
+            pass
+        attrs = [a[0] for a in inspect.getmembers(C)]
+        self.assertNotIn(&#39;missing&#39;, attrs)
+
+</div></div>
+_global_ref = object()
+<div class="viewcode-block" id="TestGetClosureVars"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars">[docs]</a>class TestGetClosureVars(unittest.TestCase):
+
+<div class="viewcode-block" id="TestGetClosureVars.test_name_resolution"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_name_resolution">[docs]</a>    def test_name_resolution(self):
+        # Basic test of the 4 different resolution mechanisms
+        def f(nonlocal_ref):
+            def g(local_ref):
+                print(local_ref, nonlocal_ref, _global_ref, unbound_ref)
+            return g
+        _arg = object()
+        nonlocal_vars = {&quot;nonlocal_ref&quot;: _arg}
+        global_vars = {&quot;_global_ref&quot;: _global_ref}
+        builtin_vars = {&quot;print&quot;: print}
+        unbound_names = {&quot;unbound_ref&quot;}
+        expected = inspect.ClosureVars(nonlocal_vars, global_vars,
+                                       builtin_vars, unbound_names)
+        self.assertEqual(inspect.getclosurevars(f(_arg)), expected)
+</div>
+<div class="viewcode-block" id="TestGetClosureVars.test_generator_closure"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_generator_closure">[docs]</a>    def test_generator_closure(self):
+        def f(nonlocal_ref):
+            def g(local_ref):
+                print(local_ref, nonlocal_ref, _global_ref, unbound_ref)
+                yield
+            return g
+        _arg = object()
+        nonlocal_vars = {&quot;nonlocal_ref&quot;: _arg}
+        global_vars = {&quot;_global_ref&quot;: _global_ref}
+        builtin_vars = {&quot;print&quot;: print}
+        unbound_names = {&quot;unbound_ref&quot;}
+        expected = inspect.ClosureVars(nonlocal_vars, global_vars,
+                                       builtin_vars, unbound_names)
+        self.assertEqual(inspect.getclosurevars(f(_arg)), expected)
+</div>
+<div class="viewcode-block" id="TestGetClosureVars.test_method_closure"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_method_closure">[docs]</a>    def test_method_closure(self):
+        class C:
+            def f(self, nonlocal_ref):
+                def g(local_ref):
+                    print(local_ref, nonlocal_ref, _global_ref, unbound_ref)
+                return g
+        _arg = object()
+        nonlocal_vars = {&quot;nonlocal_ref&quot;: _arg}
+        global_vars = {&quot;_global_ref&quot;: _global_ref}
+        builtin_vars = {&quot;print&quot;: print}
+        unbound_names = {&quot;unbound_ref&quot;}
+        expected = inspect.ClosureVars(nonlocal_vars, global_vars,
+                                       builtin_vars, unbound_names)
+        self.assertEqual(inspect.getclosurevars(C().f(_arg)), expected)
+</div>
+<div class="viewcode-block" id="TestGetClosureVars.test_nonlocal_vars"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_nonlocal_vars">[docs]</a>    def test_nonlocal_vars(self):
+        # More complex tests of nonlocal resolution
+        def _nonlocal_vars(f):
+            return inspect.getclosurevars(f).nonlocals
+
+        def make_adder(x):
+            def add(y):
+                return x + y
+            return add
+
+        def curry(func, arg1):
+            return lambda arg2: func(arg1, arg2)
+
+        def less_than(a, b):
+            return a &lt; b
+
+        # The infamous Y combinator.
+        def Y(le):
+            def g(f):
+                return le(lambda x: f(f)(x))
+            Y.g_ref = g
+            return g(g)
+
+        def check_y_combinator(func):
+            self.assertEqual(_nonlocal_vars(func), {&#39;f&#39;: Y.g_ref})
+
+        inc = make_adder(1)
+        add_two = make_adder(2)
+        greater_than_five = curry(less_than, 5)
+
+        self.assertEqual(_nonlocal_vars(inc), {&#39;x&#39;: 1})
+        self.assertEqual(_nonlocal_vars(add_two), {&#39;x&#39;: 2})
+        self.assertEqual(_nonlocal_vars(greater_than_five),
+                         {&#39;arg1&#39;: 5, &#39;func&#39;: less_than})
+        self.assertEqual(_nonlocal_vars((lambda x: lambda y: x + y)(3)),
+                         {&#39;x&#39;: 3})
+        Y(check_y_combinator)
+</div>
+<div class="viewcode-block" id="TestGetClosureVars.test_getclosurevars_empty"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_getclosurevars_empty">[docs]</a>    def test_getclosurevars_empty(self):
+        def foo(): pass
+        _empty = inspect.ClosureVars({}, {}, {}, set())
+        self.assertEqual(inspect.getclosurevars(lambda: True), _empty)
+        self.assertEqual(inspect.getclosurevars(foo), _empty)
+</div>
+<div class="viewcode-block" id="TestGetClosureVars.test_getclosurevars_error"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_getclosurevars_error">[docs]</a>    def test_getclosurevars_error(self):
+        class T: pass
+        self.assertRaises(TypeError, inspect.getclosurevars, 1)
+        self.assertRaises(TypeError, inspect.getclosurevars, list)
+        self.assertRaises(TypeError, inspect.getclosurevars, {})
+</div>
+    def _private_globals(self):
+        code = &quot;&quot;&quot;def f(): print(path)&quot;&quot;&quot;
+        ns = {}
+        exec(code, ns)
+        return ns[&quot;f&quot;], ns
+
+<div class="viewcode-block" id="TestGetClosureVars.test_builtins_fallback"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_builtins_fallback">[docs]</a>    def test_builtins_fallback(self):
+        f, ns = self._private_globals()
+        ns.pop(&quot;__builtins__&quot;, None)
+        expected = inspect.ClosureVars({}, {}, {&quot;print&quot;:print}, {&quot;path&quot;})
+        self.assertEqual(inspect.getclosurevars(f), expected)
+</div>
+<div class="viewcode-block" id="TestGetClosureVars.test_builtins_as_dict"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_builtins_as_dict">[docs]</a>    def test_builtins_as_dict(self):
+        f, ns = self._private_globals()
+        ns[&quot;__builtins__&quot;] = {&quot;path&quot;:1}
+        expected = inspect.ClosureVars({}, {}, {&quot;path&quot;:1}, {&quot;print&quot;})
+        self.assertEqual(inspect.getclosurevars(f), expected)
+</div>
+<div class="viewcode-block" id="TestGetClosureVars.test_builtins_as_module"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetClosureVars.test_builtins_as_module">[docs]</a>    def test_builtins_as_module(self):
+        f, ns = self._private_globals()
+        ns[&quot;__builtins__&quot;] = os
+        expected = inspect.ClosureVars({}, {}, {&quot;path&quot;:os.path}, {&quot;print&quot;})
+        self.assertEqual(inspect.getclosurevars(f), expected)
+
+</div></div>
+<div class="viewcode-block" id="TestGetcallargsFunctions"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions">[docs]</a>class TestGetcallargsFunctions(unittest.TestCase):
+
+<div class="viewcode-block" id="TestGetcallargsFunctions.assertEqualCallArgs"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.assertEqualCallArgs">[docs]</a>    def assertEqualCallArgs(self, func, call_params_string, locs=None):
+        locs = dict(locs or {}, func=func)
+        r1 = eval(&#39;func(%s)&#39; % call_params_string, None, locs)
+        r2 = eval(&#39;inspect.getcallargs(func, %s)&#39; % call_params_string, None,
+                  locs)
+        self.assertEqual(r1, r2)
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.assertEqualException"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.assertEqualException">[docs]</a>    def assertEqualException(self, func, call_param_string, locs=None):
+        locs = dict(locs or {}, func=func)
+        try:
+            eval(&#39;func(%s)&#39; % call_param_string, None, locs)
+        except Exception as e:
+            ex1 = e
+        else:
+            self.fail(&#39;Exception not raised&#39;)
+        try:
+            eval(&#39;inspect.getcallargs(func, %s)&#39; % call_param_string, None,
+                 locs)
+        except Exception as e:
+            ex2 = e
+        else:
+            self.fail(&#39;Exception not raised&#39;)
+        self.assertIs(type(ex1), type(ex2))
+        self.assertEqual(str(ex1), str(ex2))
+        del ex1, ex2
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.makeCallable"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.makeCallable">[docs]</a>    def makeCallable(self, signature):
+        &quot;&quot;&quot;Create a function that returns its locals()&quot;&quot;&quot;
+        code = &quot;lambda %s: locals()&quot;
+        return eval(code % signature)
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.test_plain"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.test_plain">[docs]</a>    def test_plain(self):
+        f = self.makeCallable(&#39;a, b=1&#39;)
+        self.assertEqualCallArgs(f, &#39;2&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3&#39;)
+        self.assertEqualCallArgs(f, &#39;a=2&#39;)
+        self.assertEqualCallArgs(f, &#39;b=3, a=2&#39;)
+        self.assertEqualCallArgs(f, &#39;2, b=3&#39;)
+        # expand *iterable / **mapping
+        self.assertEqualCallArgs(f, &#39;*(2,)&#39;)
+        self.assertEqualCallArgs(f, &#39;*[2]&#39;)
+        self.assertEqualCallArgs(f, &#39;*(2, 3)&#39;)
+        self.assertEqualCallArgs(f, &#39;*[2, 3]&#39;)
+        self.assertEqualCallArgs(f, &#39;**{&quot;a&quot;:2}&#39;)
+        self.assertEqualCallArgs(f, &#39;b=3, **{&quot;a&quot;:2}&#39;)
+        self.assertEqualCallArgs(f, &#39;2, **{&quot;b&quot;:3}&#39;)
+        self.assertEqualCallArgs(f, &#39;**{&quot;b&quot;:3, &quot;a&quot;:2}&#39;)
+        # expand UserList / UserDict
+        self.assertEqualCallArgs(f, &#39;*collections.UserList([2])&#39;)
+        self.assertEqualCallArgs(f, &#39;*collections.UserList([2, 3])&#39;)
+        self.assertEqualCallArgs(f, &#39;**collections.UserDict(a=2)&#39;)
+        self.assertEqualCallArgs(f, &#39;2, **collections.UserDict(b=3)&#39;)
+        self.assertEqualCallArgs(f, &#39;b=2, **collections.UserDict(a=3)&#39;)
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.test_varargs"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.test_varargs">[docs]</a>    def test_varargs(self):
+        f = self.makeCallable(&#39;a, b=1, *c&#39;)
+        self.assertEqualCallArgs(f, &#39;2&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3, 4&#39;)
+        self.assertEqualCallArgs(f, &#39;*(2,3,4)&#39;)
+        self.assertEqualCallArgs(f, &#39;2, *[3,4]&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3, *collections.UserList([4])&#39;)
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.test_varkw"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.test_varkw">[docs]</a>    def test_varkw(self):
+        f = self.makeCallable(&#39;a, b=1, **c&#39;)
+        self.assertEqualCallArgs(f, &#39;a=2&#39;)
+        self.assertEqualCallArgs(f, &#39;2, b=3, c=4&#39;)
+        self.assertEqualCallArgs(f, &#39;b=3, a=2, c=4&#39;)
+        self.assertEqualCallArgs(f, &#39;c=4, **{&quot;a&quot;:2, &quot;b&quot;:3}&#39;)
+        self.assertEqualCallArgs(f, &#39;2, c=4, **{&quot;b&quot;:3}&#39;)
+        self.assertEqualCallArgs(f, &#39;b=2, **{&quot;a&quot;:3, &quot;c&quot;:4}&#39;)
+        self.assertEqualCallArgs(f, &#39;**collections.UserDict(a=2, b=3, c=4)&#39;)
+        self.assertEqualCallArgs(f, &#39;2, c=4, **collections.UserDict(b=3)&#39;)
+        self.assertEqualCallArgs(f, &#39;b=2, **collections.UserDict(a=3, c=4)&#39;)
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.test_varkw_only"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.test_varkw_only">[docs]</a>    def test_varkw_only(self):
+        # issue11256:
+        f = self.makeCallable(&#39;**c&#39;)
+        self.assertEqualCallArgs(f, &#39;&#39;)
+        self.assertEqualCallArgs(f, &#39;a=1&#39;)
+        self.assertEqualCallArgs(f, &#39;a=1, b=2&#39;)
+        self.assertEqualCallArgs(f, &#39;c=3, **{&quot;a&quot;: 1, &quot;b&quot;: 2}&#39;)
+        self.assertEqualCallArgs(f, &#39;**collections.UserDict(a=1, b=2)&#39;)
+        self.assertEqualCallArgs(f, &#39;c=3, **collections.UserDict(a=1, b=2)&#39;)
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.test_keyword_only"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.test_keyword_only">[docs]</a>    def test_keyword_only(self):
+        f = self.makeCallable(&#39;a=3, *, c, d=2&#39;)
+        self.assertEqualCallArgs(f, &#39;c=3&#39;)
+        self.assertEqualCallArgs(f, &#39;c=3, a=3&#39;)
+        self.assertEqualCallArgs(f, &#39;a=2, c=4&#39;)
+        self.assertEqualCallArgs(f, &#39;4, c=4&#39;)
+        self.assertEqualException(f, &#39;&#39;)
+        self.assertEqualException(f, &#39;3&#39;)
+        self.assertEqualException(f, &#39;a=3&#39;)
+        self.assertEqualException(f, &#39;d=4&#39;)
+
+        f = self.makeCallable(&#39;*, c, d=2&#39;)
+        self.assertEqualCallArgs(f, &#39;c=3&#39;)
+        self.assertEqualCallArgs(f, &#39;c=3, d=4&#39;)
+        self.assertEqualCallArgs(f, &#39;d=4, c=3&#39;)
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.test_multiple_features"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.test_multiple_features">[docs]</a>    def test_multiple_features(self):
+        f = self.makeCallable(&#39;a, b=2, *f, **g&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3, 7&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3, x=8&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3, x=8, *[(4,[5,6]), 7]&#39;)
+        self.assertEqualCallArgs(f, &#39;2, x=8, *[3, (4,[5,6]), 7], y=9&#39;)
+        self.assertEqualCallArgs(f, &#39;x=8, *[2, 3, (4,[5,6])], y=9&#39;)
+        self.assertEqualCallArgs(f, &#39;x=8, *collections.UserList(&#39;
+                                 &#39;[2, 3, (4,[5,6])]), **{&quot;y&quot;:9, &quot;z&quot;:10}&#39;)
+        self.assertEqualCallArgs(f, &#39;2, x=8, *collections.UserList([3, &#39;
+                                 &#39;(4,[5,6])]), **collections.UserDict(&#39;
+                                 &#39;y=9, z=10)&#39;)
+
+        f = self.makeCallable(&#39;a, b=2, *f, x, y=99, **g&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3, x=8&#39;)
+        self.assertEqualCallArgs(f, &#39;2, 3, x=8, *[(4,[5,6]), 7]&#39;)
+        self.assertEqualCallArgs(f, &#39;2, x=8, *[3, (4,[5,6]), 7], y=9, z=10&#39;)
+        self.assertEqualCallArgs(f, &#39;x=8, *[2, 3, (4,[5,6])], y=9, z=10&#39;)
+        self.assertEqualCallArgs(f, &#39;x=8, *collections.UserList(&#39;
+                                 &#39;[2, 3, (4,[5,6])]), q=0, **{&quot;y&quot;:9, &quot;z&quot;:10}&#39;)
+        self.assertEqualCallArgs(f, &#39;2, x=8, *collections.UserList([3, &#39;
+                                 &#39;(4,[5,6])]), q=0, **collections.UserDict(&#39;
+                                 &#39;y=9, z=10)&#39;)
+</div>
+<div class="viewcode-block" id="TestGetcallargsFunctions.test_errors"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsFunctions.test_errors">[docs]</a>    def test_errors(self):
+        f0 = self.makeCallable(&#39;&#39;)
+        f1 = self.makeCallable(&#39;a, b&#39;)
+        f2 = self.makeCallable(&#39;a, b=1&#39;)
+        # f0 takes no arguments
+        self.assertEqualException(f0, &#39;1&#39;)
+        self.assertEqualException(f0, &#39;x=1&#39;)
+        self.assertEqualException(f0, &#39;1,x=1&#39;)
+        # f1 takes exactly 2 arguments
+        self.assertEqualException(f1, &#39;&#39;)
+        self.assertEqualException(f1, &#39;1&#39;)
+        self.assertEqualException(f1, &#39;a=2&#39;)
+        self.assertEqualException(f1, &#39;b=3&#39;)
+        # f2 takes at least 1 argument
+        self.assertEqualException(f2, &#39;&#39;)
+        self.assertEqualException(f2, &#39;b=3&#39;)
+        for f in f1, f2:
+            # f1/f2 takes exactly/at most 2 arguments
+            self.assertEqualException(f, &#39;2, 3, 4&#39;)
+            self.assertEqualException(f, &#39;1, 2, 3, a=1&#39;)
+            self.assertEqualException(f, &#39;2, 3, 4, c=5&#39;)
+            # XXX: success of this one depends on dict order
+            ## self.assertEqualException(f, &#39;2, 3, 4, a=1, c=5&#39;)
+            # f got an unexpected keyword argument
+            self.assertEqualException(f, &#39;c=2&#39;)
+            self.assertEqualException(f, &#39;2, c=3&#39;)
+            self.assertEqualException(f, &#39;2, 3, c=4&#39;)
+            self.assertEqualException(f, &#39;2, c=4, b=3&#39;)
+            self.assertEqualException(f, &#39;**{u&quot;\u03c0\u03b9&quot;: 4}&#39;)
+            # f got multiple values for keyword argument
+            self.assertEqualException(f, &#39;1, a=2&#39;)
+            self.assertEqualException(f, &#39;1, **{&quot;a&quot;:2}&#39;)
+            self.assertEqualException(f, &#39;1, 2, b=3&#39;)
+            # XXX: Python inconsistency
+            # - for functions and bound methods: unexpected keyword &#39;c&#39;
+            # - for unbound methods: multiple values for keyword &#39;a&#39;
+            #self.assertEqualException(f, &#39;1, c=3, a=2&#39;)
+        # issue11256:
+        f3 = self.makeCallable(&#39;**c&#39;)
+        self.assertEqualException(f3, &#39;1, 2&#39;)
+        self.assertEqualException(f3, &#39;1, 2, a=1, b=2&#39;)
+        f4 = self.makeCallable(&#39;*, a, b=0&#39;)
+        self.assertEqualException(f3, &#39;1, 2&#39;)
+        self.assertEqualException(f3, &#39;1, 2, a=1, b=2&#39;)
+
+        # issue #20816: getcallargs() fails to iterate over non-existent
+        # kwonlydefaults and raises a wrong TypeError
+        def f5(*, a): pass
+        with self.assertRaisesRegex(TypeError,
+                                    &#39;missing 1 required keyword-only&#39;):
+            inspect.getcallargs(f5)
+
+
+        # issue20817:
+        def f6(a, b, c):
+            pass
+        with self.assertRaisesRegex(TypeError, &quot;&#39;a&#39;, &#39;b&#39; and &#39;c&#39;&quot;):
+            inspect.getcallargs(f6)
+</div></div>
+<div class="viewcode-block" id="TestGetcallargsMethods"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsMethods">[docs]</a>class TestGetcallargsMethods(TestGetcallargsFunctions):
+
+<div class="viewcode-block" id="TestGetcallargsMethods.setUp"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsMethods.setUp">[docs]</a>    def setUp(self):
+        class Foo(object):
+            pass
+        self.cls = Foo
+        self.inst = Foo()
+</div>
+<div class="viewcode-block" id="TestGetcallargsMethods.makeCallable"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsMethods.makeCallable">[docs]</a>    def makeCallable(self, signature):
+        assert &#39;self&#39; not in signature
+        mk = super(TestGetcallargsMethods, self).makeCallable
+        self.cls.method = mk(&#39;self, &#39; + signature)
+        return self.inst.method
+</div></div>
+<div class="viewcode-block" id="TestGetcallargsUnboundMethods"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsUnboundMethods">[docs]</a>class TestGetcallargsUnboundMethods(TestGetcallargsMethods):
+
+<div class="viewcode-block" id="TestGetcallargsUnboundMethods.makeCallable"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsUnboundMethods.makeCallable">[docs]</a>    def makeCallable(self, signature):
+        super(TestGetcallargsUnboundMethods, self).makeCallable(signature)
+        return self.cls.method
+</div>
+<div class="viewcode-block" id="TestGetcallargsUnboundMethods.assertEqualCallArgs"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsUnboundMethods.assertEqualCallArgs">[docs]</a>    def assertEqualCallArgs(self, func, call_params_string, locs=None):
+        return super(TestGetcallargsUnboundMethods, self).assertEqualCallArgs(
+            *self._getAssertEqualParams(func, call_params_string, locs))
+</div>
+<div class="viewcode-block" id="TestGetcallargsUnboundMethods.assertEqualException"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetcallargsUnboundMethods.assertEqualException">[docs]</a>    def assertEqualException(self, func, call_params_string, locs=None):
+        return super(TestGetcallargsUnboundMethods, self).assertEqualException(
+            *self._getAssertEqualParams(func, call_params_string, locs))
+</div>
+    def _getAssertEqualParams(self, func, call_params_string, locs=None):
+        assert &#39;inst&#39; not in call_params_string
+        locs = dict(locs or {}, inst=self.inst)
+        return (func, &#39;inst,&#39; + call_params_string, locs)
+
+</div>
+<div class="viewcode-block" id="TestGetattrStatic"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic">[docs]</a>class TestGetattrStatic(unittest.TestCase):
+
+<div class="viewcode-block" id="TestGetattrStatic.test_basic"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_basic">[docs]</a>    def test_basic(self):
+        class Thing(object):
+            x = object()
+
+        thing = Thing()
+        self.assertEqual(inspect.getattr_static(thing, &#39;x&#39;), Thing.x)
+        self.assertEqual(inspect.getattr_static(thing, &#39;x&#39;, None), Thing.x)
+        with self.assertRaises(AttributeError):
+            inspect.getattr_static(thing, &#39;y&#39;)
+
+        self.assertEqual(inspect.getattr_static(thing, &#39;y&#39;, 3), 3)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_inherited"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_inherited">[docs]</a>    def test_inherited(self):
+        class Thing(object):
+            x = object()
+        class OtherThing(Thing):
+            pass
+
+        something = OtherThing()
+        self.assertEqual(inspect.getattr_static(something, &#39;x&#39;), Thing.x)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_instance_attr"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_instance_attr">[docs]</a>    def test_instance_attr(self):
+        class Thing(object):
+            x = 2
+            def __init__(self, x):
+                self.x = x
+        thing = Thing(3)
+        self.assertEqual(inspect.getattr_static(thing, &#39;x&#39;), 3)
+        del thing.x
+        self.assertEqual(inspect.getattr_static(thing, &#39;x&#39;), 2)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_property"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_property">[docs]</a>    def test_property(self):
+        class Thing(object):
+            @property
+            def x(self):
+                raise AttributeError(&quot;I&#39;m pretending not to exist&quot;)
+        thing = Thing()
+        self.assertEqual(inspect.getattr_static(thing, &#39;x&#39;), Thing.x)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_descriptor_raises_AttributeError"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_descriptor_raises_AttributeError">[docs]</a>    def test_descriptor_raises_AttributeError(self):
+        class descriptor(object):
+            def __get__(*_):
+                raise AttributeError(&quot;I&#39;m pretending not to exist&quot;)
+        desc = descriptor()
+        class Thing(object):
+            x = desc
+        thing = Thing()
+        self.assertEqual(inspect.getattr_static(thing, &#39;x&#39;), desc)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_classAttribute"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_classAttribute">[docs]</a>    def test_classAttribute(self):
+        class Thing(object):
+            x = object()
+
+        self.assertEqual(inspect.getattr_static(Thing, &#39;x&#39;), Thing.x)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_classVirtualAttribute"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_classVirtualAttribute">[docs]</a>    def test_classVirtualAttribute(self):
+        class Thing(object):
+            @types.DynamicClassAttribute
+            def x(self):
+                return self._x
+            _x = object()
+
+        self.assertEqual(inspect.getattr_static(Thing, &#39;x&#39;), Thing.__dict__[&#39;x&#39;])
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_inherited_classattribute"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_inherited_classattribute">[docs]</a>    def test_inherited_classattribute(self):
+        class Thing(object):
+            x = object()
+        class OtherThing(Thing):
+            pass
+
+        self.assertEqual(inspect.getattr_static(OtherThing, &#39;x&#39;), Thing.x)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_slots"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_slots">[docs]</a>    def test_slots(self):
+        class Thing(object):
+            y = &#39;bar&#39;
+            __slots__ = [&#39;x&#39;]
+            def __init__(self):
+                self.x = &#39;foo&#39;
+        thing = Thing()
+        self.assertEqual(inspect.getattr_static(thing, &#39;x&#39;), Thing.x)
+        self.assertEqual(inspect.getattr_static(thing, &#39;y&#39;), &#39;bar&#39;)
+
+        del thing.x
+        self.assertEqual(inspect.getattr_static(thing, &#39;x&#39;), Thing.x)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_metaclass"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_metaclass">[docs]</a>    def test_metaclass(self):
+        class meta(type):
+            attr = &#39;foo&#39;
+        class Thing(object, metaclass=meta):
+            pass
+        self.assertEqual(inspect.getattr_static(Thing, &#39;attr&#39;), &#39;foo&#39;)
+
+        class sub(meta):
+            pass
+        class OtherThing(object, metaclass=sub):
+            x = 3
+        self.assertEqual(inspect.getattr_static(OtherThing, &#39;attr&#39;), &#39;foo&#39;)
+
+        class OtherOtherThing(OtherThing):
+            pass
+        # this test is odd, but it was added as it exposed a bug
+        self.assertEqual(inspect.getattr_static(OtherOtherThing, &#39;x&#39;), 3)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_no_dict_no_slots"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_no_dict_no_slots">[docs]</a>    def test_no_dict_no_slots(self):
+        self.assertEqual(inspect.getattr_static(1, &#39;foo&#39;, None), None)
+        self.assertNotEqual(inspect.getattr_static(&#39;foo&#39;, &#39;lower&#39;), None)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_no_dict_no_slots_instance_member"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_no_dict_no_slots_instance_member">[docs]</a>    def test_no_dict_no_slots_instance_member(self):
+        # returns descriptor
+        with open(__file__) as handle:
+            self.assertEqual(inspect.getattr_static(handle, &#39;name&#39;), type(handle).name)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_inherited_slots"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_inherited_slots">[docs]</a>    def test_inherited_slots(self):
+        # returns descriptor
+        class Thing(object):
+            __slots__ = [&#39;x&#39;]
+            def __init__(self):
+                self.x = &#39;foo&#39;
+
+        class OtherThing(Thing):
+            pass
+        # it would be nice if this worked...
+        # we get the descriptor instead of the instance attribute
+        self.assertEqual(inspect.getattr_static(OtherThing(), &#39;x&#39;), Thing.x)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_descriptor"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_descriptor">[docs]</a>    def test_descriptor(self):
+        class descriptor(object):
+            def __get__(self, instance, owner):
+                return 3
+        class Foo(object):
+            d = descriptor()
+
+        foo = Foo()
+
+        # for a non data descriptor we return the instance attribute
+        foo.__dict__[&#39;d&#39;] = 1
+        self.assertEqual(inspect.getattr_static(foo, &#39;d&#39;), 1)
+
+        # if the descriptor is a data-desciptor we should return the
+        # descriptor
+        descriptor.__set__ = lambda s, i, v: None
+        self.assertEqual(inspect.getattr_static(foo, &#39;d&#39;), Foo.__dict__[&#39;d&#39;])
+
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_metaclass_with_descriptor"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_metaclass_with_descriptor">[docs]</a>    def test_metaclass_with_descriptor(self):
+        class descriptor(object):
+            def __get__(self, instance, owner):
+                return 3
+        class meta(type):
+            d = descriptor()
+        class Thing(object, metaclass=meta):
+            pass
+        self.assertEqual(inspect.getattr_static(Thing, &#39;d&#39;), meta.__dict__[&#39;d&#39;])
+
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_class_as_property"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_class_as_property">[docs]</a>    def test_class_as_property(self):
+        class Base(object):
+            foo = 3
+
+        class Something(Base):
+            executed = False
+            @property
+            def __class__(self):
+                self.executed = True
+                return object
+
+        instance = Something()
+        self.assertEqual(inspect.getattr_static(instance, &#39;foo&#39;), 3)
+        self.assertFalse(instance.executed)
+        self.assertEqual(inspect.getattr_static(Something, &#39;foo&#39;), 3)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_mro_as_property"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_mro_as_property">[docs]</a>    def test_mro_as_property(self):
+        class Meta(type):
+            @property
+            def __mro__(self):
+                return (object,)
+
+        class Base(object):
+            foo = 3
+
+        class Something(Base, metaclass=Meta):
+            pass
+
+        self.assertEqual(inspect.getattr_static(Something(), &#39;foo&#39;), 3)
+        self.assertEqual(inspect.getattr_static(Something, &#39;foo&#39;), 3)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_dict_as_property"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_dict_as_property">[docs]</a>    def test_dict_as_property(self):
+        test = self
+        test.called = False
+
+        class Foo(dict):
+            a = 3
+            @property
+            def __dict__(self):
+                test.called = True
+                return {}
+
+        foo = Foo()
+        foo.a = 4
+        self.assertEqual(inspect.getattr_static(foo, &#39;a&#39;), 3)
+        self.assertFalse(test.called)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_custom_object_dict"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_custom_object_dict">[docs]</a>    def test_custom_object_dict(self):
+        test = self
+        test.called = False
+
+        class Custom(dict):
+            def get(self, key, default=None):
+                test.called = True
+                super().get(key, default)
+
+        class Foo(object):
+            a = 3
+        foo = Foo()
+        foo.__dict__ = Custom()
+        self.assertEqual(inspect.getattr_static(foo, &#39;a&#39;), 3)
+        self.assertFalse(test.called)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_metaclass_dict_as_property"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_metaclass_dict_as_property">[docs]</a>    def test_metaclass_dict_as_property(self):
+        class Meta(type):
+            @property
+            def __dict__(self):
+                self.executed = True
+
+        class Thing(metaclass=Meta):
+            executed = False
+
+            def __init__(self):
+                self.spam = 42
+
+        instance = Thing()
+        self.assertEqual(inspect.getattr_static(instance, &quot;spam&quot;), 42)
+        self.assertFalse(Thing.executed)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_module"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_module">[docs]</a>    def test_module(self):
+        sentinel = object()
+        self.assertIsNot(inspect.getattr_static(sys, &quot;version&quot;, sentinel),
+                         sentinel)
+</div>
+<div class="viewcode-block" id="TestGetattrStatic.test_metaclass_with_metaclass_with_dict_as_property"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetattrStatic.test_metaclass_with_metaclass_with_dict_as_property">[docs]</a>    def test_metaclass_with_metaclass_with_dict_as_property(self):
+        class MetaMeta(type):
+            @property
+            def __dict__(self):
+                self.executed = True
+                return dict(spam=42)
+
+        class Meta(type, metaclass=MetaMeta):
+            executed = False
+
+        class Thing(metaclass=Meta):
+            pass
+
+        with self.assertRaises(AttributeError):
+            inspect.getattr_static(Thing, &quot;spam&quot;)
+        self.assertFalse(Thing.executed)
+</div></div>
+<div class="viewcode-block" id="TestGetGeneratorState"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState">[docs]</a>class TestGetGeneratorState(unittest.TestCase):
+
+<div class="viewcode-block" id="TestGetGeneratorState.setUp"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.setUp">[docs]</a>    def setUp(self):
+        def number_generator():
+            for number in range(5):
+                yield number
+        self.generator = number_generator()
+</div>
+    def _generatorstate(self):
+        return inspect.getgeneratorstate(self.generator)
+
+<div class="viewcode-block" id="TestGetGeneratorState.test_created"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_created">[docs]</a>    def test_created(self):
+        self.assertEqual(self._generatorstate(), inspect.GEN_CREATED)
+</div>
+<div class="viewcode-block" id="TestGetGeneratorState.test_suspended"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_suspended">[docs]</a>    def test_suspended(self):
+        next(self.generator)
+        self.assertEqual(self._generatorstate(), inspect.GEN_SUSPENDED)
+</div>
+<div class="viewcode-block" id="TestGetGeneratorState.test_closed_after_exhaustion"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_closed_after_exhaustion">[docs]</a>    def test_closed_after_exhaustion(self):
+        for i in self.generator:
+            pass
+        self.assertEqual(self._generatorstate(), inspect.GEN_CLOSED)
+</div>
+<div class="viewcode-block" id="TestGetGeneratorState.test_closed_after_immediate_exception"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_closed_after_immediate_exception">[docs]</a>    def test_closed_after_immediate_exception(self):
+        with self.assertRaises(RuntimeError):
+            self.generator.throw(RuntimeError)
+        self.assertEqual(self._generatorstate(), inspect.GEN_CLOSED)
+</div>
+<div class="viewcode-block" id="TestGetGeneratorState.test_running"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_running">[docs]</a>    def test_running(self):
+        # As mentioned on issue #10220, checking for the RUNNING state only
+        # makes sense inside the generator itself.
+        # The following generator checks for this by using the closure&#39;s
+        # reference to self and the generator state checking helper method
+        def running_check_generator():
+            for number in range(5):
+                self.assertEqual(self._generatorstate(), inspect.GEN_RUNNING)
+                yield number
+                self.assertEqual(self._generatorstate(), inspect.GEN_RUNNING)
+        self.generator = running_check_generator()
+        # Running up to the first yield
+        next(self.generator)
+        # Running after the first yield
+        next(self.generator)
+</div>
+<div class="viewcode-block" id="TestGetGeneratorState.test_easy_debugging"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_easy_debugging">[docs]</a>    def test_easy_debugging(self):
+        # repr() and str() of a generator state should contain the state name
+        names = &#39;GEN_CREATED GEN_RUNNING GEN_SUSPENDED GEN_CLOSED&#39;.split()
+        for name in names:
+            state = getattr(inspect, name)
+            self.assertIn(name, repr(state))
+            self.assertIn(name, str(state))
+</div>
+<div class="viewcode-block" id="TestGetGeneratorState.test_getgeneratorlocals"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_getgeneratorlocals">[docs]</a>    def test_getgeneratorlocals(self):
+        def each(lst, a=None):
+            b=(1, 2, 3)
+            for v in lst:
+                if v == 3:
+                    c = 12
+                yield v
+
+        numbers = each([1, 2, 3])
+        self.assertEqual(inspect.getgeneratorlocals(numbers),
+                         {&#39;a&#39;: None, &#39;lst&#39;: [1, 2, 3]})
+        next(numbers)
+        self.assertEqual(inspect.getgeneratorlocals(numbers),
+                         {&#39;a&#39;: None, &#39;lst&#39;: [1, 2, 3], &#39;v&#39;: 1,
+                          &#39;b&#39;: (1, 2, 3)})
+        next(numbers)
+        self.assertEqual(inspect.getgeneratorlocals(numbers),
+                         {&#39;a&#39;: None, &#39;lst&#39;: [1, 2, 3], &#39;v&#39;: 2,
+                          &#39;b&#39;: (1, 2, 3)})
+        next(numbers)
+        self.assertEqual(inspect.getgeneratorlocals(numbers),
+                         {&#39;a&#39;: None, &#39;lst&#39;: [1, 2, 3], &#39;v&#39;: 3,
+                          &#39;b&#39;: (1, 2, 3), &#39;c&#39;: 12})
+        try:
+            next(numbers)
+        except StopIteration:
+            pass
+        self.assertEqual(inspect.getgeneratorlocals(numbers), {})
+</div>
+<div class="viewcode-block" id="TestGetGeneratorState.test_getgeneratorlocals_empty"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_getgeneratorlocals_empty">[docs]</a>    def test_getgeneratorlocals_empty(self):
+        def yield_one():
+            yield 1
+        one = yield_one()
+        self.assertEqual(inspect.getgeneratorlocals(one), {})
+        try:
+            next(one)
+        except StopIteration:
+            pass
+        self.assertEqual(inspect.getgeneratorlocals(one), {})
+</div>
+<div class="viewcode-block" id="TestGetGeneratorState.test_getgeneratorlocals_error"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestGetGeneratorState.test_getgeneratorlocals_error">[docs]</a>    def test_getgeneratorlocals_error(self):
+        self.assertRaises(TypeError, inspect.getgeneratorlocals, 1)
+        self.assertRaises(TypeError, inspect.getgeneratorlocals, lambda x: True)
+        self.assertRaises(TypeError, inspect.getgeneratorlocals, set)
+        self.assertRaises(TypeError, inspect.getgeneratorlocals, (2,3))
+
+</div></div>
+<div class="viewcode-block" id="TestSignatureObject"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject">[docs]</a>class TestSignatureObject(unittest.TestCase):
+    @staticmethod
+<div class="viewcode-block" id="TestSignatureObject.signature"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.signature">[docs]</a>    def signature(func):
+        sig = inspect.signature(func)
+        return (tuple((param.name,
+                       (... if param.default is param.empty else param.default),
+                       (... if param.annotation is param.empty
+                                                        else param.annotation),
+                       str(param.kind).lower())
+                                    for param in sig.parameters.values()),
+                (... if sig.return_annotation is sig.empty
+                                            else sig.return_annotation))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_object"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_object">[docs]</a>    def test_signature_object(self):
+        S = inspect.Signature
+        P = inspect.Parameter
+
+        self.assertEqual(str(S()), &#39;()&#39;)
+
+        def test(po, pk, pod=42, pkd=100, *args, ko, **kwargs):
+            pass
+        sig = inspect.signature(test)
+        po = sig.parameters[&#39;po&#39;].replace(kind=P.POSITIONAL_ONLY)
+        pod = sig.parameters[&#39;pod&#39;].replace(kind=P.POSITIONAL_ONLY)
+        pk = sig.parameters[&#39;pk&#39;]
+        pkd = sig.parameters[&#39;pkd&#39;]
+        args = sig.parameters[&#39;args&#39;]
+        ko = sig.parameters[&#39;ko&#39;]
+        kwargs = sig.parameters[&#39;kwargs&#39;]
+
+        S((po, pk, args, ko, kwargs))
+
+        with self.assertRaisesRegex(ValueError, &#39;wrong parameter order&#39;):
+            S((pk, po, args, ko, kwargs))
+
+        with self.assertRaisesRegex(ValueError, &#39;wrong parameter order&#39;):
+            S((po, args, pk, ko, kwargs))
+
+        with self.assertRaisesRegex(ValueError, &#39;wrong parameter order&#39;):
+            S((args, po, pk, ko, kwargs))
+
+        with self.assertRaisesRegex(ValueError, &#39;wrong parameter order&#39;):
+            S((po, pk, args, kwargs, ko))
+
+        kwargs2 = kwargs.replace(name=&#39;args&#39;)
+        with self.assertRaisesRegex(ValueError, &#39;duplicate parameter name&#39;):
+            S((po, pk, args, kwargs2, ko))
+
+        with self.assertRaisesRegex(ValueError, &#39;follows default argument&#39;):
+            S((pod, po))
+
+        with self.assertRaisesRegex(ValueError, &#39;follows default argument&#39;):
+            S((po, pkd, pk))
+
+        with self.assertRaisesRegex(ValueError, &#39;follows default argument&#39;):
+            S((pkd, pk))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_immutability"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_immutability">[docs]</a>    def test_signature_immutability(self):
+        def test(a):
+            pass
+        sig = inspect.signature(test)
+
+        with self.assertRaises(AttributeError):
+            sig.foo = &#39;bar&#39;
+
+        with self.assertRaises(TypeError):
+            sig.parameters[&#39;a&#39;] = None
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_noarg"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_noarg">[docs]</a>    def test_signature_on_noarg(self):
+        def test():
+            pass
+        self.assertEqual(self.signature(test), ((), ...))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_wargs"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_wargs">[docs]</a>    def test_signature_on_wargs(self):
+        def test(a, b:&#39;foo&#39;) -&gt; 123:
+            pass
+        self.assertEqual(self.signature(test),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, ..., &#39;foo&#39;, &quot;positional_or_keyword&quot;)),
+                          123))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_wkwonly"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_wkwonly">[docs]</a>    def test_signature_on_wkwonly(self):
+        def test(*, a:float, b:str) -&gt; int:
+            pass
+        self.assertEqual(self.signature(test),
+                         (((&#39;a&#39;, ..., float, &quot;keyword_only&quot;),
+                           (&#39;b&#39;, ..., str, &quot;keyword_only&quot;)),
+                           int))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_complex_args"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_complex_args">[docs]</a>    def test_signature_on_complex_args(self):
+        def test(a, b:&#39;foo&#39;=10, *args:&#39;bar&#39;, spam:&#39;baz&#39;, ham=123, **kwargs:int):
+            pass
+        self.assertEqual(self.signature(test),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, 10, &#39;foo&#39;, &quot;positional_or_keyword&quot;),
+                           (&#39;args&#39;, ..., &#39;bar&#39;, &quot;var_positional&quot;),
+                           (&#39;spam&#39;, ..., &#39;baz&#39;, &quot;keyword_only&quot;),
+                           (&#39;ham&#39;, 123, ..., &quot;keyword_only&quot;),
+                           (&#39;kwargs&#39;, ..., int, &quot;var_keyword&quot;)),
+                          ...))
+</div>
+    @cpython_only
+    @unittest.skipIf(MISSING_C_DOCSTRINGS,
+                     &quot;Signature information for builtins requires docstrings&quot;)
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_builtins"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_builtins">[docs]</a>    def test_signature_on_builtins(self):
+        import _testcapi
+
+        def test_unbound_method(o):
+            &quot;&quot;&quot;Use this to test unbound methods (things that should have a self)&quot;&quot;&quot;
+            signature = inspect.signature(o)
+            self.assertTrue(isinstance(signature, inspect.Signature))
+            self.assertEqual(list(signature.parameters.values())[0].name, &#39;self&#39;)
+            return signature
+
+        def test_callable(o):
+            &quot;&quot;&quot;Use this to test bound methods or normal callables (things that don&#39;t expect self)&quot;&quot;&quot;
+            signature = inspect.signature(o)
+            self.assertTrue(isinstance(signature, inspect.Signature))
+            if signature.parameters:
+                self.assertNotEqual(list(signature.parameters.values())[0].name, &#39;self&#39;)
+            return signature
+
+        signature = test_callable(_testcapi.docstring_with_signature_with_defaults)
+        def p(name): return signature.parameters[name].default
+        self.assertEqual(p(&#39;s&#39;), &#39;avocado&#39;)
+        self.assertEqual(p(&#39;b&#39;), b&#39;bytes&#39;)
+        self.assertEqual(p(&#39;d&#39;), 3.14)
+        self.assertEqual(p(&#39;i&#39;), 35)
+        self.assertEqual(p(&#39;n&#39;), None)
+        self.assertEqual(p(&#39;t&#39;), True)
+        self.assertEqual(p(&#39;f&#39;), False)
+        self.assertEqual(p(&#39;local&#39;), 3)
+        self.assertEqual(p(&#39;sys&#39;), sys.maxsize)
+        self.assertEqual(p(&#39;exp&#39;), sys.maxsize - 1)
+
+        test_callable(object)
+
+        # normal method
+        # (PyMethodDescr_Type, &quot;method_descriptor&quot;)
+        test_unbound_method(_pickle.Pickler.dump)
+        d = _pickle.Pickler(io.StringIO())
+        test_callable(d.dump)
+
+        # static method
+        test_callable(str.maketrans)
+        test_callable(&#39;abc&#39;.maketrans)
+
+        # class method
+        test_callable(dict.fromkeys)
+        test_callable({}.fromkeys)
+
+        # wrapper around slot (PyWrapperDescr_Type, &quot;wrapper_descriptor&quot;)
+        test_unbound_method(type.__call__)
+        test_unbound_method(int.__add__)
+        test_callable((3).__add__)
+
+        # _PyMethodWrapper_Type
+        # support for &#39;method-wrapper&#39;
+        test_callable(min.__call__)
+
+        # This doesn&#39;t work now.
+        # (We don&#39;t have a valid signature for &quot;type&quot; in 3.4)
+        with self.assertRaisesRegex(ValueError, &quot;no signature found&quot;):
+            class ThisWorksNow:
+                __call__ = type
+            test_callable(ThisWorksNow())
+
+        # Regression test for issue #20786
+        test_unbound_method(dict.__delitem__)
+        test_unbound_method(property.__delete__)
+
+</div>
+    @cpython_only
+    @unittest.skipIf(MISSING_C_DOCSTRINGS,
+                     &quot;Signature information for builtins requires docstrings&quot;)
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_decorated_builtins"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_decorated_builtins">[docs]</a>    def test_signature_on_decorated_builtins(self):
+        import _testcapi
+        func = _testcapi.docstring_with_signature_with_defaults
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs) -&gt; int:
+                return func(*args, **kwargs)
+            return wrapper
+
+        decorated_func = decorator(func)
+
+        self.assertEqual(inspect.signature(func),
+                         inspect.signature(decorated_func))
+</div>
+    @cpython_only
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_builtins_no_signature"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_builtins_no_signature">[docs]</a>    def test_signature_on_builtins_no_signature(self):
+        import _testcapi
+        with self.assertRaisesRegex(ValueError, &#39;no signature found for builtin&#39;):
+            inspect.signature(_testcapi.docstring_no_signature)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_non_function"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_non_function">[docs]</a>    def test_signature_on_non_function(self):
+        with self.assertRaisesRegex(TypeError, &#39;is not a callable object&#39;):
+            inspect.signature(42)
+
+        with self.assertRaisesRegex(TypeError, &#39;is not a Python function&#39;):
+            inspect.Signature.from_function(42)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_from_builtin_errors"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_from_builtin_errors">[docs]</a>    def test_signature_from_builtin_errors(self):
+        with self.assertRaisesRegex(TypeError, &#39;is not a Python builtin&#39;):
+            inspect.Signature.from_builtin(42)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_from_functionlike_object"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_from_functionlike_object">[docs]</a>    def test_signature_from_functionlike_object(self):
+        def func(a,b, *args, kwonly=True, kwonlyreq, **kwargs):
+            pass
+
+        class funclike:
+            # Has to be callable, and have correct
+            # __code__, __annotations__, __defaults__, __name__,
+            # and __kwdefaults__ attributes
+
+            def __init__(self, func):
+                self.__name__ = func.__name__
+                self.__code__ = func.__code__
+                self.__annotations__ = func.__annotations__
+                self.__defaults__ = func.__defaults__
+                self.__kwdefaults__ = func.__kwdefaults__
+                self.func = func
+
+            def __call__(self, *args, **kwargs):
+                return self.func(*args, **kwargs)
+
+        sig_func = inspect.Signature.from_function(func)
+
+        sig_funclike = inspect.Signature.from_function(funclike(func))
+        self.assertEqual(sig_funclike, sig_func)
+
+        sig_funclike = inspect.signature(funclike(func))
+        self.assertEqual(sig_funclike, sig_func)
+
+        # If object is not a duck type of function, then
+        # signature will try to get a signature for its &#39;__call__&#39;
+        # method
+        fl = funclike(func)
+        del fl.__defaults__
+        self.assertEqual(self.signature(fl),
+                         (((&#39;args&#39;, ..., ..., &quot;var_positional&quot;),
+                           (&#39;kwargs&#39;, ..., ..., &quot;var_keyword&quot;)),
+                           ...))
+
+        # Test with cython-like builtins:
+        _orig_isdesc = inspect.ismethoddescriptor
+        def _isdesc(obj):
+            if hasattr(obj, &#39;_builtinmock&#39;):
+                return True
+            return _orig_isdesc(obj)
+
+        with unittest.mock.patch(&#39;inspect.ismethoddescriptor&#39;, _isdesc):
+            builtin_func = funclike(func)
+            # Make sure that our mock setup is working
+            self.assertFalse(inspect.ismethoddescriptor(builtin_func))
+            builtin_func._builtinmock = True
+            self.assertTrue(inspect.ismethoddescriptor(builtin_func))
+            self.assertEqual(inspect.signature(builtin_func), sig_func)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_functionlike_class"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_functionlike_class">[docs]</a>    def test_signature_functionlike_class(self):
+        # We only want to duck type function-like objects,
+        # not classes.
+
+        def func(a,b, *args, kwonly=True, kwonlyreq, **kwargs):
+            pass
+
+        class funclike:
+            def __init__(self, marker):
+                pass
+
+            __name__ = func.__name__
+            __code__ = func.__code__
+            __annotations__ = func.__annotations__
+            __defaults__ = func.__defaults__
+            __kwdefaults__ = func.__kwdefaults__
+
+        with self.assertRaisesRegex(TypeError, &#39;is not a Python function&#39;):
+            inspect.Signature.from_function(funclike)
+
+        self.assertEqual(str(inspect.signature(funclike)), &#39;(marker)&#39;)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_method"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_method">[docs]</a>    def test_signature_on_method(self):
+        class Test:
+            def __init__(*args):
+                pass
+            def m1(self, arg1, arg2=1) -&gt; int:
+                pass
+            def m2(*args):
+                pass
+            def __call__(*, a):
+                pass
+
+        self.assertEqual(self.signature(Test().m1),
+                         (((&#39;arg1&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;arg2&#39;, 1, ..., &quot;positional_or_keyword&quot;)),
+                          int))
+
+        self.assertEqual(self.signature(Test().m2),
+                         (((&#39;args&#39;, ..., ..., &quot;var_positional&quot;),),
+                          ...))
+
+        self.assertEqual(self.signature(Test),
+                         (((&#39;args&#39;, ..., ..., &quot;var_positional&quot;),),
+                          ...))
+
+        with self.assertRaisesRegex(ValueError, &#39;invalid method signature&#39;):
+            self.signature(Test())
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_classmethod"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_classmethod">[docs]</a>    def test_signature_on_classmethod(self):
+        class Test:
+            @classmethod
+            def foo(cls, arg1, *, arg2=1):
+                pass
+
+        meth = Test().foo
+        self.assertEqual(self.signature(meth),
+                         (((&#39;arg1&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;arg2&#39;, 1, ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        meth = Test.foo
+        self.assertEqual(self.signature(meth),
+                         (((&#39;arg1&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;arg2&#39;, 1, ..., &quot;keyword_only&quot;)),
+                          ...))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_staticmethod"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_staticmethod">[docs]</a>    def test_signature_on_staticmethod(self):
+        class Test:
+            @staticmethod
+            def foo(cls, *, arg):
+                pass
+
+        meth = Test().foo
+        self.assertEqual(self.signature(meth),
+                         (((&#39;cls&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;arg&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        meth = Test.foo
+        self.assertEqual(self.signature(meth),
+                         (((&#39;cls&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;arg&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_partial"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_partial">[docs]</a>    def test_signature_on_partial(self):
+        from functools import partial
+
+        Parameter = inspect.Parameter
+
+        def test():
+            pass
+
+        self.assertEqual(self.signature(partial(test)), ((), ...))
+
+        with self.assertRaisesRegex(ValueError, &quot;has incorrect arguments&quot;):
+            inspect.signature(partial(test, 1))
+
+        with self.assertRaisesRegex(ValueError, &quot;has incorrect arguments&quot;):
+            inspect.signature(partial(test, a=1))
+
+        def test(a, b, *, c, d):
+            pass
+
+        self.assertEqual(self.signature(partial(test)),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;c&#39;, ..., ..., &quot;keyword_only&quot;),
+                           (&#39;d&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, 1)),
+                         (((&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;c&#39;, ..., ..., &quot;keyword_only&quot;),
+                           (&#39;d&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, 1, c=2)),
+                         (((&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;c&#39;, 2, ..., &quot;keyword_only&quot;),
+                           (&#39;d&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, b=1, c=2)),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, 1, ..., &quot;keyword_only&quot;),
+                           (&#39;c&#39;, 2, ..., &quot;keyword_only&quot;),
+                           (&#39;d&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, 0, b=1, c=2)),
+                         (((&#39;b&#39;, 1, ..., &quot;keyword_only&quot;),
+                           (&#39;c&#39;, 2, ..., &quot;keyword_only&quot;),
+                           (&#39;d&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, a=1)),
+                         (((&#39;a&#39;, 1, ..., &quot;keyword_only&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;keyword_only&quot;),
+                           (&#39;c&#39;, ..., ..., &quot;keyword_only&quot;),
+                           (&#39;d&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        def test(a, *args, b, **kwargs):
+            pass
+
+        self.assertEqual(self.signature(partial(test, 1)),
+                         (((&#39;args&#39;, ..., ..., &quot;var_positional&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;keyword_only&quot;),
+                           (&#39;kwargs&#39;, ..., ..., &quot;var_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, a=1)),
+                         (((&#39;a&#39;, 1, ..., &quot;keyword_only&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;keyword_only&quot;),
+                           (&#39;kwargs&#39;, ..., ..., &quot;var_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, 1, 2, 3)),
+                         (((&#39;args&#39;, ..., ..., &quot;var_positional&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;keyword_only&quot;),
+                           (&#39;kwargs&#39;, ..., ..., &quot;var_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, 1, 2, 3, test=True)),
+                         (((&#39;args&#39;, ..., ..., &quot;var_positional&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;keyword_only&quot;),
+                           (&#39;kwargs&#39;, ..., ..., &quot;var_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, 1, 2, 3, test=1, b=0)),
+                         (((&#39;args&#39;, ..., ..., &quot;var_positional&quot;),
+                           (&#39;b&#39;, 0, ..., &quot;keyword_only&quot;),
+                           (&#39;kwargs&#39;, ..., ..., &quot;var_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, b=0)),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;args&#39;, ..., ..., &quot;var_positional&quot;),
+                           (&#39;b&#39;, 0, ..., &quot;keyword_only&quot;),
+                           (&#39;kwargs&#39;, ..., ..., &quot;var_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(partial(test, b=0, test=1)),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;args&#39;, ..., ..., &quot;var_positional&quot;),
+                           (&#39;b&#39;, 0, ..., &quot;keyword_only&quot;),
+                           (&#39;kwargs&#39;, ..., ..., &quot;var_keyword&quot;)),
+                          ...))
+
+        def test(a, b, c:int) -&gt; 42:
+            pass
+
+        sig = test.__signature__ = inspect.signature(test)
+
+        self.assertEqual(self.signature(partial(partial(test, 1))),
+                         (((&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;c&#39;, ..., int, &quot;positional_or_keyword&quot;)),
+                          42))
+
+        self.assertEqual(self.signature(partial(partial(test, 1), 2)),
+                         (((&#39;c&#39;, ..., int, &quot;positional_or_keyword&quot;),),
+                          42))
+
+        psig = inspect.signature(partial(partial(test, 1), 2))
+
+        def foo(a):
+            return a
+        _foo = partial(partial(foo, a=10), a=20)
+        self.assertEqual(self.signature(_foo),
+                         (((&#39;a&#39;, 20, ..., &quot;keyword_only&quot;),),
+                          ...))
+        # check that we don&#39;t have any side-effects in signature(),
+        # and the partial object is still functioning
+        self.assertEqual(_foo(), 20)
+
+        def foo(a, b, c):
+            return a, b, c
+        _foo = partial(partial(foo, 1, b=20), b=30)
+
+        self.assertEqual(self.signature(_foo),
+                         (((&#39;b&#39;, 30, ..., &quot;keyword_only&quot;),
+                           (&#39;c&#39;, ..., ..., &quot;keyword_only&quot;)),
+                          ...))
+        self.assertEqual(_foo(c=10), (1, 30, 10))
+
+        def foo(a, b, c, *, d):
+            return a, b, c, d
+        _foo = partial(partial(foo, d=20, c=20), b=10, d=30)
+        self.assertEqual(self.signature(_foo),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, 10, ..., &quot;keyword_only&quot;),
+                           (&#39;c&#39;, 20, ..., &quot;keyword_only&quot;),
+                           (&#39;d&#39;, 30, ..., &quot;keyword_only&quot;),
+                           ),
+                          ...))
+        ba = inspect.signature(_foo).bind(a=200, b=11)
+        self.assertEqual(_foo(*ba.args, **ba.kwargs), (200, 11, 20, 30))
+
+        def foo(a=1, b=2, c=3):
+            return a, b, c
+        _foo = partial(foo, c=13) # (a=1, b=2, *, c=13)
+
+        ba = inspect.signature(_foo).bind(a=11)
+        self.assertEqual(_foo(*ba.args, **ba.kwargs), (11, 2, 13))
+
+        ba = inspect.signature(_foo).bind(11, 12)
+        self.assertEqual(_foo(*ba.args, **ba.kwargs), (11, 12, 13))
+
+        ba = inspect.signature(_foo).bind(11, b=12)
+        self.assertEqual(_foo(*ba.args, **ba.kwargs), (11, 12, 13))
+
+        ba = inspect.signature(_foo).bind(b=12)
+        self.assertEqual(_foo(*ba.args, **ba.kwargs), (1, 12, 13))
+
+        _foo = partial(_foo, b=10, c=20)
+        ba = inspect.signature(_foo).bind(12)
+        self.assertEqual(_foo(*ba.args, **ba.kwargs), (12, 10, 20))
+
+
+        def foo(a, b, c, d, **kwargs):
+            pass
+        sig = inspect.signature(foo)
+        params = sig.parameters.copy()
+        params[&#39;a&#39;] = params[&#39;a&#39;].replace(kind=Parameter.POSITIONAL_ONLY)
+        params[&#39;b&#39;] = params[&#39;b&#39;].replace(kind=Parameter.POSITIONAL_ONLY)
+        foo.__signature__ = inspect.Signature(params.values())
+        sig = inspect.signature(foo)
+        self.assertEqual(str(sig), &#39;(a, b, /, c, d, **kwargs)&#39;)
+
+        self.assertEqual(self.signature(partial(foo, 1)),
+                         (((&#39;b&#39;, ..., ..., &#39;positional_only&#39;),
+                           (&#39;c&#39;, ..., ..., &#39;positional_or_keyword&#39;),
+                           (&#39;d&#39;, ..., ..., &#39;positional_or_keyword&#39;),
+                           (&#39;kwargs&#39;, ..., ..., &#39;var_keyword&#39;)),
+                         ...))
+
+        self.assertEqual(self.signature(partial(foo, 1, 2)),
+                         (((&#39;c&#39;, ..., ..., &#39;positional_or_keyword&#39;),
+                           (&#39;d&#39;, ..., ..., &#39;positional_or_keyword&#39;),
+                           (&#39;kwargs&#39;, ..., ..., &#39;var_keyword&#39;)),
+                         ...))
+
+        self.assertEqual(self.signature(partial(foo, 1, 2, 3)),
+                         (((&#39;d&#39;, ..., ..., &#39;positional_or_keyword&#39;),
+                           (&#39;kwargs&#39;, ..., ..., &#39;var_keyword&#39;)),
+                         ...))
+
+        self.assertEqual(self.signature(partial(foo, 1, 2, c=3)),
+                         (((&#39;c&#39;, 3, ..., &#39;keyword_only&#39;),
+                           (&#39;d&#39;, ..., ..., &#39;keyword_only&#39;),
+                           (&#39;kwargs&#39;, ..., ..., &#39;var_keyword&#39;)),
+                         ...))
+
+        self.assertEqual(self.signature(partial(foo, 1, c=3)),
+                         (((&#39;b&#39;, ..., ..., &#39;positional_only&#39;),
+                           (&#39;c&#39;, 3, ..., &#39;keyword_only&#39;),
+                           (&#39;d&#39;, ..., ..., &#39;keyword_only&#39;),
+                           (&#39;kwargs&#39;, ..., ..., &#39;var_keyword&#39;)),
+                         ...))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_partialmethod"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_partialmethod">[docs]</a>    def test_signature_on_partialmethod(self):
+        from functools import partialmethod
+
+        class Spam:
+            def test():
+                pass
+            ham = partialmethod(test)
+
+        with self.assertRaisesRegex(ValueError, &quot;has incorrect arguments&quot;):
+            inspect.signature(Spam.ham)
+
+        class Spam:
+            def test(it, a, *, c) -&gt; &#39;spam&#39;:
+                pass
+            ham = partialmethod(test, c=1)
+
+        self.assertEqual(self.signature(Spam.ham),
+                         (((&#39;it&#39;, ..., ..., &#39;positional_or_keyword&#39;),
+                           (&#39;a&#39;, ..., ..., &#39;positional_or_keyword&#39;),
+                           (&#39;c&#39;, 1, ..., &#39;keyword_only&#39;)),
+                          &#39;spam&#39;))
+
+        self.assertEqual(self.signature(Spam().ham),
+                         (((&#39;a&#39;, ..., ..., &#39;positional_or_keyword&#39;),
+                           (&#39;c&#39;, 1, ..., &#39;keyword_only&#39;)),
+                          &#39;spam&#39;))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_fake_partialmethod"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_fake_partialmethod">[docs]</a>    def test_signature_on_fake_partialmethod(self):
+        def foo(a): pass
+        foo._partialmethod = &#39;spam&#39;
+        self.assertEqual(str(inspect.signature(foo)), &#39;(a)&#39;)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_decorated"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_decorated">[docs]</a>    def test_signature_on_decorated(self):
+        import functools
+
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs) -&gt; int:
+                return func(*args, **kwargs)
+            return wrapper
+
+        class Foo:
+            @decorator
+            def bar(self, a, b):
+                pass
+
+        self.assertEqual(self.signature(Foo.bar),
+                         (((&#39;self&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(Foo().bar),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;)),
+                          ...))
+
+        # Test that we handle method wrappers correctly
+        def decorator(func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs) -&gt; int:
+                return func(42, *args, **kwargs)
+            sig = inspect.signature(func)
+            new_params = tuple(sig.parameters.values())[1:]
+            wrapper.__signature__ = sig.replace(parameters=new_params)
+            return wrapper
+
+        class Foo:
+            @decorator
+            def __call__(self, a, b):
+                pass
+
+        self.assertEqual(self.signature(Foo.__call__),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(Foo().__call__),
+                         (((&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+
+        # Test we handle __signature__ partway down the wrapper stack
+        def wrapped_foo_call():
+            pass
+        wrapped_foo_call.__wrapped__ = Foo.__call__
+
+        self.assertEqual(self.signature(wrapped_foo_call),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;)),
+                          ...))
+
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_class"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_class">[docs]</a>    def test_signature_on_class(self):
+        class C:
+            def __init__(self, a):
+                pass
+
+        self.assertEqual(self.signature(C),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+
+        class CM(type):
+            def __call__(cls, a):
+                pass
+        class C(metaclass=CM):
+            def __init__(self, b):
+                pass
+
+        self.assertEqual(self.signature(C),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+
+        class CM(type):
+            def __new__(mcls, name, bases, dct, *, foo=1):
+                return super().__new__(mcls, name, bases, dct)
+        class C(metaclass=CM):
+            def __init__(self, b):
+                pass
+
+        self.assertEqual(self.signature(C),
+                         (((&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+
+        self.assertEqual(self.signature(CM),
+                         (((&#39;name&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;bases&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;dct&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;foo&#39;, 1, ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        class CMM(type):
+            def __new__(mcls, name, bases, dct, *, foo=1):
+                return super().__new__(mcls, name, bases, dct)
+            def __call__(cls, nm, bs, dt):
+                return type(nm, bs, dt)
+        class CM(type, metaclass=CMM):
+            def __new__(mcls, name, bases, dct, *, bar=2):
+                return super().__new__(mcls, name, bases, dct)
+        class C(metaclass=CM):
+            def __init__(self, b):
+                pass
+
+        self.assertEqual(self.signature(CMM),
+                         (((&#39;name&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;bases&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;dct&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;foo&#39;, 1, ..., &quot;keyword_only&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(CM),
+                         (((&#39;nm&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;bs&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;dt&#39;, ..., ..., &quot;positional_or_keyword&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(C),
+                         (((&#39;b&#39;, ..., ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+
+        class CM(type):
+            def __init__(cls, name, bases, dct, *, bar=2):
+                return super().__init__(name, bases, dct)
+        class C(metaclass=CM):
+            def __init__(self, b):
+                pass
+
+        self.assertEqual(self.signature(CM),
+                         (((&#39;name&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;bases&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;dct&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;bar&#39;, 2, ..., &quot;keyword_only&quot;)),
+                          ...))
+</div>
+    @unittest.skipIf(MISSING_C_DOCSTRINGS,
+                     &quot;Signature information for builtins requires docstrings&quot;)
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_class_without_init"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_class_without_init">[docs]</a>    def test_signature_on_class_without_init(self):
+        # Test classes without user-defined __init__ or __new__
+        class C: pass
+        self.assertEqual(str(inspect.signature(C)), &#39;()&#39;)
+        class D(C): pass
+        self.assertEqual(str(inspect.signature(D)), &#39;()&#39;)
+
+        # Test meta-classes without user-defined __init__ or __new__
+        class C(type): pass
+        class D(C): pass
+        with self.assertRaisesRegex(ValueError, &quot;callable.*is not supported&quot;):
+            self.assertEqual(inspect.signature(C), None)
+        with self.assertRaisesRegex(ValueError, &quot;callable.*is not supported&quot;):
+            self.assertEqual(inspect.signature(D), None)
+</div>
+    @unittest.skipIf(MISSING_C_DOCSTRINGS,
+                     &quot;Signature information for builtins requires docstrings&quot;)
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_builtin_class"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_builtin_class">[docs]</a>    def test_signature_on_builtin_class(self):
+        self.assertEqual(str(inspect.signature(_pickle.Pickler)),
+                         &#39;(file, protocol=None, fix_imports=True)&#39;)
+
+        class P(_pickle.Pickler): pass
+        class EmptyTrait: pass
+        class P2(EmptyTrait, P): pass
+        self.assertEqual(str(inspect.signature(P)),
+                         &#39;(file, protocol=None, fix_imports=True)&#39;)
+        self.assertEqual(str(inspect.signature(P2)),
+                         &#39;(file, protocol=None, fix_imports=True)&#39;)
+
+        class P3(P2):
+            def __init__(self, spam):
+                pass
+        self.assertEqual(str(inspect.signature(P3)), &#39;(spam)&#39;)
+
+        class MetaP(type):
+            def __call__(cls, foo, bar):
+                pass
+        class P4(P2, metaclass=MetaP):
+            pass
+        self.assertEqual(str(inspect.signature(P4)), &#39;(foo, bar)&#39;)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_callable_objects"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_callable_objects">[docs]</a>    def test_signature_on_callable_objects(self):
+        class Foo:
+            def __call__(self, a):
+                pass
+
+        self.assertEqual(self.signature(Foo()),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+
+        class Spam:
+            pass
+        with self.assertRaisesRegex(TypeError, &quot;is not a callable object&quot;):
+            inspect.signature(Spam())
+
+        class Bar(Spam, Foo):
+            pass
+
+        self.assertEqual(self.signature(Bar()),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+
+        class Wrapped:
+            pass
+        Wrapped.__wrapped__ = lambda a: None
+        self.assertEqual(self.signature(Wrapped),
+                         (((&#39;a&#39;, ..., ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+        # wrapper loop:
+        Wrapped.__wrapped__ = Wrapped
+        with self.assertRaisesRegex(ValueError, &#39;wrapper loop&#39;):
+            self.signature(Wrapped)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_lambdas"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_lambdas">[docs]</a>    def test_signature_on_lambdas(self):
+        self.assertEqual(self.signature((lambda a=10: a)),
+                         (((&#39;a&#39;, 10, ..., &quot;positional_or_keyword&quot;),),
+                          ...))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_equality"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_equality">[docs]</a>    def test_signature_equality(self):
+        def foo(a, *, b:int) -&gt; float: pass
+        self.assertNotEqual(inspect.signature(foo), 42)
+
+        def bar(a, *, b:int) -&gt; float: pass
+        self.assertEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def bar(a, *, b:int) -&gt; int: pass
+        self.assertNotEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def bar(a, *, b:int): pass
+        self.assertNotEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def bar(a, *, b:int=42) -&gt; float: pass
+        self.assertNotEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def bar(a, *, c) -&gt; float: pass
+        self.assertNotEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def bar(a, b:int) -&gt; float: pass
+        self.assertNotEqual(inspect.signature(foo), inspect.signature(bar))
+        def spam(b:int, a) -&gt; float: pass
+        self.assertNotEqual(inspect.signature(spam), inspect.signature(bar))
+
+        def foo(*, a, b, c): pass
+        def bar(*, c, b, a): pass
+        self.assertEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def foo(*, a=1, b, c): pass
+        def bar(*, c, b, a=1): pass
+        self.assertEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def foo(pos, *, a=1, b, c): pass
+        def bar(pos, *, c, b, a=1): pass
+        self.assertEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def foo(pos, *, a, b, c): pass
+        def bar(pos, *, c, b, a=1): pass
+        self.assertNotEqual(inspect.signature(foo), inspect.signature(bar))
+
+        def foo(pos, *args, a=42, b, c, **kwargs:int): pass
+        def bar(pos, *args, c, b, a=42, **kwargs:int): pass
+        self.assertEqual(inspect.signature(foo), inspect.signature(bar))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_unhashable"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_unhashable">[docs]</a>    def test_signature_unhashable(self):
+        def foo(a): pass
+        sig = inspect.signature(foo)
+        with self.assertRaisesRegex(TypeError, &#39;unhashable type&#39;):
+            hash(sig)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_str"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_str">[docs]</a>    def test_signature_str(self):
+        def foo(a:int=1, *, b, c=None, **kwargs) -&gt; 42:
+            pass
+        self.assertEqual(str(inspect.signature(foo)),
+                         &#39;(a:int=1, *, b, c=None, **kwargs) -&gt; 42&#39;)
+
+        def foo(a:int=1, *args, b, c=None, **kwargs) -&gt; 42:
+            pass
+        self.assertEqual(str(inspect.signature(foo)),
+                         &#39;(a:int=1, *args, b, c=None, **kwargs) -&gt; 42&#39;)
+
+        def foo():
+            pass
+        self.assertEqual(str(inspect.signature(foo)), &#39;()&#39;)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_str_positional_only"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_str_positional_only">[docs]</a>    def test_signature_str_positional_only(self):
+        P = inspect.Parameter
+        S = inspect.Signature
+
+        def test(a_po, *, b, **kwargs):
+            return a_po, kwargs
+
+        sig = inspect.signature(test)
+        new_params = list(sig.parameters.values())
+        new_params[0] = new_params[0].replace(kind=P.POSITIONAL_ONLY)
+        test.__signature__ = sig.replace(parameters=new_params)
+
+        self.assertEqual(str(inspect.signature(test)),
+                         &#39;(a_po, /, *, b, **kwargs)&#39;)
+
+        self.assertEqual(str(S(parameters=[P(&#39;foo&#39;, P.POSITIONAL_ONLY)])),
+                         &#39;(foo, /)&#39;)
+
+        self.assertEqual(str(S(parameters=[
+                                P(&#39;foo&#39;, P.POSITIONAL_ONLY),
+                                P(&#39;bar&#39;, P.VAR_KEYWORD)])),
+                         &#39;(foo, /, **bar)&#39;)
+
+        self.assertEqual(str(S(parameters=[
+                                P(&#39;foo&#39;, P.POSITIONAL_ONLY),
+                                P(&#39;bar&#39;, P.VAR_POSITIONAL)])),
+                         &#39;(foo, /, *bar)&#39;)
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_replace_anno"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_replace_anno">[docs]</a>    def test_signature_replace_anno(self):
+        def test() -&gt; 42:
+            pass
+
+        sig = inspect.signature(test)
+        sig = sig.replace(return_annotation=None)
+        self.assertIs(sig.return_annotation, None)
+        sig = sig.replace(return_annotation=sig.empty)
+        self.assertIs(sig.return_annotation, sig.empty)
+        sig = sig.replace(return_annotation=42)
+        self.assertEqual(sig.return_annotation, 42)
+        self.assertEqual(sig, inspect.signature(test))
+</div>
+<div class="viewcode-block" id="TestSignatureObject.test_signature_on_mangled_parameters"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureObject.test_signature_on_mangled_parameters">[docs]</a>    def test_signature_on_mangled_parameters(self):
+        class Spam:
+            def foo(self, __p1:1=2, *, __p2:2=3):
+                pass
+        class Ham(Spam):
+            pass
+
+        self.assertEqual(self.signature(Spam.foo),
+                         (((&#39;self&#39;, ..., ..., &quot;positional_or_keyword&quot;),
+                           (&#39;_Spam__p1&#39;, 2, 1, &quot;positional_or_keyword&quot;),
+                           (&#39;_Spam__p2&#39;, 3, 2, &quot;keyword_only&quot;)),
+                          ...))
+
+        self.assertEqual(self.signature(Spam.foo),
+                         self.signature(Ham.foo))
+
+</div></div>
+<div class="viewcode-block" id="TestParameterObject"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestParameterObject">[docs]</a>class TestParameterObject(unittest.TestCase):
+<div class="viewcode-block" id="TestParameterObject.test_signature_parameter_kinds"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestParameterObject.test_signature_parameter_kinds">[docs]</a>    def test_signature_parameter_kinds(self):
+        P = inspect.Parameter
+        self.assertTrue(P.POSITIONAL_ONLY &lt; P.POSITIONAL_OR_KEYWORD &lt; \
+                        P.VAR_POSITIONAL &lt; P.KEYWORD_ONLY &lt; P.VAR_KEYWORD)
+
+        self.assertEqual(str(P.POSITIONAL_ONLY), &#39;POSITIONAL_ONLY&#39;)
+        self.assertTrue(&#39;POSITIONAL_ONLY&#39; in repr(P.POSITIONAL_ONLY))
+</div>
+<div class="viewcode-block" id="TestParameterObject.test_signature_parameter_object"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestParameterObject.test_signature_parameter_object">[docs]</a>    def test_signature_parameter_object(self):
+        p = inspect.Parameter(&#39;foo&#39;, default=10,
+                              kind=inspect.Parameter.POSITIONAL_ONLY)
+        self.assertEqual(p.name, &#39;foo&#39;)
+        self.assertEqual(p.default, 10)
+        self.assertIs(p.annotation, p.empty)
+        self.assertEqual(p.kind, inspect.Parameter.POSITIONAL_ONLY)
+
+        with self.assertRaisesRegex(ValueError, &#39;invalid value&#39;):
+            inspect.Parameter(&#39;foo&#39;, default=10, kind=&#39;123&#39;)
+
+        with self.assertRaisesRegex(ValueError, &#39;not a valid parameter name&#39;):
+            inspect.Parameter(&#39;1&#39;, kind=inspect.Parameter.VAR_KEYWORD)
+
+        with self.assertRaisesRegex(TypeError, &#39;name must be a str&#39;):
+            inspect.Parameter(None, kind=inspect.Parameter.VAR_KEYWORD)
+
+        with self.assertRaisesRegex(ValueError,
+                                    &#39;is not a valid parameter name&#39;):
+            inspect.Parameter(&#39;$&#39;, kind=inspect.Parameter.VAR_KEYWORD)
+
+        with self.assertRaisesRegex(ValueError, &#39;cannot have default values&#39;):
+            inspect.Parameter(&#39;a&#39;, default=42,
+                              kind=inspect.Parameter.VAR_KEYWORD)
+
+        with self.assertRaisesRegex(ValueError, &#39;cannot have default values&#39;):
+            inspect.Parameter(&#39;a&#39;, default=42,
+                              kind=inspect.Parameter.VAR_POSITIONAL)
+
+        p = inspect.Parameter(&#39;a&#39;, default=42,
+                              kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        with self.assertRaisesRegex(ValueError, &#39;cannot have default values&#39;):
+            p.replace(kind=inspect.Parameter.VAR_POSITIONAL)
+
+        self.assertTrue(repr(p).startswith(&#39;&lt;Parameter&#39;))
+</div>
+<div class="viewcode-block" id="TestParameterObject.test_signature_parameter_equality"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestParameterObject.test_signature_parameter_equality">[docs]</a>    def test_signature_parameter_equality(self):
+        P = inspect.Parameter
+        p = P(&#39;foo&#39;, default=42, kind=inspect.Parameter.KEYWORD_ONLY)
+
+        self.assertEqual(p, p)
+        self.assertNotEqual(p, 42)
+
+        self.assertEqual(p, P(&#39;foo&#39;, default=42,
+                              kind=inspect.Parameter.KEYWORD_ONLY))
+</div>
+<div class="viewcode-block" id="TestParameterObject.test_signature_parameter_unhashable"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestParameterObject.test_signature_parameter_unhashable">[docs]</a>    def test_signature_parameter_unhashable(self):
+        p = inspect.Parameter(&#39;foo&#39;, default=42,
+                              kind=inspect.Parameter.KEYWORD_ONLY)
+
+        with self.assertRaisesRegex(TypeError, &#39;unhashable type&#39;):
+            hash(p)
+</div>
+<div class="viewcode-block" id="TestParameterObject.test_signature_parameter_replace"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestParameterObject.test_signature_parameter_replace">[docs]</a>    def test_signature_parameter_replace(self):
+        p = inspect.Parameter(&#39;foo&#39;, default=42,
+                              kind=inspect.Parameter.KEYWORD_ONLY)
+
+        self.assertIsNot(p, p.replace())
+        self.assertEqual(p, p.replace())
+
+        p2 = p.replace(annotation=1)
+        self.assertEqual(p2.annotation, 1)
+        p2 = p2.replace(annotation=p2.empty)
+        self.assertEqual(p, p2)
+
+        p2 = p2.replace(name=&#39;bar&#39;)
+        self.assertEqual(p2.name, &#39;bar&#39;)
+        self.assertNotEqual(p2, p)
+
+        with self.assertRaisesRegex(ValueError,
+                                    &#39;name is a required attribute&#39;):
+            p2 = p2.replace(name=p2.empty)
+
+        p2 = p2.replace(name=&#39;foo&#39;, default=None)
+        self.assertIs(p2.default, None)
+        self.assertNotEqual(p2, p)
+
+        p2 = p2.replace(name=&#39;foo&#39;, default=p2.empty)
+        self.assertIs(p2.default, p2.empty)
+
+
+        p2 = p2.replace(default=42, kind=p2.POSITIONAL_OR_KEYWORD)
+        self.assertEqual(p2.kind, p2.POSITIONAL_OR_KEYWORD)
+        self.assertNotEqual(p2, p)
+
+        with self.assertRaisesRegex(ValueError, &#39;invalid value for&#39;):
+            p2 = p2.replace(kind=p2.empty)
+
+        p2 = p2.replace(kind=p2.KEYWORD_ONLY)
+        self.assertEqual(p2, p)
+</div>
+<div class="viewcode-block" id="TestParameterObject.test_signature_parameter_positional_only"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestParameterObject.test_signature_parameter_positional_only">[docs]</a>    def test_signature_parameter_positional_only(self):
+        with self.assertRaisesRegex(TypeError, &#39;name must be a str&#39;):
+            inspect.Parameter(None, kind=inspect.Parameter.POSITIONAL_ONLY)
+</div>
+<div class="viewcode-block" id="TestParameterObject.test_signature_parameter_immutability"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestParameterObject.test_signature_parameter_immutability">[docs]</a>    def test_signature_parameter_immutability(self):
+        p = inspect.Parameter(&#39;spam&#39;, kind=inspect.Parameter.KEYWORD_ONLY)
+
+        with self.assertRaises(AttributeError):
+            p.foo = &#39;bar&#39;
+
+        with self.assertRaises(AttributeError):
+            p.kind = 123
+
+</div></div>
+<div class="viewcode-block" id="TestSignatureBind"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind">[docs]</a>class TestSignatureBind(unittest.TestCase):
+    @staticmethod
+<div class="viewcode-block" id="TestSignatureBind.call"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.call">[docs]</a>    def call(func, *args, **kwargs):
+        sig = inspect.signature(func)
+        ba = sig.bind(*args, **kwargs)
+        return func(*ba.args, **ba.kwargs)
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_empty"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_empty">[docs]</a>    def test_signature_bind_empty(self):
+        def test():
+            return 42
+
+        self.assertEqual(self.call(test), 42)
+        with self.assertRaisesRegex(TypeError, &#39;too many positional arguments&#39;):
+            self.call(test, 1)
+        with self.assertRaisesRegex(TypeError, &#39;too many positional arguments&#39;):
+            self.call(test, 1, spam=10)
+        with self.assertRaisesRegex(TypeError, &#39;too many keyword arguments&#39;):
+            self.call(test, spam=1)
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_var"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_var">[docs]</a>    def test_signature_bind_var(self):
+        def test(*args, **kwargs):
+            return args, kwargs
+
+        self.assertEqual(self.call(test), ((), {}))
+        self.assertEqual(self.call(test, 1), ((1,), {}))
+        self.assertEqual(self.call(test, 1, 2), ((1, 2), {}))
+        self.assertEqual(self.call(test, foo=&#39;bar&#39;), ((), {&#39;foo&#39;: &#39;bar&#39;}))
+        self.assertEqual(self.call(test, 1, foo=&#39;bar&#39;), ((1,), {&#39;foo&#39;: &#39;bar&#39;}))
+        self.assertEqual(self.call(test, args=10), ((), {&#39;args&#39;: 10}))
+        self.assertEqual(self.call(test, 1, 2, foo=&#39;bar&#39;),
+                         ((1, 2), {&#39;foo&#39;: &#39;bar&#39;}))
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_just_args"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_just_args">[docs]</a>    def test_signature_bind_just_args(self):
+        def test(a, b, c):
+            return a, b, c
+
+        self.assertEqual(self.call(test, 1, 2, 3), (1, 2, 3))
+
+        with self.assertRaisesRegex(TypeError, &#39;too many positional arguments&#39;):
+            self.call(test, 1, 2, 3, 4)
+
+        with self.assertRaisesRegex(TypeError, &quot;&#39;b&#39; parameter lacking default&quot;):
+            self.call(test, 1)
+
+        with self.assertRaisesRegex(TypeError, &quot;&#39;a&#39; parameter lacking default&quot;):
+            self.call(test)
+
+        def test(a, b, c=10):
+            return a, b, c
+        self.assertEqual(self.call(test, 1, 2, 3), (1, 2, 3))
+        self.assertEqual(self.call(test, 1, 2), (1, 2, 10))
+
+        def test(a=1, b=2, c=3):
+            return a, b, c
+        self.assertEqual(self.call(test, a=10, c=13), (10, 2, 13))
+        self.assertEqual(self.call(test, a=10), (10, 2, 3))
+        self.assertEqual(self.call(test, b=10), (1, 10, 3))
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_varargs_order"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_varargs_order">[docs]</a>    def test_signature_bind_varargs_order(self):
+        def test(*args):
+            return args
+
+        self.assertEqual(self.call(test), ())
+        self.assertEqual(self.call(test, 1, 2, 3), (1, 2, 3))
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_args_and_varargs"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_args_and_varargs">[docs]</a>    def test_signature_bind_args_and_varargs(self):
+        def test(a, b, c=3, *args):
+            return a, b, c, args
+
+        self.assertEqual(self.call(test, 1, 2, 3, 4, 5), (1, 2, 3, (4, 5)))
+        self.assertEqual(self.call(test, 1, 2), (1, 2, 3, ()))
+        self.assertEqual(self.call(test, b=1, a=2), (2, 1, 3, ()))
+        self.assertEqual(self.call(test, 1, b=2), (1, 2, 3, ()))
+
+        with self.assertRaisesRegex(TypeError,
+                                     &quot;multiple values for argument &#39;c&#39;&quot;):
+            self.call(test, 1, 2, 3, c=4)
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_just_kwargs"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_just_kwargs">[docs]</a>    def test_signature_bind_just_kwargs(self):
+        def test(**kwargs):
+            return kwargs
+
+        self.assertEqual(self.call(test), {})
+        self.assertEqual(self.call(test, foo=&#39;bar&#39;, spam=&#39;ham&#39;),
+                         {&#39;foo&#39;: &#39;bar&#39;, &#39;spam&#39;: &#39;ham&#39;})
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_args_and_kwargs"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_args_and_kwargs">[docs]</a>    def test_signature_bind_args_and_kwargs(self):
+        def test(a, b, c=3, **kwargs):
+            return a, b, c, kwargs
+
+        self.assertEqual(self.call(test, 1, 2), (1, 2, 3, {}))
+        self.assertEqual(self.call(test, 1, 2, foo=&#39;bar&#39;, spam=&#39;ham&#39;),
+                         (1, 2, 3, {&#39;foo&#39;: &#39;bar&#39;, &#39;spam&#39;: &#39;ham&#39;}))
+        self.assertEqual(self.call(test, b=2, a=1, foo=&#39;bar&#39;, spam=&#39;ham&#39;),
+                         (1, 2, 3, {&#39;foo&#39;: &#39;bar&#39;, &#39;spam&#39;: &#39;ham&#39;}))
+        self.assertEqual(self.call(test, a=1, b=2, foo=&#39;bar&#39;, spam=&#39;ham&#39;),
+                         (1, 2, 3, {&#39;foo&#39;: &#39;bar&#39;, &#39;spam&#39;: &#39;ham&#39;}))
+        self.assertEqual(self.call(test, 1, b=2, foo=&#39;bar&#39;, spam=&#39;ham&#39;),
+                         (1, 2, 3, {&#39;foo&#39;: &#39;bar&#39;, &#39;spam&#39;: &#39;ham&#39;}))
+        self.assertEqual(self.call(test, 1, b=2, c=4, foo=&#39;bar&#39;, spam=&#39;ham&#39;),
+                         (1, 2, 4, {&#39;foo&#39;: &#39;bar&#39;, &#39;spam&#39;: &#39;ham&#39;}))
+        self.assertEqual(self.call(test, 1, 2, 4, foo=&#39;bar&#39;),
+                         (1, 2, 4, {&#39;foo&#39;: &#39;bar&#39;}))
+        self.assertEqual(self.call(test, c=5, a=4, b=3),
+                         (4, 3, 5, {}))
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_kwonly"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_kwonly">[docs]</a>    def test_signature_bind_kwonly(self):
+        def test(*, foo):
+            return foo
+        with self.assertRaisesRegex(TypeError,
+                                     &#39;too many positional arguments&#39;):
+            self.call(test, 1)
+        self.assertEqual(self.call(test, foo=1), 1)
+
+        def test(a, *, foo=1, bar):
+            return foo
+        with self.assertRaisesRegex(TypeError,
+                                     &quot;&#39;bar&#39; parameter lacking default value&quot;):
+            self.call(test, 1)
+
+        def test(foo, *, bar):
+            return foo, bar
+        self.assertEqual(self.call(test, 1, bar=2), (1, 2))
+        self.assertEqual(self.call(test, bar=2, foo=1), (1, 2))
+
+        with self.assertRaisesRegex(TypeError,
+                                     &#39;too many keyword arguments&#39;):
+            self.call(test, bar=2, foo=1, spam=10)
+
+        with self.assertRaisesRegex(TypeError,
+                                     &#39;too many positional arguments&#39;):
+            self.call(test, 1, 2)
+
+        with self.assertRaisesRegex(TypeError,
+                                     &#39;too many positional arguments&#39;):
+            self.call(test, 1, 2, bar=2)
+
+        with self.assertRaisesRegex(TypeError,
+                                     &#39;too many keyword arguments&#39;):
+            self.call(test, 1, bar=2, spam=&#39;ham&#39;)
+
+        with self.assertRaisesRegex(TypeError,
+                                     &quot;&#39;bar&#39; parameter lacking default value&quot;):
+            self.call(test, 1)
+
+        def test(foo, *, bar, **bin):
+            return foo, bar, bin
+        self.assertEqual(self.call(test, 1, bar=2), (1, 2, {}))
+        self.assertEqual(self.call(test, foo=1, bar=2), (1, 2, {}))
+        self.assertEqual(self.call(test, 1, bar=2, spam=&#39;ham&#39;),
+                         (1, 2, {&#39;spam&#39;: &#39;ham&#39;}))
+        self.assertEqual(self.call(test, spam=&#39;ham&#39;, foo=1, bar=2),
+                         (1, 2, {&#39;spam&#39;: &#39;ham&#39;}))
+        with self.assertRaisesRegex(TypeError,
+                                     &quot;&#39;foo&#39; parameter lacking default value&quot;):
+            self.call(test, spam=&#39;ham&#39;, bar=2)
+        self.assertEqual(self.call(test, 1, bar=2, bin=1, spam=10),
+                         (1, 2, {&#39;bin&#39;: 1, &#39;spam&#39;: 10}))
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_arguments"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_arguments">[docs]</a>    def test_signature_bind_arguments(self):
+        def test(a, *args, b, z=100, **kwargs):
+            pass
+        sig = inspect.signature(test)
+        ba = sig.bind(10, 20, b=30, c=40, args=50, kwargs=60)
+        # we won&#39;t have &#39;z&#39; argument in the bound arguments object, as we didn&#39;t
+        # pass it to the &#39;bind&#39;
+        self.assertEqual(tuple(ba.arguments.items()),
+                         ((&#39;a&#39;, 10), (&#39;args&#39;, (20,)), (&#39;b&#39;, 30),
+                          (&#39;kwargs&#39;, {&#39;c&#39;: 40, &#39;args&#39;: 50, &#39;kwargs&#39;: 60})))
+        self.assertEqual(ba.kwargs,
+                         {&#39;b&#39;: 30, &#39;c&#39;: 40, &#39;args&#39;: 50, &#39;kwargs&#39;: 60})
+        self.assertEqual(ba.args, (10, 20))
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_positional_only"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_positional_only">[docs]</a>    def test_signature_bind_positional_only(self):
+        P = inspect.Parameter
+
+        def test(a_po, b_po, c_po=3, foo=42, *, bar=50, **kwargs):
+            return a_po, b_po, c_po, foo, bar, kwargs
+
+        sig = inspect.signature(test)
+        new_params = collections.OrderedDict(tuple(sig.parameters.items()))
+        for name in (&#39;a_po&#39;, &#39;b_po&#39;, &#39;c_po&#39;):
+            new_params[name] = new_params[name].replace(kind=P.POSITIONAL_ONLY)
+        new_sig = sig.replace(parameters=new_params.values())
+        test.__signature__ = new_sig
+
+        self.assertEqual(self.call(test, 1, 2, 4, 5, bar=6),
+                         (1, 2, 4, 5, 6, {}))
+
+        self.assertEqual(self.call(test, 1, 2),
+                         (1, 2, 3, 42, 50, {}))
+
+        self.assertEqual(self.call(test, 1, 2, foo=4, bar=5),
+                         (1, 2, 3, 4, 5, {}))
+
+        with self.assertRaisesRegex(TypeError, &quot;but was passed as a keyword&quot;):
+            self.call(test, 1, 2, foo=4, bar=5, c_po=10)
+
+        with self.assertRaisesRegex(TypeError, &quot;parameter is positional only&quot;):
+            self.call(test, 1, 2, c_po=4)
+
+        with self.assertRaisesRegex(TypeError, &quot;parameter is positional only&quot;):
+            self.call(test, a_po=1, b_po=2)
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_with_self_arg"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_with_self_arg">[docs]</a>    def test_signature_bind_with_self_arg(self):
+        # Issue #17071: one of the parameters is named &quot;self
+        def test(a, self, b):
+            pass
+        sig = inspect.signature(test)
+        ba = sig.bind(1, 2, 3)
+        self.assertEqual(ba.args, (1, 2, 3))
+        ba = sig.bind(1, self=2, b=3)
+        self.assertEqual(ba.args, (1, 2, 3))
+</div>
+<div class="viewcode-block" id="TestSignatureBind.test_signature_bind_vararg_name"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignatureBind.test_signature_bind_vararg_name">[docs]</a>    def test_signature_bind_vararg_name(self):
+        def test(a, *args):
+            return a, args
+        sig = inspect.signature(test)
+
+        with self.assertRaisesRegex(TypeError, &quot;too many keyword arguments&quot;):
+            sig.bind(a=0, args=1)
+
+        def test(*args, **kwargs):
+            return args, kwargs
+        self.assertEqual(self.call(test, args=1), ((), {&#39;args&#39;: 1}))
+
+        sig = inspect.signature(test)
+        ba = sig.bind(args=1)
+        self.assertEqual(ba.arguments, {&#39;kwargs&#39;: {&#39;args&#39;: 1}})
+
+</div></div>
+<div class="viewcode-block" id="TestBoundArguments"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBoundArguments">[docs]</a>class TestBoundArguments(unittest.TestCase):
+<div class="viewcode-block" id="TestBoundArguments.test_signature_bound_arguments_unhashable"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBoundArguments.test_signature_bound_arguments_unhashable">[docs]</a>    def test_signature_bound_arguments_unhashable(self):
+        def foo(a): pass
+        ba = inspect.signature(foo).bind(1)
+
+        with self.assertRaisesRegex(TypeError, &#39;unhashable type&#39;):
+            hash(ba)
+</div>
+<div class="viewcode-block" id="TestBoundArguments.test_signature_bound_arguments_equality"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestBoundArguments.test_signature_bound_arguments_equality">[docs]</a>    def test_signature_bound_arguments_equality(self):
+        def foo(a): pass
+        ba = inspect.signature(foo).bind(1)
+        self.assertEqual(ba, ba)
+
+        ba2 = inspect.signature(foo).bind(1)
+        self.assertEqual(ba, ba2)
+
+        ba3 = inspect.signature(foo).bind(2)
+        self.assertNotEqual(ba, ba3)
+        ba3.arguments[&#39;a&#39;] = 1
+        self.assertEqual(ba, ba3)
+
+        def bar(b): pass
+        ba4 = inspect.signature(bar).bind(1)
+        self.assertNotEqual(ba, ba4)
+
+</div></div>
+<div class="viewcode-block" id="TestSignaturePrivateHelpers"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignaturePrivateHelpers">[docs]</a>class TestSignaturePrivateHelpers(unittest.TestCase):
+<div class="viewcode-block" id="TestSignaturePrivateHelpers.test_signature_get_bound_param"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignaturePrivateHelpers.test_signature_get_bound_param">[docs]</a>    def test_signature_get_bound_param(self):
+        getter = inspect._signature_get_bound_param
+
+        self.assertEqual(getter(&#39;($self)&#39;), &#39;self&#39;)
+        self.assertEqual(getter(&#39;($self, obj)&#39;), &#39;self&#39;)
+        self.assertEqual(getter(&#39;($cls, /, obj)&#39;), &#39;cls&#39;)
+</div>
+    def _strip_non_python_syntax(self, input,
+        clean_signature, self_parameter, last_positional_only):
+        computed_clean_signature, \
+            computed_self_parameter, \
+            computed_last_positional_only = \
+            inspect._signature_strip_non_python_syntax(input)
+        self.assertEqual(computed_clean_signature, clean_signature)
+        self.assertEqual(computed_self_parameter, self_parameter)
+        self.assertEqual(computed_last_positional_only, last_positional_only)
+
+<div class="viewcode-block" id="TestSignaturePrivateHelpers.test_signature_strip_non_python_syntax"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestSignaturePrivateHelpers.test_signature_strip_non_python_syntax">[docs]</a>    def test_signature_strip_non_python_syntax(self):
+        self._strip_non_python_syntax(
+            &quot;($module, /, path, mode, *, dir_fd=None, &quot; +
+                &quot;effective_ids=False,\n       follow_symlinks=True)&quot;,
+            &quot;(module, path, mode, *, dir_fd=None, &quot; +
+                &quot;effective_ids=False, follow_symlinks=True)&quot;,
+            0,
+            0)
+
+        self._strip_non_python_syntax(
+            &quot;($module, word, salt, /)&quot;,
+            &quot;(module, word, salt)&quot;,
+            0,
+            2)
+
+        self._strip_non_python_syntax(
+            &quot;(x, y=None, z=None, /)&quot;,
+            &quot;(x, y=None, z=None)&quot;,
+            None,
+            2)
+
+        self._strip_non_python_syntax(
+            &quot;(x, y=None, z=None)&quot;,
+            &quot;(x, y=None, z=None)&quot;,
+            None,
+            None)
+
+        self._strip_non_python_syntax(
+            &quot;(x,\n    y=None,\n      z = None  )&quot;,
+            &quot;(x, y=None, z=None)&quot;,
+            None,
+            None)
+
+        self._strip_non_python_syntax(
+            &quot;&quot;,
+            &quot;&quot;,
+            None,
+            None)
+
+        self._strip_non_python_syntax(
+            None,
+            None,
+            None,
+            None)
+
+</div></div>
+<div class="viewcode-block" id="TestUnwrap"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestUnwrap">[docs]</a>class TestUnwrap(unittest.TestCase):
+
+<div class="viewcode-block" id="TestUnwrap.test_unwrap_one"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestUnwrap.test_unwrap_one">[docs]</a>    def test_unwrap_one(self):
+        def func(a, b):
+            return a + b
+        wrapper = functools.lru_cache(maxsize=20)(func)
+        self.assertIs(inspect.unwrap(wrapper), func)
+</div>
+<div class="viewcode-block" id="TestUnwrap.test_unwrap_several"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestUnwrap.test_unwrap_several">[docs]</a>    def test_unwrap_several(self):
+        def func(a, b):
+            return a + b
+        wrapper = func
+        for __ in range(10):
+            @functools.wraps(wrapper)
+            def wrapper():
+                pass
+        self.assertIsNot(wrapper.__wrapped__, func)
+        self.assertIs(inspect.unwrap(wrapper), func)
+</div>
+<div class="viewcode-block" id="TestUnwrap.test_stop"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestUnwrap.test_stop">[docs]</a>    def test_stop(self):
+        def func1(a, b):
+            return a + b
+        @functools.wraps(func1)
+        def func2():
+            pass
+        @functools.wraps(func2)
+        def wrapper():
+            pass
+        func2.stop_here = 1
+        unwrapped = inspect.unwrap(wrapper,
+                                   stop=(lambda f: hasattr(f, &quot;stop_here&quot;)))
+        self.assertIs(unwrapped, func2)
+</div>
+<div class="viewcode-block" id="TestUnwrap.test_cycle"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestUnwrap.test_cycle">[docs]</a>    def test_cycle(self):
+        def func1(): pass
+        func1.__wrapped__ = func1
+        with self.assertRaisesRegex(ValueError, &#39;wrapper loop&#39;):
+            inspect.unwrap(func1)
+
+        def func2(): pass
+        func2.__wrapped__ = func1
+        func1.__wrapped__ = func2
+        with self.assertRaisesRegex(ValueError, &#39;wrapper loop&#39;):
+            inspect.unwrap(func1)
+        with self.assertRaisesRegex(ValueError, &#39;wrapper loop&#39;):
+            inspect.unwrap(func2)
+</div>
+<div class="viewcode-block" id="TestUnwrap.test_unhashable"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestUnwrap.test_unhashable">[docs]</a>    def test_unhashable(self):
+        def func(): pass
+        func.__wrapped__ = None
+        class C:
+            __hash__ = None
+            __wrapped__ = func
+        self.assertIsNone(inspect.unwrap(C()))
+</div></div>
+<div class="viewcode-block" id="TestMain"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestMain">[docs]</a>class TestMain(unittest.TestCase):
+<div class="viewcode-block" id="TestMain.test_only_source"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestMain.test_only_source">[docs]</a>    def test_only_source(self):
+        module = importlib.import_module(&#39;unittest&#39;)
+        rc, out, err = assert_python_ok(&#39;-m&#39;, &#39;inspect&#39;,
+                                        &#39;unittest&#39;)
+        lines = out.decode().splitlines()
+        # ignore the final newline
+        self.assertEqual(lines[:-1], inspect.getsource(module).splitlines())
+        self.assertEqual(err, b&#39;&#39;)
+</div>
+<div class="viewcode-block" id="TestMain.test_custom_getattr"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestMain.test_custom_getattr">[docs]</a>    def test_custom_getattr(self):
+        def foo():
+            pass
+        foo.__signature__ = 42
+        with self.assertRaises(TypeError):
+            inspect.signature(foo)
+</div>
+    @unittest.skipIf(ThreadPoolExecutor is None,
+            &#39;threads required to test __qualname__ for source files&#39;)
+<div class="viewcode-block" id="TestMain.test_qualname_source"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestMain.test_qualname_source">[docs]</a>    def test_qualname_source(self):
+        rc, out, err = assert_python_ok(&#39;-m&#39;, &#39;inspect&#39;,
+                                     &#39;concurrent.futures:ThreadPoolExecutor&#39;)
+        lines = out.decode().splitlines()
+        # ignore the final newline
+        self.assertEqual(lines[:-1],
+                         inspect.getsource(ThreadPoolExecutor).splitlines())
+        self.assertEqual(err, b&#39;&#39;)
+</div>
+<div class="viewcode-block" id="TestMain.test_builtins"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestMain.test_builtins">[docs]</a>    def test_builtins(self):
+        module = importlib.import_module(&#39;unittest&#39;)
+        _, out, err = assert_python_failure(&#39;-m&#39;, &#39;inspect&#39;,
+                                            &#39;sys&#39;)
+        lines = err.decode().splitlines()
+        self.assertEqual(lines, [&quot;Can&#39;t get info for builtin modules.&quot;])
+</div>
+<div class="viewcode-block" id="TestMain.test_details"><a class="viewcode-back" href="../../test.html#test.test_inspect.TestMain.test_details">[docs]</a>    def test_details(self):
+        module = importlib.import_module(&#39;unittest&#39;)
+        rc, out, err = assert_python_ok(&#39;-m&#39;, &#39;inspect&#39;,
+                                        &#39;unittest&#39;, &#39;--details&#39;)
+        output = out.decode()
+        # Just a quick sanity check on the output
+        self.assertIn(module.__name__, output)
+        self.assertIn(module.__file__, output)
+        if not sys.flags.optimize:
+            self.assertIn(module.__cached__, output)
+        self.assertEqual(err, b&#39;&#39;)
+
+
+
+</div></div>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_inspect.test_main">[docs]</a>def test_main():
+    run_unittest(
+        TestDecorators, TestRetrievingSourceCode, TestOneliners, TestBuggyCases,
+        TestInterpreterStack, TestClassesAndFunctions, TestPredicates,
+        TestGetcallargsFunctions, TestGetcallargsMethods,
+        TestGetcallargsUnboundMethods, TestGetattrStatic, TestGetGeneratorState,
+        TestNoEOL, TestSignatureObject, TestSignatureBind, TestParameterObject,
+        TestBoundArguments, TestSignaturePrivateHelpers, TestGetClosureVars,
+        TestUnwrap, TestMain
+    )
+</div>
+if __name__ == &quot;__main__&quot;:
+    test_main()
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

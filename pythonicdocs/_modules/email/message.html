@@ -1,0 +1,1242 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>email.message &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="email" href="../email.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &raquo;</li>
+          <li class="nav-item nav-item-2"><a href="../email.html" accesskey="U">email</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for email.message</h1><div class="highlight"><pre>
+<span class="c"># Copyright (C) 2001-2007 Python Software Foundation</span>
+<span class="c"># Author: Barry Warsaw</span>
+<span class="c"># Contact: email-sig@python.org</span>
+
+<span class="sd">&quot;&quot;&quot;Basic message object for the email package object model.&quot;&quot;&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;Message&#39;</span><span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">uu</span>
+<span class="kn">import</span> <span class="nn">quopri</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="kn">from</span> <span class="nn">io</span> <span class="kn">import</span> <span class="n">BytesIO</span><span class="p">,</span> <span class="n">StringIO</span>
+
+<span class="c"># Intrapackage imports</span>
+<span class="kn">from</span> <span class="nn">email</span> <span class="kn">import</span> <span class="n">utils</span>
+<span class="kn">from</span> <span class="nn">email</span> <span class="kn">import</span> <span class="n">errors</span>
+<span class="kn">from</span> <span class="nn">email._policybase</span> <span class="kn">import</span> <span class="n">compat32</span>
+<span class="kn">from</span> <span class="nn">email</span> <span class="kn">import</span> <span class="n">charset</span> <span class="k">as</span> <span class="n">_charset</span>
+<span class="kn">from</span> <span class="nn">email._encoded_words</span> <span class="kn">import</span> <span class="n">decode_b</span>
+<span class="n">Charset</span> <span class="o">=</span> <span class="n">_charset</span><span class="o">.</span><span class="n">Charset</span>
+
+<span class="n">SEMISPACE</span> <span class="o">=</span> <span class="s">&#39;; &#39;</span>
+
+<span class="c"># Regular expression that matches `special&#39; characters in parameters, the</span>
+<span class="c"># existence of which force quoting of the parameter value.</span>
+<span class="n">tspecials</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;[ \(\)&lt;&gt;@,;:</span><span class="se">\\</span><span class="s">&quot;/\[\]\?=]&#39;</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_splitparam</span><span class="p">(</span><span class="n">param</span><span class="p">):</span>
+    <span class="c"># Split header parameters.  BAW: this may be too simple.  It isn&#39;t</span>
+    <span class="c"># strictly RFC 2045 (section 5.1) compliant, but it catches most headers</span>
+    <span class="c"># found in the wild.  We may eventually need a full fledged parser.</span>
+    <span class="c"># RDM: we might have a Header here; for now just stringify it.</span>
+    <span class="n">a</span><span class="p">,</span> <span class="n">sep</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">param</span><span class="p">)</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">sep</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">a</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="bp">None</span>
+    <span class="k">return</span> <span class="n">a</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">b</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">_formatparam</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">quote</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Convenience function to format and return a key=value pair.</span>
+
+<span class="sd">    This will quote the value if needed or if quote is true.  If value is a</span>
+<span class="sd">    three tuple (charset, language, value), it will be encoded according</span>
+<span class="sd">    to RFC2231 rules.  If it contains non-ascii characters it will likewise</span>
+<span class="sd">    be encoded according to RFC2231 rules, using the utf-8 charset and</span>
+<span class="sd">    a null language.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="c"># A tuple is used for RFC 2231 encoded parameter values where items</span>
+        <span class="c"># are (charset, language, value).  charset is a string, not a Charset</span>
+        <span class="c"># instance.  RFC 2231 encoded values are never quoted, per RFC.</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="c"># Encode as per RFC 2231</span>
+            <span class="n">param</span> <span class="o">+=</span> <span class="s">&#39;*&#39;</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">encode_rfc2231</span><span class="p">(</span><span class="n">value</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span> <span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="k">return</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">value</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">UnicodeEncodeError</span><span class="p">:</span>
+                <span class="n">param</span> <span class="o">+=</span> <span class="s">&#39;*&#39;</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">encode_rfc2231</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="s">&#39;utf-8&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="c"># BAW: Please check this.  I think that if quote is set it should</span>
+        <span class="c"># force quoting even if not necessary.</span>
+        <span class="k">if</span> <span class="n">quote</span> <span class="ow">or</span> <span class="n">tspecials</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+            <span class="k">return</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">=&quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">utils</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">param</span>
+
+<span class="k">def</span> <span class="nf">_parseparam</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="c"># RDM This might be a Header, so for now stringify it.</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="s">&#39;;&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">plist</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">while</span> <span class="n">s</span><span class="p">[:</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;;&#39;</span><span class="p">:</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">)</span>
+        <span class="k">while</span> <span class="n">end</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span> <span class="o">-</span> <span class="n">s</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\\</span><span class="s">&quot;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">))</span> <span class="o">%</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">,</span> <span class="n">end</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">end</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:</span><span class="n">end</span><span class="p">]</span>
+        <span class="k">if</span> <span class="s">&#39;=&#39;</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">)</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">f</span><span class="p">[:</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">+</span> <span class="s">&#39;=&#39;</span> <span class="o">+</span> <span class="n">f</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">:]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="n">plist</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="n">end</span><span class="p">:]</span>
+    <span class="k">return</span> <span class="n">plist</span>
+
+
+<span class="k">def</span> <span class="nf">_unquotevalue</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+    <span class="c"># This is different than utils.collapse_rfc2231_value() because it doesn&#39;t</span>
+    <span class="c"># try to convert the value to a unicode.  Message.get_param() and</span>
+    <span class="c"># Message.get_params() are both currently defined to return the tuple in</span>
+    <span class="c"># the face of RFC 2231 parameters.</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">utils</span><span class="o">.</span><span class="n">unquote</span><span class="p">(</span><span class="n">value</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">utils</span><span class="o">.</span><span class="n">unquote</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="Message"><a class="viewcode-back" href="../../email.html#email.message.Message">[docs]</a>
+
+<span class="k">class</span> <span class="nc">Message</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Basic message object.</span>
+
+<span class="sd">    A message object is defined as something that has a bunch of RFC 2822</span>
+<span class="sd">    headers and a payload.  It may optionally have an envelope header</span>
+<span class="sd">    (a.k.a. Unix-From or From_ header).  If the message is a container (i.e. a</span>
+<span class="sd">    multipart or a message/rfc822), then the payload is a list of Message</span>
+<span class="sd">    objects, otherwise it is a string.</span>
+
+<span class="sd">    Message objects implement part of the `mapping&#39; interface, which assumes</span>
+<span class="sd">    there is exactly one occurrence of the header per message.  Some headers</span>
+<span class="sd">    do in fact appear multiple times (e.g. Received) and for those headers,</span>
+<span class="sd">    you must use the explicit API to set or get all the headers.  Not all of</span>
+<span class="sd">    the mapping methods are implemented.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">compat32</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">policy</span> <span class="o">=</span> <span class="n">policy</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_unixfrom</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_charset</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="c"># Defaults for multipart messages</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">preamble</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">epilogue</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">defects</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c"># Default content type</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_default_type</span> <span class="o">=</span> <span class="s">&#39;text/plain&#39;</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the entire formatted message as a string.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+<div class="viewcode-block" id="Message.as_string"><a class="viewcode-back" href="../../email.html#email.message.Message.as_string">[docs]</a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">as_string</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">as_string</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">unixfrom</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">maxheaderlen</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the entire formatted message as a string.</span>
+
+<span class="sd">        Optional &#39;unixfrom&#39;, when true, means include the Unix From_ envelope</span>
+<span class="sd">        header.  For backward compatibility reasons, if maxheaderlen is</span>
+<span class="sd">        not specified it defaults to 0, so you must override it explicitly</span>
+<span class="sd">        if you want a different maxheaderlen.  &#39;policy&#39; is passed to the</span>
+<span class="sd">        Generator instance used to serialize the mesasge; if it is not</span>
+<span class="sd">        specified the policy associated with the message instance is used.</span>
+
+<span class="sd">        If the message object contains binary data that is not encoded</span>
+<span class="sd">        according to RFC standards, the non-compliant data will be replaced by</span>
+<span class="sd">        unicode &quot;unknown character&quot; code points.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span> <span class="nn">email.generator</span> <span class="kn">import</span> <span class="n">Generator</span>
+        <span class="n">policy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span> <span class="k">if</span> <span class="n">policy</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">policy</span>
+        <span class="n">fp</span> <span class="o">=</span> <span class="n">StringIO</span><span class="p">()</span>
+        <span class="n">g</span> <span class="o">=</span> <span class="n">Generator</span><span class="p">(</span><span class="n">fp</span><span class="p">,</span>
+                      <span class="n">mangle_from_</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                      <span class="n">maxheaderlen</span><span class="o">=</span><span class="n">maxheaderlen</span><span class="p">,</span>
+                      <span class="n">policy</span><span class="o">=</span><span class="n">policy</span><span class="p">)</span>
+        <span class="n">g</span><span class="o">.</span><span class="n">flatten</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">unixfrom</span><span class="o">=</span><span class="n">unixfrom</span><span class="p">)</span></div>
+        <span class="k">return</span> <span class="n">fp</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__bytes__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the entire formatted message as a bytes object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+<div class="viewcode-block" id="Message.as_bytes"><a class="viewcode-back" href="../../email.html#email.message.Message.as_bytes">[docs]</a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">as_bytes</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">as_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">unixfrom</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the entire formatted message as a bytes object.</span>
+
+<span class="sd">        Optional &#39;unixfrom&#39;, when true, means include the Unix From_ envelope</span>
+<span class="sd">        header.  &#39;policy&#39; is passed to the BytesGenerator instance used to</span>
+<span class="sd">        serialize the message; if not specified the policy associated with</span>
+<span class="sd">        the message instance is used.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span> <span class="nn">email.generator</span> <span class="kn">import</span> <span class="n">BytesGenerator</span>
+        <span class="n">policy</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span> <span class="k">if</span> <span class="n">policy</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">policy</span>
+        <span class="n">fp</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">()</span>
+        <span class="n">g</span> <span class="o">=</span> <span class="n">BytesGenerator</span><span class="p">(</span><span class="n">fp</span><span class="p">,</span> <span class="n">mangle_from_</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="n">policy</span><span class="p">)</span>
+        <span class="n">g</span><span class="o">.</span><span class="n">flatten</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">unixfrom</span><span class="o">=</span><span class="n">unixfrom</span><span class="p">)</span></div>
+<div class="viewcode-block" id="Message.is_multipart"><a class="viewcode-back" href="../../email.html#email.message.Message.is_multipart">[docs]</a>        <span class="k">return</span> <span class="n">fp</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">is_multipart</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return True if the message consists of multiple parts.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_payload</span><span class="p">,</span> <span class="nb">list</span><span class="p">)</span>
+
+    <span class="c">#</span></div>
+<div class="viewcode-block" id="Message.set_unixfrom"><a class="viewcode-back" href="../../email.html#email.message.Message.set_unixfrom">[docs]</a>    <span class="c"># Unix From_ line</span>
+    <span class="c">#</span>
+    <span class="k">def</span> <span class="nf">set_unixfrom</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">unixfrom</span><span class="p">):</span></div>
+<div class="viewcode-block" id="Message.get_unixfrom"><a class="viewcode-back" href="../../email.html#email.message.Message.get_unixfrom">[docs]</a>        <span class="bp">self</span><span class="o">.</span><span class="n">_unixfrom</span> <span class="o">=</span> <span class="n">unixfrom</span>
+
+    <span class="k">def</span> <span class="nf">get_unixfrom</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unixfrom</span>
+
+    <span class="c">#</span></div>
+<div class="viewcode-block" id="Message.attach"><a class="viewcode-back" href="../../email.html#email.message.Message.attach">[docs]</a>    <span class="c"># Payload manipulation.</span>
+    <span class="c">#</span>
+    <span class="k">def</span> <span class="nf">attach</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">payload</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add the given payload to the current payload.</span>
+
+<span class="sd">        The current payload will always be a list of objects after this method</span>
+<span class="sd">        is called.  If you want to set the payload to a scalar object, use</span>
+<span class="sd">        set_payload() instead.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="p">[</span><span class="n">payload</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;Attach is not valid on a message with a&quot;</span></div>
+<div class="viewcode-block" id="Message.get_payload"><a class="viewcode-back" href="../../email.html#email.message.Message.get_payload">[docs]</a>                                <span class="s">&quot; non-multipart payload&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">decode</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a reference to the payload.</span>
+
+<span class="sd">        The payload will either be a list object or a string.  If you mutate</span>
+<span class="sd">        the list object, you modify the message&#39;s payload in place.  Optional</span>
+<span class="sd">        i returns that index into the payload.</span>
+
+<span class="sd">        Optional decode is a flag indicating whether the payload should be</span>
+<span class="sd">        decoded or not, according to the Content-Transfer-Encoding header</span>
+<span class="sd">        (default is False).</span>
+
+<span class="sd">        When True and the message is not a multipart, the payload will be</span>
+<span class="sd">        decoded if this header&#39;s value is `quoted-printable&#39; or `base64&#39;.  If</span>
+<span class="sd">        some other encoding is used, or the header is missing, or if the</span>
+<span class="sd">        payload has bogus data (i.e. bogus base64 or uuencoded data), the</span>
+<span class="sd">        payload is returned as-is.</span>
+
+<span class="sd">        If the message is a multipart and the decode flag is True, then None</span>
+<span class="sd">        is returned.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Here is the logic table for this code, based on the email5.0.0 code:</span>
+        <span class="c">#   i     decode  is_multipart  result</span>
+        <span class="c"># ------  ------  ------------  ------------------------------</span>
+        <span class="c">#  None   True    True          None</span>
+        <span class="c">#   i     True    True          None</span>
+        <span class="c">#  None   False   True          _payload (a list)</span>
+        <span class="c">#   i     False   True          _payload element i (a Message)</span>
+        <span class="c">#   i     False   False         error (not a list)</span>
+        <span class="c">#   i     True    False         error (not a list)</span>
+        <span class="c">#  None   False   False         _payload</span>
+        <span class="c">#  None   True    False         _payload decoded (bytes)</span>
+        <span class="c"># Note that Barry planned to factor out the &#39;decode&#39; case, but that</span>
+        <span class="c"># isn&#39;t so easy now that we handle the 8 bit data, which needs to be</span>
+        <span class="c"># converted in both the decode and non-decode path.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_multipart</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">decode</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">None</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="c"># For backward compatibility, Use isinstance and this error message</span>
+        <span class="c"># instead of the more logical is_multipart test.</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_payload</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;Expected list, got </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_payload</span><span class="p">))</span>
+        <span class="n">payload</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span>
+        <span class="c"># cte might be a Header, so for now stringify it.</span>
+        <span class="n">cte</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;content-transfer-encoding&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">))</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="c"># payload may be bytes here.</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">utils</span><span class="o">.</span><span class="n">_has_surrogates</span><span class="p">(</span><span class="n">payload</span><span class="p">):</span>
+                <span class="n">bpayload</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;surrogateescape&#39;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">decode</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">payload</span> <span class="o">=</span> <span class="n">bpayload</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s">&#39;charset&#39;</span><span class="p">,</span> <span class="s">&#39;ascii&#39;</span><span class="p">),</span> <span class="s">&#39;replace&#39;</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">LookupError</span><span class="p">:</span>
+                        <span class="n">payload</span> <span class="o">=</span> <span class="n">bpayload</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;replace&#39;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">decode</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">bpayload</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">UnicodeError</span><span class="p">:</span>
+                    <span class="c"># This won&#39;t happen for RFC compliant messages (messages</span>
+                    <span class="c"># containing only ASCII codepoints in the unicode input).</span>
+                    <span class="c"># If it does happen, turn the string into bytes in a way</span>
+                    <span class="c"># guaranteed not to fail.</span>
+                    <span class="n">bpayload</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;raw-unicode-escape&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">decode</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">payload</span>
+        <span class="k">if</span> <span class="n">cte</span> <span class="o">==</span> <span class="s">&#39;quoted-printable&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">quopri</span><span class="o">.</span><span class="n">decodestring</span><span class="p">(</span><span class="n">bpayload</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">cte</span> <span class="o">==</span> <span class="s">&#39;base64&#39;</span><span class="p">:</span>
+            <span class="c"># XXX: this is a bit of a hack; decode_b should probably be factored</span>
+            <span class="c"># out somewhere, but I haven&#39;t figured out where yet.</span>
+            <span class="n">value</span><span class="p">,</span> <span class="n">defects</span> <span class="o">=</span> <span class="n">decode_b</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">bpayload</span><span class="o">.</span><span class="n">splitlines</span><span class="p">()))</span>
+            <span class="k">for</span> <span class="n">defect</span> <span class="ow">in</span> <span class="n">defects</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">handle_defect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">defect</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">elif</span> <span class="n">cte</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;x-uuencode&#39;</span><span class="p">,</span> <span class="s">&#39;uuencode&#39;</span><span class="p">,</span> <span class="s">&#39;uue&#39;</span><span class="p">,</span> <span class="s">&#39;x-uue&#39;</span><span class="p">):</span>
+            <span class="n">in_file</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">(</span><span class="n">bpayload</span><span class="p">)</span>
+            <span class="n">out_file</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">()</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">uu</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="n">in_file</span><span class="p">,</span> <span class="n">out_file</span><span class="p">,</span> <span class="n">quiet</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">out_file</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+            <span class="k">except</span> <span class="n">uu</span><span class="o">.</span><span class="n">Error</span><span class="p">:</span>
+                <span class="c"># Some decoding problem</span>
+                <span class="k">return</span> <span class="n">bpayload</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">bpayload</span></div>
+<div class="viewcode-block" id="Message.set_payload"><a class="viewcode-back" href="../../email.html#email.message.Message.set_payload">[docs]</a>        <span class="k">return</span> <span class="n">payload</span>
+
+    <span class="k">def</span> <span class="nf">set_payload</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">payload</span><span class="p">,</span> <span class="n">charset</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the payload to the given value.</span>
+
+<span class="sd">        Optional charset sets the message&#39;s default character set.  See</span>
+<span class="sd">        set_charset() for details.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="s">&#39;encode&#39;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">charset</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="n">payload</span>
+                <span class="k">return</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">Charset</span><span class="p">):</span>
+                <span class="n">charset</span> <span class="o">=</span> <span class="n">Charset</span><span class="p">(</span><span class="n">charset</span><span class="p">)</span>
+            <span class="n">payload</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">charset</span><span class="o">.</span><span class="n">output_charset</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="s">&#39;decode&#39;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;surrogateescape&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="n">payload</span>
+        <span class="k">if</span> <span class="n">charset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span></div>
+<div class="viewcode-block" id="Message.set_charset"><a class="viewcode-back" href="../../email.html#email.message.Message.set_charset">[docs]</a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_charset</span><span class="p">(</span><span class="n">charset</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">set_charset</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">charset</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the charset of the payload to a given character set.</span>
+
+<span class="sd">        charset can be a Charset instance, a string naming a character set, or</span>
+<span class="sd">        None.  If it is a string it will be converted to a Charset instance.</span>
+<span class="sd">        If charset is None, the charset parameter will be removed from the</span>
+<span class="sd">        Content-Type field.  Anything else will generate a TypeError.</span>
+
+<span class="sd">        The message will be assumed to be of type text/* encoded with</span>
+<span class="sd">        charset.input_charset.  It will be converted to charset.output_charset</span>
+<span class="sd">        and encoded properly, if needed, when generating the plain text</span>
+<span class="sd">        representation of the message.  MIME headers (MIME-Version,</span>
+<span class="sd">        Content-Type, Content-Transfer-Encoding) will be added as needed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">charset</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">del_param</span><span class="p">(</span><span class="s">&#39;charset&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_charset</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">Charset</span><span class="p">):</span>
+            <span class="n">charset</span> <span class="o">=</span> <span class="n">Charset</span><span class="p">(</span><span class="n">charset</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_charset</span> <span class="o">=</span> <span class="n">charset</span>
+        <span class="k">if</span> <span class="s">&#39;MIME-Version&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_header</span><span class="p">(</span><span class="s">&#39;MIME-Version&#39;</span><span class="p">,</span> <span class="s">&#39;1.0&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&#39;Content-Type&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_header</span><span class="p">(</span><span class="s">&#39;Content-Type&#39;</span><span class="p">,</span> <span class="s">&#39;text/plain&#39;</span><span class="p">,</span>
+                            <span class="n">charset</span><span class="o">=</span><span class="n">charset</span><span class="o">.</span><span class="n">get_output_charset</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_param</span><span class="p">(</span><span class="s">&#39;charset&#39;</span><span class="p">,</span> <span class="n">charset</span><span class="o">.</span><span class="n">get_output_charset</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">charset</span> <span class="o">!=</span> <span class="n">charset</span><span class="o">.</span><span class="n">get_output_charset</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="n">charset</span><span class="o">.</span><span class="n">body_encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_payload</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&#39;Content-Transfer-Encoding&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+            <span class="n">cte</span> <span class="o">=</span> <span class="n">charset</span><span class="o">.</span><span class="n">get_body_encoding</span><span class="p">()</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">cte</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+                <span class="c"># This &#39;if&#39; is for backward compatibility, it allows unicode</span>
+                <span class="c"># through even though that won&#39;t work correctly if the</span>
+                <span class="c"># message is serialized.</span>
+                <span class="n">payload</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span>
+                <span class="k">if</span> <span class="n">payload</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">payload</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;surrogateescape&#39;</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">UnicodeError</span><span class="p">:</span>
+                        <span class="n">payload</span> <span class="o">=</span> <span class="n">payload</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">charset</span><span class="o">.</span><span class="n">output_charset</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="n">charset</span><span class="o">.</span><span class="n">body_encode</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span></div>
+<div class="viewcode-block" id="Message.get_charset"><a class="viewcode-back" href="../../email.html#email.message.Message.get_charset">[docs]</a>                <span class="bp">self</span><span class="o">.</span><span class="n">add_header</span><span class="p">(</span><span class="s">&#39;Content-Transfer-Encoding&#39;</span><span class="p">,</span> <span class="n">cte</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_charset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the Charset instance associated with the message&#39;s payload.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_charset</span>
+
+    <span class="c">#</span></div>
+    <span class="c"># MAPPING INTERFACE (partial)</span>
+    <span class="c">#</span>
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the total number of headers, including duplicates.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get a header value.</span>
+
+<span class="sd">        Return None if the header is missing instead of raising an exception.</span>
+
+<span class="sd">        Note that if the header appeared multiple times, exactly which</span>
+<span class="sd">        occurrence gets returned is undefined.  Use get_all() to get all</span>
+<span class="sd">        the values matching a header field name.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the value of a header.</span>
+
+<span class="sd">        Note: this does not overwrite an existing header with the same field</span>
+<span class="sd">        name.  Use __delitem__() first to delete any existing headers.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">max_count</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">header_max_count</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">max_count</span><span class="p">:</span>
+            <span class="n">lname</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">found</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">lname</span><span class="p">:</span>
+                    <span class="n">found</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="k">if</span> <span class="n">found</span> <span class="o">&gt;=</span> <span class="n">max_count</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;There may be at most {} {} headers &quot;</span>
+                                         <span class="s">&quot;in a message&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">max_count</span><span class="p">,</span> <span class="n">name</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">header_store_parse</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">__delitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Delete all occurrences of a header, if present.</span>
+
+<span class="sd">        Does not raise an exception if the header is missing.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="n">newheaders</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">!=</span> <span class="n">name</span><span class="p">:</span>
+                <span class="n">newheaders</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span> <span class="o">=</span> <span class="n">newheaders</span>
+
+    <span class="k">def</span> <span class="nf">__contains__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="p">[</span><span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">field</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+<div class="viewcode-block" id="Message.keys"><a class="viewcode-back" href="../../email.html#email.message.Message.keys">[docs]</a>            <span class="k">yield</span> <span class="n">field</span>
+
+    <span class="k">def</span> <span class="nf">keys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a list of all the message&#39;s header field names.</span>
+
+<span class="sd">        These will be sorted in the order they appeared in the original</span>
+<span class="sd">        message, or were added to the message, and may contain duplicates.</span>
+<span class="sd">        Any fields deleted and re-inserted are always appended to the header</span>
+<span class="sd">        list.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+<div class="viewcode-block" id="Message.values"><a class="viewcode-back" href="../../email.html#email.message.Message.values">[docs]</a>        <span class="k">return</span> <span class="p">[</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">values</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a list of all the message&#39;s header values.</span>
+
+<span class="sd">        These will be sorted in the order they appeared in the original</span>
+<span class="sd">        message, or were added to the message, and may contain duplicates.</span>
+<span class="sd">        Any fields deleted and re-inserted are always appended to the header</span>
+<span class="sd">        list.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">header_fetch_parse</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span></div>
+<div class="viewcode-block" id="Message.items"><a class="viewcode-back" href="../../email.html#email.message.Message.items">[docs]</a>                <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">items</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get all the message&#39;s header fields and values.</span>
+
+<span class="sd">        These will be sorted in the order they appeared in the original</span>
+<span class="sd">        message, or were added to the message, and may contain duplicates.</span>
+<span class="sd">        Any fields deleted and re-inserted are always appended to the header</span>
+<span class="sd">        list.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">k</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">header_fetch_parse</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">))</span></div>
+<div class="viewcode-block" id="Message.get"><a class="viewcode-back" href="../../email.html#email.message.Message.get">[docs]</a>                <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">failobj</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get a header value.</span>
+
+<span class="sd">        Like __getitem__() but return failobj instead of None when the field</span>
+<span class="sd">        is missing.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">header_fetch_parse</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">failobj</span>
+
+    <span class="c">#</span>
+    <span class="c"># &quot;Internal&quot; methods (public API, but only intended for use by a parser</span>
+    <span class="c"># or generator, not normal application code.</span></div>
+<div class="viewcode-block" id="Message.set_raw"><a class="viewcode-back" href="../../email.html#email.message.Message.set_raw">[docs]</a>    <span class="c">#</span>
+
+    <span class="k">def</span> <span class="nf">set_raw</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Store name and value in the model without modification.</span>
+
+<span class="sd">        This is an &quot;internal&quot; API, intended only for use by a parser.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+<div class="viewcode-block" id="Message.raw_items"><a class="viewcode-back" href="../../email.html#email.message.Message.raw_items">[docs]</a>        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">raw_items</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the (name, value) header pairs without modification.</span>
+
+<span class="sd">        This is an &quot;internal&quot; API, intended only for use by a generator.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">copy</span><span class="p">())</span>
+
+    <span class="c">#</span>
+    <span class="c"># Additional useful stuff</span></div>
+<div class="viewcode-block" id="Message.get_all"><a class="viewcode-back" href="../../email.html#email.message.Message.get_all">[docs]</a>    <span class="c">#</span>
+
+    <span class="k">def</span> <span class="nf">get_all</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">failobj</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a list of all the values for the named field.</span>
+
+<span class="sd">        These will be sorted in the order they appeared in the original</span>
+<span class="sd">        message, and may contain duplicates.  Any fields deleted and</span>
+<span class="sd">        re-inserted are always appended to the header list.</span>
+
+<span class="sd">        If no such fields exist, failobj is returned (defaults to None).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">header_fetch_parse</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">values</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">failobj</span></div>
+<div class="viewcode-block" id="Message.add_header"><a class="viewcode-back" href="../../email.html#email.message.Message.add_header">[docs]</a>        <span class="k">return</span> <span class="n">values</span>
+
+    <span class="k">def</span> <span class="nf">add_header</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_name</span><span class="p">,</span> <span class="n">_value</span><span class="p">,</span> <span class="o">**</span><span class="n">_params</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Extended header setting.</span>
+
+<span class="sd">        name is the header field to add.  keyword arguments can be used to set</span>
+<span class="sd">        additional parameters for the header field, with underscores converted</span>
+<span class="sd">        to dashes.  Normally the parameter will be added as key=&quot;value&quot; unless</span>
+<span class="sd">        value is None, in which case only the key will be added.  If a</span>
+<span class="sd">        parameter value contains non-ASCII characters it can be specified as a</span>
+<span class="sd">        three-tuple of (charset, language, value), in which case it will be</span>
+<span class="sd">        encoded according to RFC2231 rules.  Otherwise it will be encoded using</span>
+<span class="sd">        the utf-8 charset and a language of &#39;&#39;.</span>
+
+<span class="sd">        Examples:</span>
+
+<span class="sd">        msg.add_header(&#39;content-disposition&#39;, &#39;attachment&#39;, filename=&#39;bud.gif&#39;)</span>
+<span class="sd">        msg.add_header(&#39;content-disposition&#39;, &#39;attachment&#39;,</span>
+<span class="sd">                       filename=(&#39;utf-8&#39;, &#39;&#39;, Fußballer.ppt&#39;))</span>
+<span class="sd">        msg.add_header(&#39;content-disposition&#39;, &#39;attachment&#39;,</span>
+<span class="sd">                       filename=&#39;Fußballer.ppt&#39;))</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">_params</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">v</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">k</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;_&#39;</span><span class="p">,</span> <span class="s">&#39;-&#39;</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">_formatparam</span><span class="p">(</span><span class="n">k</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;_&#39;</span><span class="p">,</span> <span class="s">&#39;-&#39;</span><span class="p">),</span> <span class="n">v</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">_value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">_value</span><span class="p">)</span></div>
+<div class="viewcode-block" id="Message.replace_header"><a class="viewcode-back" href="../../email.html#email.message.Message.replace_header">[docs]</a>        <span class="bp">self</span><span class="p">[</span><span class="n">_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">SEMISPACE</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">replace_header</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_name</span><span class="p">,</span> <span class="n">_value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Replace a header.</span>
+
+<span class="sd">        Replace the first matching header found in the message, retaining</span>
+<span class="sd">        header order and case.  If no matching header was found, a KeyError is</span>
+<span class="sd">        raised.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">_name</span> <span class="o">=</span> <span class="n">_name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">)),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">_name</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">header_store_parse</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">_value</span><span class="p">)</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="n">_name</span><span class="p">)</span>
+
+    <span class="c">#</span>
+    <span class="c"># Use these three methods instead of the three above.</span></div>
+<div class="viewcode-block" id="Message.get_content_type"><a class="viewcode-back" href="../../email.html#email.message.Message.get_content_type">[docs]</a>    <span class="c">#</span>
+
+    <span class="k">def</span> <span class="nf">get_content_type</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the message&#39;s content type.</span>
+
+<span class="sd">        The returned string is coerced to lower case of the form</span>
+<span class="sd">        `maintype/subtype&#39;.  If there was no Content-Type header in the</span>
+<span class="sd">        message, the default type as given by get_default_type() will be</span>
+<span class="sd">        returned.  Since according to RFC 2045, messages always have a default</span>
+<span class="sd">        type this will always return a value.</span>
+
+<span class="sd">        RFC 2045 defines a message&#39;s default type to be text/plain unless it</span>
+<span class="sd">        appears inside a multipart/digest container, in which case it would be</span>
+<span class="sd">        message/rfc822.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;content-type&#39;</span><span class="p">,</span> <span class="n">missing</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="c"># This should have no parameters</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_default_type</span><span class="p">()</span>
+        <span class="n">ctype</span> <span class="o">=</span> <span class="n">_splitparam</span><span class="p">(</span><span class="n">value</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="c"># RFC 2045, section 5.2 says if its invalid, use text/plain</span>
+        <span class="k">if</span> <span class="n">ctype</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;text/plain&#39;</span></div>
+<div class="viewcode-block" id="Message.get_content_maintype"><a class="viewcode-back" href="../../email.html#email.message.Message.get_content_maintype">[docs]</a>        <span class="k">return</span> <span class="n">ctype</span>
+
+    <span class="k">def</span> <span class="nf">get_content_maintype</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the message&#39;s main content type.</span>
+
+<span class="sd">        This is the `maintype&#39; part of the string returned by</span>
+<span class="sd">        get_content_type().</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ctype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_content_type</span><span class="p">()</span></div>
+<div class="viewcode-block" id="Message.get_content_subtype"><a class="viewcode-back" href="../../email.html#email.message.Message.get_content_subtype">[docs]</a>        <span class="k">return</span> <span class="n">ctype</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">get_content_subtype</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the message&#39;s sub-content type.</span>
+
+<span class="sd">        This is the `subtype&#39; part of the string returned by</span>
+<span class="sd">        get_content_type().</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">ctype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_content_type</span><span class="p">()</span></div>
+<div class="viewcode-block" id="Message.get_default_type"><a class="viewcode-back" href="../../email.html#email.message.Message.get_default_type">[docs]</a>        <span class="k">return</span> <span class="n">ctype</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">get_default_type</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the `default&#39; content type.</span>
+
+<span class="sd">        Most messages have a default content type of text/plain, except for</span>
+<span class="sd">        messages that are subparts of multipart/digest containers.  Such</span>
+<span class="sd">        subparts have a default content type of message/rfc822.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+<div class="viewcode-block" id="Message.set_default_type"><a class="viewcode-back" href="../../email.html#email.message.Message.set_default_type">[docs]</a>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_default_type</span>
+
+    <span class="k">def</span> <span class="nf">set_default_type</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ctype</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the `default&#39; content type.</span>
+
+<span class="sd">        ctype should be either &quot;text/plain&quot; or &quot;message/rfc822&quot;, although this</span>
+<span class="sd">        is not enforced.  The default content type is not stored in the</span>
+<span class="sd">        Content-Type header.</span>
+<span class="sd">        &quot;&quot;&quot;</span></div>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_default_type</span> <span class="o">=</span> <span class="n">ctype</span>
+
+    <span class="k">def</span> <span class="nf">_get_params_preserve</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failobj</span><span class="p">,</span> <span class="n">header</span><span class="p">):</span>
+        <span class="c"># Like get_params() but preserves the quoting of values.  BAW:</span>
+        <span class="c"># should this be part of the public interface?</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">header</span><span class="p">,</span> <span class="n">missing</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">failobj</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">_parseparam</span><span class="p">(</span><span class="n">value</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">name</span><span class="p">,</span> <span class="n">val</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="n">val</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="c"># Must have been a bare attribute</span>
+                <span class="n">name</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+            <span class="n">params</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="n">utils</span><span class="o">.</span><span class="n">decode_params</span><span class="p">(</span><span class="n">params</span><span class="p">)</span>
+<div class="viewcode-block" id="Message.get_params"><a class="viewcode-back" href="../../email.html#email.message.Message.get_params">[docs]</a>        <span class="k">return</span> <span class="n">params</span>
+
+    <span class="k">def</span> <span class="nf">get_params</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failobj</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="s">&#39;content-type&#39;</span><span class="p">,</span> <span class="n">unquote</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the message&#39;s Content-Type parameters, as a list.</span>
+
+<span class="sd">        The elements of the returned list are 2-tuples of key/value pairs, as</span>
+<span class="sd">        split on the `=&#39; sign.  The left hand side of the `=&#39; is the key,</span>
+<span class="sd">        while the right hand side is the value.  If there is no `=&#39; sign in</span>
+<span class="sd">        the parameter the value is the empty string.  The value is as</span>
+<span class="sd">        described in the get_param() method.</span>
+
+<span class="sd">        Optional failobj is the object to return if there is no Content-Type</span>
+<span class="sd">        header.  Optional header is the header to search instead of</span>
+<span class="sd">        Content-Type.  If unquote is True, the value is unquoted.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_params_preserve</span><span class="p">(</span><span class="n">missing</span><span class="p">,</span> <span class="n">header</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">params</span> <span class="ow">is</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">failobj</span>
+        <span class="k">if</span> <span class="n">unquote</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[(</span><span class="n">k</span><span class="p">,</span> <span class="n">_unquotevalue</span><span class="p">(</span><span class="n">v</span><span class="p">))</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">params</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span></div>
+<div class="viewcode-block" id="Message.get_param"><a class="viewcode-back" href="../../email.html#email.message.Message.get_param">[docs]</a>            <span class="k">return</span> <span class="n">params</span>
+
+    <span class="k">def</span> <span class="nf">get_param</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">param</span><span class="p">,</span> <span class="n">failobj</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="s">&#39;content-type&#39;</span><span class="p">,</span>
+                  <span class="n">unquote</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the parameter value if found in the Content-Type header.</span>
+
+<span class="sd">        Optional failobj is the object to return if there is no Content-Type</span>
+<span class="sd">        header, or the Content-Type header has no such parameter.  Optional</span>
+<span class="sd">        header is the header to search instead of Content-Type.</span>
+
+<span class="sd">        Parameter keys are always compared case insensitively.  The return</span>
+<span class="sd">        value can either be a string, or a 3-tuple if the parameter was RFC</span>
+<span class="sd">        2231 encoded.  When it&#39;s a 3-tuple, the elements of the value are of</span>
+<span class="sd">        the form (CHARSET, LANGUAGE, VALUE).  Note that both CHARSET and</span>
+<span class="sd">        LANGUAGE can be None, in which case you should consider VALUE to be</span>
+<span class="sd">        encoded in the us-ascii charset.  You can usually ignore LANGUAGE.</span>
+<span class="sd">        The parameter value (either the returned string, or the VALUE item in</span>
+<span class="sd">        the 3-tuple) is always unquoted, unless unquote is set to False.</span>
+
+<span class="sd">        If your application doesn&#39;t care whether the parameter was RFC 2231</span>
+<span class="sd">        encoded, it can turn the return value into a string as follows:</span>
+
+<span class="sd">            rawparam = msg.get_param(&#39;foo&#39;)</span>
+<span class="sd">            param = email.utils.collapse_rfc2231_value(rawparam)</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">header</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">failobj</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_params_preserve</span><span class="p">(</span><span class="n">failobj</span><span class="p">,</span> <span class="n">header</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">param</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">unquote</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">_unquotevalue</span><span class="p">(</span><span class="n">v</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">v</span></div>
+<div class="viewcode-block" id="Message.set_param"><a class="viewcode-back" href="../../email.html#email.message.Message.set_param">[docs]</a>        <span class="k">return</span> <span class="n">failobj</span>
+
+    <span class="k">def</span> <span class="nf">set_param</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">param</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="s">&#39;Content-Type&#39;</span><span class="p">,</span> <span class="n">requote</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                  <span class="n">charset</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">language</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set a parameter in the Content-Type header.</span>
+
+<span class="sd">        If the parameter already exists in the header, its value will be</span>
+<span class="sd">        replaced with the new value.</span>
+
+<span class="sd">        If header is Content-Type and has not yet been defined for this</span>
+<span class="sd">        message, it will be set to &quot;text/plain&quot; and the new parameter and</span>
+<span class="sd">        value will be appended as per RFC 2045.</span>
+
+<span class="sd">        An alternate header can specified in the header argument, and all</span>
+<span class="sd">        parameters will be quoted as necessary unless requote is False.</span>
+
+<span class="sd">        If charset is specified, the parameter will be encoded according to RFC</span>
+<span class="sd">        2231.  Optional language specifies the RFC 2231 language, defaulting</span>
+<span class="sd">        to the empty string.  Both charset and language should be strings.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">and</span> <span class="n">charset</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">language</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">header</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span> <span class="ow">and</span> <span class="n">header</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;content-type&#39;</span><span class="p">:</span>
+            <span class="n">ctype</span> <span class="o">=</span> <span class="s">&#39;text/plain&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ctype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">header</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">ctype</span><span class="p">:</span>
+                <span class="n">ctype</span> <span class="o">=</span> <span class="n">_formatparam</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">requote</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">ctype</span> <span class="o">=</span> <span class="n">SEMISPACE</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                    <span class="p">[</span><span class="n">ctype</span><span class="p">,</span> <span class="n">_formatparam</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">requote</span><span class="p">)])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ctype</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+            <span class="k">for</span> <span class="n">old_param</span><span class="p">,</span> <span class="n">old_value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_params</span><span class="p">(</span><span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span>
+                                                        <span class="n">unquote</span><span class="o">=</span><span class="n">requote</span><span class="p">):</span>
+                <span class="n">append_param</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+                <span class="k">if</span> <span class="n">old_param</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">param</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                    <span class="n">append_param</span> <span class="o">=</span> <span class="n">_formatparam</span><span class="p">(</span><span class="n">param</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">requote</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">append_param</span> <span class="o">=</span> <span class="n">_formatparam</span><span class="p">(</span><span class="n">old_param</span><span class="p">,</span> <span class="n">old_value</span><span class="p">,</span> <span class="n">requote</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">ctype</span><span class="p">:</span>
+                    <span class="n">ctype</span> <span class="o">=</span> <span class="n">append_param</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">ctype</span> <span class="o">=</span> <span class="n">SEMISPACE</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">ctype</span><span class="p">,</span> <span class="n">append_param</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">ctype</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">header</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">replace</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">replace_header</span><span class="p">(</span><span class="n">header</span><span class="p">,</span> <span class="n">ctype</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="p">[</span><span class="n">header</span><span class="p">]</span></div>
+<div class="viewcode-block" id="Message.del_param"><a class="viewcode-back" href="../../email.html#email.message.Message.del_param">[docs]</a>                <span class="bp">self</span><span class="p">[</span><span class="n">header</span><span class="p">]</span> <span class="o">=</span> <span class="n">ctype</span>
+
+    <span class="k">def</span> <span class="nf">del_param</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">param</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="s">&#39;content-type&#39;</span><span class="p">,</span> <span class="n">requote</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Remove the given parameter completely from the Content-Type header.</span>
+
+<span class="sd">        The header will be re-written in place without the parameter or its</span>
+<span class="sd">        value. All values will be quoted as necessary unless requote is</span>
+<span class="sd">        False.  Optional header specifies an alternative to the Content-Type</span>
+<span class="sd">        header.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">header</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">new_ctype</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_params</span><span class="p">(</span><span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">unquote</span><span class="o">=</span><span class="n">requote</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">!=</span> <span class="n">param</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">new_ctype</span><span class="p">:</span>
+                    <span class="n">new_ctype</span> <span class="o">=</span> <span class="n">_formatparam</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">requote</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">new_ctype</span> <span class="o">=</span> <span class="n">SEMISPACE</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">new_ctype</span><span class="p">,</span>
+                                                <span class="n">_formatparam</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">requote</span><span class="p">)])</span>
+        <span class="k">if</span> <span class="n">new_ctype</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">header</span><span class="p">):</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="p">[</span><span class="n">header</span><span class="p">]</span></div>
+<div class="viewcode-block" id="Message.set_type"><a class="viewcode-back" href="../../email.html#email.message.Message.set_type">[docs]</a>            <span class="bp">self</span><span class="p">[</span><span class="n">header</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_ctype</span>
+
+    <span class="k">def</span> <span class="nf">set_type</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="s">&#39;Content-Type&#39;</span><span class="p">,</span> <span class="n">requote</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the main type and subtype for the Content-Type header.</span>
+
+<span class="sd">        type must be a string in the form &quot;maintype/subtype&quot;, otherwise a</span>
+<span class="sd">        ValueError is raised.</span>
+
+<span class="sd">        This method replaces the Content-Type header, keeping all the</span>
+<span class="sd">        parameters in place.  If requote is False, this leaves the existing</span>
+<span class="sd">        header&#39;s quoting as is.  Otherwise, the parameters will be quoted (the</span>
+<span class="sd">        default).</span>
+
+<span class="sd">        An alternative header can be specified in the header argument.  When</span>
+<span class="sd">        the Content-Type header is set, we&#39;ll always also add a MIME-Version</span>
+<span class="sd">        header.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># BAW: should we be strict?</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">type</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span>
+        <span class="c"># Set the Content-Type, you get a MIME-Version</span>
+        <span class="k">if</span> <span class="n">header</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;content-type&#39;</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="p">[</span><span class="s">&#39;mime-version&#39;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="p">[</span><span class="s">&#39;MIME-Version&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;1.0&#39;</span>
+        <span class="k">if</span> <span class="n">header</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+            <span class="bp">self</span><span class="p">[</span><span class="n">header</span><span class="p">]</span> <span class="o">=</span> <span class="nb">type</span>
+            <span class="k">return</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_params</span><span class="p">(</span><span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">,</span> <span class="n">unquote</span><span class="o">=</span><span class="n">requote</span><span class="p">)</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="p">[</span><span class="n">header</span><span class="p">]</span>
+        <span class="bp">self</span><span class="p">[</span><span class="n">header</span><span class="p">]</span> <span class="o">=</span> <span class="nb">type</span>
+        <span class="c"># Skip the first param; it&#39;s the old type.</span>
+        <span class="k">for</span> <span class="n">p</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">params</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span></div>
+<div class="viewcode-block" id="Message.get_filename"><a class="viewcode-back" href="../../email.html#email.message.Message.get_filename">[docs]</a>            <span class="bp">self</span><span class="o">.</span><span class="n">set_param</span><span class="p">(</span><span class="n">p</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="n">requote</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failobj</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the filename associated with the payload if present.</span>
+
+<span class="sd">        The filename is extracted from the Content-Disposition header&#39;s</span>
+<span class="sd">        `filename&#39; parameter, and it is unquoted.  If that header is missing</span>
+<span class="sd">        the `filename&#39; parameter, this method falls back to looking for the</span>
+<span class="sd">        `name&#39; parameter.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s">&#39;filename&#39;</span><span class="p">,</span> <span class="n">missing</span><span class="p">,</span> <span class="s">&#39;content-disposition&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">filename</span> <span class="ow">is</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="n">filename</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s">&#39;name&#39;</span><span class="p">,</span> <span class="n">missing</span><span class="p">,</span> <span class="s">&#39;content-type&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">filename</span> <span class="ow">is</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">failobj</span></div>
+<div class="viewcode-block" id="Message.get_boundary"><a class="viewcode-back" href="../../email.html#email.message.Message.get_boundary">[docs]</a>        <span class="k">return</span> <span class="n">utils</span><span class="o">.</span><span class="n">collapse_rfc2231_value</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">get_boundary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failobj</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the boundary associated with the payload if present.</span>
+
+<span class="sd">        The boundary is extracted from the Content-Type header&#39;s `boundary&#39;</span>
+<span class="sd">        parameter, and it is unquoted.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+        <span class="n">boundary</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s">&#39;boundary&#39;</span><span class="p">,</span> <span class="n">missing</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">boundary</span> <span class="ow">is</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">failobj</span>
+        <span class="c"># RFC 2046 says that boundaries may begin but not end in w/s</span></div>
+<div class="viewcode-block" id="Message.set_boundary"><a class="viewcode-back" href="../../email.html#email.message.Message.set_boundary">[docs]</a>        <span class="k">return</span> <span class="n">utils</span><span class="o">.</span><span class="n">collapse_rfc2231_value</span><span class="p">(</span><span class="n">boundary</span><span class="p">)</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">set_boundary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">boundary</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the boundary parameter in Content-Type to &#39;boundary&#39;.</span>
+
+<span class="sd">        This is subtly different than deleting the Content-Type header and</span>
+<span class="sd">        adding a new one with a new boundary parameter via add_header().  The</span>
+<span class="sd">        main difference is that using the set_boundary() method preserves the</span>
+<span class="sd">        order of the Content-Type header in the original message.</span>
+
+<span class="sd">        HeaderParseError is raised if the message has no Content-Type header.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+        <span class="n">params</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_params_preserve</span><span class="p">(</span><span class="n">missing</span><span class="p">,</span> <span class="s">&#39;content-type&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">params</span> <span class="ow">is</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="c"># There was no Content-Type header, and we don&#39;t know what type</span>
+            <span class="c"># to set it to, so raise an exception.</span>
+            <span class="k">raise</span> <span class="n">errors</span><span class="o">.</span><span class="n">HeaderParseError</span><span class="p">(</span><span class="s">&#39;No Content-Type header found&#39;</span><span class="p">)</span>
+        <span class="n">newparams</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">foundp</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">for</span> <span class="n">pk</span><span class="p">,</span> <span class="n">pv</span> <span class="ow">in</span> <span class="n">params</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">pk</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;boundary&#39;</span><span class="p">:</span>
+                <span class="n">newparams</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s">&#39;boundary&#39;</span><span class="p">,</span> <span class="s">&#39;&quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="n">boundary</span><span class="p">))</span>
+                <span class="n">foundp</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">newparams</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">pk</span><span class="p">,</span> <span class="n">pv</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">foundp</span><span class="p">:</span>
+            <span class="c"># The original Content-Type header had no boundary attribute.</span>
+            <span class="c"># Tack one on the end.  BAW: should we raise an exception</span>
+            <span class="c"># instead???</span>
+            <span class="n">newparams</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s">&#39;boundary&#39;</span><span class="p">,</span> <span class="s">&#39;&quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="n">boundary</span><span class="p">))</span>
+        <span class="c"># Replace the existing Content-Type header with the new value</span>
+        <span class="n">newheaders</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">h</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">h</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;content-type&#39;</span><span class="p">:</span>
+                <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">newparams</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">v</span> <span class="o">==</span> <span class="s">&#39;&#39;</span><span class="p">:</span>
+                        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s">=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">))</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="n">SEMISPACE</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+                <span class="n">newheaders</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">header_store_parse</span><span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">newheaders</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">h</span><span class="p">,</span> <span class="n">v</span><span class="p">))</span></div>
+<div class="viewcode-block" id="Message.get_content_charset"><a class="viewcode-back" href="../../email.html#email.message.Message.get_content_charset">[docs]</a>        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span> <span class="o">=</span> <span class="n">newheaders</span>
+
+    <span class="k">def</span> <span class="nf">get_content_charset</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failobj</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the charset parameter of the Content-Type header.</span>
+
+<span class="sd">        The returned string is always coerced to lower case.  If there is no</span>
+<span class="sd">        Content-Type header, or if that header has no charset parameter,</span>
+<span class="sd">        failobj is returned.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+        <span class="n">charset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s">&#39;charset&#39;</span><span class="p">,</span> <span class="n">missing</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">charset</span> <span class="ow">is</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">failobj</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="c"># RFC 2231 encoded, so decode it, and it better end up as ascii.</span>
+            <span class="n">pcharset</span> <span class="o">=</span> <span class="n">charset</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">or</span> <span class="s">&#39;us-ascii&#39;</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="c"># LookupError will be raised if the charset isn&#39;t known to</span>
+                <span class="c"># Python.  UnicodeError will be raised if the encoded text</span>
+                <span class="c"># contains a character not in the charset.</span>
+                <span class="n">as_bytes</span> <span class="o">=</span> <span class="n">charset</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;raw-unicode-escape&#39;</span><span class="p">)</span>
+                <span class="n">charset</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">as_bytes</span><span class="p">,</span> <span class="n">pcharset</span><span class="p">)</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">LookupError</span><span class="p">,</span> <span class="ne">UnicodeError</span><span class="p">):</span>
+                <span class="n">charset</span> <span class="o">=</span> <span class="n">charset</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+        <span class="c"># charset characters must be in us-ascii range</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">charset</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;us-ascii&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">UnicodeError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">failobj</span>
+        <span class="c"># RFC 2046, $4.1.2 says charsets are not case sensitive</span></div>
+<div class="viewcode-block" id="Message.get_charsets"><a class="viewcode-back" href="../../email.html#email.message.Message.get_charsets">[docs]</a>        <span class="k">return</span> <span class="n">charset</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">get_charsets</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">failobj</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a list containing the charset(s) used in this message.</span>
+
+<span class="sd">        The returned list of items describes the Content-Type headers&#39;</span>
+<span class="sd">        charset parameter for this message and all the subparts in its</span>
+<span class="sd">        payload.</span>
+
+<span class="sd">        Each item will either be a string (the value of the charset parameter</span>
+<span class="sd">        in the Content-Type header of that part) or the value of the</span>
+<span class="sd">        &#39;failobj&#39; parameter (defaults to None), if the part does not have a</span>
+<span class="sd">        main MIME type of &quot;text&quot;, or the charset is not defined.</span>
+
+<span class="sd">        The list will contain one string for each part of the message, plus</span>
+<span class="sd">        one for the container message (i.e. self), so that a non-multipart</span>
+<span class="sd">        message will still return a list of length 1.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">part</span><span class="o">.</span><span class="n">get_content_charset</span><span class="p">(</span><span class="n">failobj</span><span class="p">)</span> <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">walk</span><span class="p">()]</span></div>
+
+    <span class="c"># I.e. def walk(self): ...</span>
+    <span class="kn">from</span> <span class="nn">email.iterators</span> <span class="kn">import</span> <span class="n">walk</span></div>
+
+<span class="c"># XXX Support for temporary deprecation hack for is_attachment property.</span>
+<span class="k">class</span> <span class="nc">_IsAttachment</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="n">value</span>
+    <span class="k">def</span> <span class="nf">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">value</span>
+    <span class="k">def</span> <span class="nf">__bool__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;is_attachment will be a method, not a property, in 3.5&quot;</span><span class="p">,</span>
+                      <span class="ne">DeprecationWarning</span><span class="p">,</span>
+                      <span class="n">stacklevel</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">value</span>
+
+<span class="k">class</span> <span class="nc">MIMEPart</span><span class="p">(</span><span class="n">Message</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">policy</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">policy</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">email.policy</span> <span class="kn">import</span> <span class="n">default</span>
+            <span class="n">policy</span> <span class="o">=</span> <span class="n">default</span>
+        <span class="n">Message</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">policy</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">is_attachment</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">c_d</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;content-disposition&#39;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">False</span> <span class="k">if</span> <span class="n">c_d</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">c_d</span><span class="o">.</span><span class="n">content_disposition</span> <span class="o">==</span> <span class="s">&#39;attachment&#39;</span>
+        <span class="c"># XXX transitional hack to raise deprecation if not called.</span>
+        <span class="k">return</span> <span class="n">_IsAttachment</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_find_body</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">part</span><span class="p">,</span> <span class="n">preferencelist</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">part</span><span class="o">.</span><span class="n">is_attachment</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="n">maintype</span><span class="p">,</span> <span class="n">subtype</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">get_content_type</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">maintype</span> <span class="o">==</span> <span class="s">&#39;text&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">subtype</span> <span class="ow">in</span> <span class="n">preferencelist</span><span class="p">:</span>
+                <span class="k">yield</span> <span class="p">(</span><span class="n">preferencelist</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">subtype</span><span class="p">),</span> <span class="n">part</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">maintype</span> <span class="o">!=</span> <span class="s">&#39;multipart&#39;</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">subtype</span> <span class="o">!=</span> <span class="s">&#39;related&#39;</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">subpart</span> <span class="ow">in</span> <span class="n">part</span><span class="o">.</span><span class="n">iter_parts</span><span class="p">():</span>
+                <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_body</span><span class="p">(</span><span class="n">subpart</span><span class="p">,</span> <span class="n">preferencelist</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="s">&#39;related&#39;</span> <span class="ow">in</span> <span class="n">preferencelist</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="p">(</span><span class="n">preferencelist</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s">&#39;related&#39;</span><span class="p">),</span> <span class="n">part</span><span class="p">)</span>
+        <span class="n">candidate</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s">&#39;start&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">start</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">subpart</span> <span class="ow">in</span> <span class="n">part</span><span class="o">.</span><span class="n">iter_parts</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">subpart</span><span class="p">[</span><span class="s">&#39;content-id&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">start</span><span class="p">:</span>
+                    <span class="n">candidate</span> <span class="o">=</span> <span class="n">subpart</span>
+                    <span class="k">break</span>
+        <span class="k">if</span> <span class="n">candidate</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">subparts</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">get_payload</span><span class="p">()</span>
+            <span class="n">candidate</span> <span class="o">=</span> <span class="n">subparts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">if</span> <span class="n">subparts</span> <span class="k">else</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">candidate</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_body</span><span class="p">(</span><span class="n">candidate</span><span class="p">,</span> <span class="n">preferencelist</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_body</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">preferencelist</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;related&#39;</span><span class="p">,</span> <span class="s">&#39;html&#39;</span><span class="p">,</span> <span class="s">&#39;plain&#39;</span><span class="p">)):</span>
+        <span class="sd">&quot;&quot;&quot;Return best candidate mime part for display as &#39;body&#39; of message.</span>
+
+<span class="sd">        Do a depth first search, starting with self, looking for the first part</span>
+<span class="sd">        matching each of the items in preferencelist, and return the part</span>
+<span class="sd">        corresponding to the first item that has a match, or None if no items</span>
+<span class="sd">        have a match.  If &#39;related&#39; is not included in preferencelist, consider</span>
+<span class="sd">        the root part of any multipart/related encountered as a candidate</span>
+<span class="sd">        match.  Ignore parts with &#39;Content-Disposition: attachment&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">best_prio</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">preferencelist</span><span class="p">)</span>
+        <span class="n">body</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">for</span> <span class="n">prio</span><span class="p">,</span> <span class="n">part</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_body</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">preferencelist</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">prio</span> <span class="o">&lt;</span> <span class="n">best_prio</span><span class="p">:</span>
+                <span class="n">best_prio</span> <span class="o">=</span> <span class="n">prio</span>
+                <span class="n">body</span> <span class="o">=</span> <span class="n">part</span>
+                <span class="k">if</span> <span class="n">prio</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="k">break</span>
+        <span class="k">return</span> <span class="n">body</span>
+
+    <span class="n">_body_types</span> <span class="o">=</span> <span class="p">{(</span><span class="s">&#39;text&#39;</span><span class="p">,</span> <span class="s">&#39;plain&#39;</span><span class="p">),</span>
+                   <span class="p">(</span><span class="s">&#39;text&#39;</span><span class="p">,</span> <span class="s">&#39;html&#39;</span><span class="p">),</span>
+                   <span class="p">(</span><span class="s">&#39;multipart&#39;</span><span class="p">,</span> <span class="s">&#39;related&#39;</span><span class="p">),</span>
+                   <span class="p">(</span><span class="s">&#39;multipart&#39;</span><span class="p">,</span> <span class="s">&#39;alternative&#39;</span><span class="p">)}</span>
+    <span class="k">def</span> <span class="nf">iter_attachments</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return an iterator over the non-main parts of a multipart.</span>
+
+<span class="sd">        Skip the first of each occurrence of text/plain, text/html,</span>
+<span class="sd">        multipart/related, or multipart/alternative in the multipart (unless</span>
+<span class="sd">        they have a &#39;Content-Disposition: attachment&#39; header) and include all</span>
+<span class="sd">        remaining subparts in the returned iterator.  When applied to a</span>
+<span class="sd">        multipart/related, return all parts except the root part.  Return an</span>
+<span class="sd">        empty iterator when applied to a multipart/alternative or a</span>
+<span class="sd">        non-multipart.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">maintype</span><span class="p">,</span> <span class="n">subtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_content_type</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">maintype</span> <span class="o">!=</span> <span class="s">&#39;multipart&#39;</span> <span class="ow">or</span> <span class="n">subtype</span> <span class="o">==</span> <span class="s">&#39;alternative&#39;</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_payload</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">maintype</span> <span class="o">==</span> <span class="s">&#39;multipart&#39;</span> <span class="ow">and</span> <span class="n">subtype</span> <span class="o">==</span> <span class="s">&#39;related&#39;</span><span class="p">:</span>
+            <span class="c"># For related, we treat everything but the root as an attachment.</span>
+            <span class="c"># The root may be indicated by &#39;start&#39;; if there&#39;s no start or we</span>
+            <span class="c"># can&#39;t find the named start, treat the first subpart as the root.</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_param</span><span class="p">(</span><span class="s">&#39;start&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">start</span><span class="p">:</span>
+                <span class="n">found</span> <span class="o">=</span> <span class="bp">False</span>
+                <span class="n">attachments</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">part</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;content-id&#39;</span><span class="p">)</span> <span class="o">==</span> <span class="n">start</span><span class="p">:</span>
+                        <span class="n">found</span> <span class="o">=</span> <span class="bp">True</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">attachments</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">found</span><span class="p">:</span>
+                    <span class="k">yield from</span> <span class="n">attachments</span>
+                    <span class="k">return</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">yield from</span> <span class="n">parts</span>
+            <span class="k">return</span>
+        <span class="c"># Otherwise we more or less invert the remaining logic in get_body.</span>
+        <span class="c"># This only really works in edge cases (ex: non-text relateds or</span>
+        <span class="c"># alternatives) if the sending agent sets content-disposition.</span>
+        <span class="n">seen</span> <span class="o">=</span> <span class="p">[]</span>   <span class="c"># Only skip the first example of each candidate type.</span>
+        <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">:</span>
+            <span class="n">maintype</span><span class="p">,</span> <span class="n">subtype</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">get_content_type</span><span class="p">()</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="p">((</span><span class="n">maintype</span><span class="p">,</span> <span class="n">subtype</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_body_types</span> <span class="ow">and</span>
+                    <span class="ow">not</span> <span class="n">part</span><span class="o">.</span><span class="n">is_attachment</span><span class="p">()</span> <span class="ow">and</span> <span class="n">subtype</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">seen</span><span class="p">):</span>
+                <span class="n">seen</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">subtype</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="k">yield</span> <span class="n">part</span>
+
+    <span class="k">def</span> <span class="nf">iter_parts</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return an iterator over all immediate subparts of a multipart.</span>
+
+<span class="sd">        Return an empty iterator for a non-multipart.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_content_maintype</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;multipart&#39;</span><span class="p">:</span>
+            <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_payload</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">get_content</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">content_manager</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">content_manager</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">content_manager</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">content_manager</span>
+        <span class="k">return</span> <span class="n">content_manager</span><span class="o">.</span><span class="n">get_content</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">set_content</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">content_manager</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">content_manager</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">content_manager</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="o">.</span><span class="n">content_manager</span>
+        <span class="n">content_manager</span><span class="o">.</span><span class="n">set_content</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_make_multipart</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">subtype</span><span class="p">,</span> <span class="n">disallowed_subtypes</span><span class="p">,</span> <span class="n">boundary</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_content_maintype</span><span class="p">()</span> <span class="o">==</span> <span class="s">&#39;multipart&#39;</span><span class="p">:</span>
+            <span class="n">existing_subtype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_content_subtype</span><span class="p">()</span>
+            <span class="n">disallowed_subtypes</span> <span class="o">=</span> <span class="n">disallowed_subtypes</span> <span class="o">+</span> <span class="p">(</span><span class="n">subtype</span><span class="p">,)</span>
+            <span class="k">if</span> <span class="n">existing_subtype</span> <span class="ow">in</span> <span class="n">disallowed_subtypes</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Cannot convert {} to {}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                    <span class="n">existing_subtype</span><span class="p">,</span> <span class="n">subtype</span><span class="p">))</span>
+        <span class="n">keep_headers</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">part_headers</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;content-&#39;</span><span class="p">):</span>
+                <span class="n">part_headers</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">keep_headers</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">part_headers</span><span class="p">:</span>
+            <span class="c"># There is existing content, move it to the first subpart.</span>
+            <span class="n">part</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)(</span><span class="n">policy</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="p">)</span>
+            <span class="n">part</span><span class="o">.</span><span class="n">_headers</span> <span class="o">=</span> <span class="n">part_headers</span>
+            <span class="n">part</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="p">[</span><span class="n">part</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span> <span class="o">=</span> <span class="n">keep_headers</span>
+        <span class="bp">self</span><span class="p">[</span><span class="s">&#39;Content-Type&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;multipart/&#39;</span> <span class="o">+</span> <span class="n">subtype</span>
+        <span class="k">if</span> <span class="n">boundary</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_param</span><span class="p">(</span><span class="s">&#39;boundary&#39;</span><span class="p">,</span> <span class="n">boundary</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">make_related</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">boundary</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_make_multipart</span><span class="p">(</span><span class="s">&#39;related&#39;</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;alternative&#39;</span><span class="p">,</span> <span class="s">&#39;mixed&#39;</span><span class="p">),</span> <span class="n">boundary</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">make_alternative</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">boundary</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_make_multipart</span><span class="p">(</span><span class="s">&#39;alternative&#39;</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;mixed&#39;</span><span class="p">,),</span> <span class="n">boundary</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">make_mixed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">boundary</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_make_multipart</span><span class="p">(</span><span class="s">&#39;mixed&#39;</span><span class="p">,</span> <span class="p">(),</span> <span class="n">boundary</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_add_multipart</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_subtype</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">_disp</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_content_maintype</span><span class="p">()</span> <span class="o">!=</span> <span class="s">&#39;multipart&#39;</span> <span class="ow">or</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">get_content_subtype</span><span class="p">()</span> <span class="o">!=</span> <span class="n">_subtype</span><span class="p">):</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;make_&#39;</span> <span class="o">+</span> <span class="n">_subtype</span><span class="p">)()</span>
+        <span class="n">part</span> <span class="o">=</span> <span class="nb">type</span><span class="p">(</span><span class="bp">self</span><span class="p">)(</span><span class="n">policy</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">policy</span><span class="p">)</span>
+        <span class="n">part</span><span class="o">.</span><span class="n">set_content</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">_disp</span> <span class="ow">and</span> <span class="s">&#39;content-disposition&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">part</span><span class="p">:</span>
+            <span class="n">part</span><span class="p">[</span><span class="s">&#39;Content-Disposition&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">_disp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attach</span><span class="p">(</span><span class="n">part</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">add_related</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_add_multipart</span><span class="p">(</span><span class="s">&#39;related&#39;</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">_disp</span><span class="o">=</span><span class="s">&#39;inline&#39;</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">add_alternative</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_add_multipart</span><span class="p">(</span><span class="s">&#39;alternative&#39;</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">add_attachment</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_add_multipart</span><span class="p">(</span><span class="s">&#39;mixed&#39;</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="n">_disp</span><span class="o">=</span><span class="s">&#39;attachment&#39;</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">clear</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">clear_content</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span> <span class="o">=</span> <span class="p">[(</span><span class="n">n</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span>
+                         <span class="k">if</span> <span class="ow">not</span> <span class="n">n</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;content-&#39;</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_payload</span> <span class="o">=</span> <span class="bp">None</span>
+
+
+<span class="k">class</span> <span class="nc">EmailMessage</span><span class="p">(</span><span class="n">MIMEPart</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">set_content</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">set_content</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&#39;MIME-Version&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+            <span class="bp">self</span><span class="p">[</span><span class="s">&#39;MIME-Version&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;1.0&#39;</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,328 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_file_eintr &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_file_eintr</h1><div class="highlight"><pre>
+<span class="c"># Written to test interrupted system calls interfering with our many buffered</span>
+<span class="c"># IO implementations.  http://bugs.python.org/issue12268</span>
+<span class="c">#</span>
+<span class="c"># It was suggested that this code could be merged into test_io and the tests</span>
+<span class="c"># made to work using the same method as the existing signal tests in test_io.</span>
+<span class="c"># I was unable to get single process tests using alarm or setitimer that way</span>
+<span class="c"># to reproduce the EINTR problems.  This process based test suite reproduces</span>
+<span class="c"># the problems prior to the issue12268 patch reliably on Linux and OSX.</span>
+<span class="c">#  - gregory.p.smith</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">select</span>
+<span class="kn">import</span> <span class="nn">signal</span>
+<span class="kn">import</span> <span class="nn">subprocess</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">from</span> <span class="nn">test.support</span> <span class="kn">import</span> <span class="n">run_unittest</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+
+<span class="c"># Test import all of the things we&#39;re about to try testing up front.</span>
+<span class="kn">from</span> <span class="nn">_io</span> <span class="kn">import</span> <span class="n">FileIO</span>
+
+
+<span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;posix&#39;</span><span class="p">,</span> <span class="s">&#39;tests requires a posix system.&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="TestFileIOSignalInterrupt"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestFileIOSignalInterrupt">[docs]</a><span class="k">class</span> <span class="nc">TestFileIOSignalInterrupt</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="TestFileIOSignalInterrupt.setUp"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestFileIOSignalInterrupt.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_process</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="TestFileIOSignalInterrupt.tearDown"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestFileIOSignalInterrupt.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">poll</span><span class="p">()</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">kill</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">pass</span>
+</div>
+    <span class="k">def</span> <span class="nf">_generate_infile_setup_code</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the infile = ... line of code for the reader process.</span>
+
+<span class="sd">        subclasseses should override this to test different IO objects.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="s">&#39;import _io ;&#39;</span>
+                <span class="s">&#39;infile = _io.FileIO(sys.stdin.fileno(), &quot;rb&quot;)&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="TestFileIOSignalInterrupt.fail_with_process_info"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestFileIOSignalInterrupt.fail_with_process_info">[docs]</a>    <span class="k">def</span> <span class="nf">fail_with_process_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">why</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">,</span>
+                               <span class="n">communicate</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;A common way to cleanup and fail with useful debug output.</span>
+
+<span class="sd">        Kills the process if it is still running, collects remaining output</span>
+<span class="sd">        and fails the test with an error message including the output.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            why: Text to go after &quot;Error from IO process&quot; in the message.</span>
+<span class="sd">            stdout, stderr: standard output and error from the process so</span>
+<span class="sd">                far to include in the error message.</span>
+<span class="sd">            communicate: bool, when True we call communicate() on the process</span>
+<span class="sd">                after killing it to gather additional output.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">poll</span><span class="p">()</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>  <span class="c"># give it time to finish printing the error.</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>  <span class="c"># Ensure it dies.</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">pass</span>
+        <span class="k">if</span> <span class="n">communicate</span><span class="p">:</span>
+            <span class="n">stdout_end</span><span class="p">,</span> <span class="n">stderr_end</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">communicate</span><span class="p">()</span>
+            <span class="n">stdout</span> <span class="o">+=</span> <span class="n">stdout_end</span>
+            <span class="n">stderr</span> <span class="o">+=</span> <span class="n">stderr_end</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&#39;Error from IO process </span><span class="si">%s</span><span class="s">:</span><span class="se">\n</span><span class="s">STDOUT:</span><span class="se">\n</span><span class="si">%s</span><span class="s">STDERR:</span><span class="se">\n</span><span class="si">%s</span><span class="se">\n</span><span class="s">&#39;</span> <span class="o">%</span>
+                  <span class="p">(</span><span class="n">why</span><span class="p">,</span> <span class="n">stdout</span><span class="o">.</span><span class="n">decode</span><span class="p">(),</span> <span class="n">stderr</span><span class="o">.</span><span class="n">decode</span><span class="p">()))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_test_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data_to_write</span><span class="p">,</span> <span class="n">read_and_verify_code</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generic buffered read method test harness to validate EINTR behavior.</span>
+
+<span class="sd">        Also validates that Python signal handlers are run during the read.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            data_to_write: String to write to the child process for reading</span>
+<span class="sd">                before sending it a signal, confirming the signal was handled,</span>
+<span class="sd">                writing a final newline and closing the infile pipe.</span>
+<span class="sd">            read_and_verify_code: Single &quot;line&quot; of code to read from a file</span>
+<span class="sd">                object named &#39;infile&#39; and validate the result.  This will be</span>
+<span class="sd">                executed as part of a python subprocess fed data_to_write.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">infile_setup_code</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_infile_setup_code</span><span class="p">()</span>
+        <span class="c"># Total pipe IO in this function is smaller than the minimum posix OS</span>
+        <span class="c"># pipe buffer size of 512 bytes.  No writer should block.</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">data_to_write</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">512</span><span class="p">,</span> <span class="s">&#39;data_to_write must fit in pipe buf.&#39;</span>
+
+        <span class="c"># Start a subprocess to call our read method while handling a signal.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_process</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="s">&#39;-u&#39;</span><span class="p">,</span> <span class="s">&#39;-c&#39;</span><span class="p">,</span>
+                 <span class="s">&#39;import signal, sys ;&#39;</span>
+                 <span class="s">&#39;signal.signal(signal.SIGINT, &#39;</span>
+                               <span class="s">&#39;lambda s, f: sys.stderr.write(&quot;$</span><span class="se">\\</span><span class="s">n&quot;)) ;&#39;</span>
+                 <span class="o">+</span> <span class="n">infile_setup_code</span> <span class="o">+</span> <span class="s">&#39; ;&#39;</span> <span class="o">+</span>
+                 <span class="s">&#39;sys.stderr.write(&quot;Worm Sign!</span><span class="se">\\</span><span class="s">n&quot;) ;&#39;</span>
+                 <span class="o">+</span> <span class="n">read_and_verify_code</span> <span class="o">+</span> <span class="s">&#39; ;&#39;</span> <span class="o">+</span>
+                 <span class="s">&#39;infile.close()&#39;</span>
+                <span class="p">],</span>
+                <span class="n">stdin</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+                <span class="n">stderr</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">)</span>
+
+        <span class="c"># Wait for the signal handler to be installed.</span>
+        <span class="n">worm_sign</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;Worm Sign!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">worm_sign</span> <span class="o">!=</span> <span class="n">b</span><span class="s">&#39;Worm Sign!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">:</span>  <span class="c"># See also, Dune by Frank Herbert.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail_with_process_info</span><span class="p">(</span><span class="s">&#39;while awaiting a sign&#39;</span><span class="p">,</span>
+                                        <span class="n">stderr</span><span class="o">=</span><span class="n">worm_sign</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data_to_write</span><span class="p">)</span>
+
+        <span class="n">signals_sent</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">rlist</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c"># We don&#39;t know when the read_and_verify_code in our child is actually</span>
+        <span class="c"># executing within the read system call we want to interrupt.  This</span>
+        <span class="c"># loop waits for a bit before sending the first signal to increase</span>
+        <span class="c"># the likelihood of that.  Implementations without correct EINTR</span>
+        <span class="c"># and signal handling usually fail this test.</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="n">rlist</span><span class="p">:</span>
+            <span class="n">rlist</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">select</span><span class="o">.</span><span class="n">select</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">stderr</span><span class="p">],</span> <span class="p">(),</span> <span class="p">(),</span> <span class="mf">0.05</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">send_signal</span><span class="p">(</span><span class="n">signal</span><span class="o">.</span><span class="n">SIGINT</span><span class="p">)</span>
+            <span class="n">signals_sent</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">signals_sent</span> <span class="o">&gt;</span> <span class="mi">200</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">kill</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&#39;reader process failed to handle our signals.&#39;</span><span class="p">)</span>
+        <span class="c"># This assumes anything unexpected that writes to stderr will also</span>
+        <span class="c"># write a newline.  That is true of the traceback printing code.</span>
+        <span class="n">signal_line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">signal_line</span> <span class="o">!=</span> <span class="n">b</span><span class="s">&#39;$</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail_with_process_info</span><span class="p">(</span><span class="s">&#39;while awaiting signal&#39;</span><span class="p">,</span>
+                                        <span class="n">stderr</span><span class="o">=</span><span class="n">signal_line</span><span class="p">)</span>
+
+        <span class="c"># We append a newline to our input so that a readline call can</span>
+        <span class="c"># end on its own before the EOF is seen and so that we&#39;re testing</span>
+        <span class="c"># the read call that was interrupted by a signal before the end of</span>
+        <span class="c"># the data stream has been reached.</span>
+        <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">communicate</span><span class="p">(</span><span class="nb">input</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">returncode</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail_with_process_info</span><span class="p">(</span>
+                    <span class="s">&#39;exited rc=</span><span class="si">%d</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_process</span><span class="o">.</span><span class="n">returncode</span><span class="p">,</span>
+                    <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">,</span> <span class="n">communicate</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="c"># PASS!</span>
+
+    <span class="c"># String format for the read_and_verify_code used by read methods.</span>
+    <span class="n">_READING_CODE_TEMPLATE</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="s">&#39;got = infile.{read_method_name}() ;&#39;</span>
+            <span class="s">&#39;expected = {expected!r} ;&#39;</span>
+            <span class="s">&#39;assert got == expected, (&#39;</span>
+                    <span class="s">&#39;&quot;{read_method_name} returned wrong data.</span><span class="se">\\</span><span class="s">n&quot;&#39;</span>
+                    <span class="s">&#39;&quot;got data </span><span class="si">%r</span><span class="se">\\</span><span class="s">nexpected </span><span class="si">%r</span><span class="s">&quot; % (got, expected))&#39;</span>
+            <span class="p">)</span>
+
+<div class="viewcode-block" id="TestFileIOSignalInterrupt.test_readline"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestFileIOSignalInterrupt.test_readline">[docs]</a>    <span class="k">def</span> <span class="nf">test_readline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;readline() must handle signals and not lose data.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_test_reading</span><span class="p">(</span>
+                <span class="n">data_to_write</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello, world!&#39;</span><span class="p">,</span>
+                <span class="n">read_and_verify_code</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_READING_CODE_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                        <span class="n">read_method_name</span><span class="o">=</span><span class="s">&#39;readline&#39;</span><span class="p">,</span>
+                        <span class="n">expected</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello, world!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestFileIOSignalInterrupt.test_readlines"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestFileIOSignalInterrupt.test_readlines">[docs]</a>    <span class="k">def</span> <span class="nf">test_readlines</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;readlines() must handle signals and not lose data.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_test_reading</span><span class="p">(</span>
+                <span class="n">data_to_write</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">world!&#39;</span><span class="p">,</span>
+                <span class="n">read_and_verify_code</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_READING_CODE_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                        <span class="n">read_method_name</span><span class="o">=</span><span class="s">&#39;readlines&#39;</span><span class="p">,</span>
+                        <span class="n">expected</span><span class="o">=</span><span class="p">[</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;world!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">]))</span>
+</div>
+<div class="viewcode-block" id="TestFileIOSignalInterrupt.test_readall"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestFileIOSignalInterrupt.test_readall">[docs]</a>    <span class="k">def</span> <span class="nf">test_readall</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;readall() must handle signals and not lose data.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_test_reading</span><span class="p">(</span>
+                <span class="n">data_to_write</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">world!&#39;</span><span class="p">,</span>
+                <span class="n">read_and_verify_code</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_READING_CODE_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                        <span class="n">read_method_name</span><span class="o">=</span><span class="s">&#39;readall&#39;</span><span class="p">,</span>
+                        <span class="n">expected</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">world!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+        <span class="c"># read() is the same thing as readall().</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_test_reading</span><span class="p">(</span>
+                <span class="n">data_to_write</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">world!&#39;</span><span class="p">,</span>
+                <span class="n">read_and_verify_code</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_READING_CODE_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                        <span class="n">read_method_name</span><span class="o">=</span><span class="s">&#39;read&#39;</span><span class="p">,</span>
+                        <span class="n">expected</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">world!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+
+</div></div>
+<div class="viewcode-block" id="TestBufferedIOSignalInterrupt"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestBufferedIOSignalInterrupt">[docs]</a><span class="k">class</span> <span class="nc">TestBufferedIOSignalInterrupt</span><span class="p">(</span><span class="n">TestFileIOSignalInterrupt</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_generate_infile_setup_code</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the infile = ... line of code to make a BufferedReader.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="s">&#39;infile = open(sys.stdin.fileno(), &quot;rb&quot;) ;&#39;</span>
+                <span class="s">&#39;import _io ;assert isinstance(infile, _io.BufferedReader)&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="TestBufferedIOSignalInterrupt.test_readall"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestBufferedIOSignalInterrupt.test_readall">[docs]</a>    <span class="k">def</span> <span class="nf">test_readall</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;BufferedReader.read() must handle signals and not lose data.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_test_reading</span><span class="p">(</span>
+                <span class="n">data_to_write</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">world!&#39;</span><span class="p">,</span>
+                <span class="n">read_and_verify_code</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_READING_CODE_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                        <span class="n">read_method_name</span><span class="o">=</span><span class="s">&#39;read&#39;</span><span class="p">,</span>
+                        <span class="n">expected</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">world!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+
+</div></div>
+<div class="viewcode-block" id="TestTextIOSignalInterrupt"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestTextIOSignalInterrupt">[docs]</a><span class="k">class</span> <span class="nc">TestTextIOSignalInterrupt</span><span class="p">(</span><span class="n">TestFileIOSignalInterrupt</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_generate_infile_setup_code</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the infile = ... line of code to make a TextIOWrapper.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="s">&#39;infile = open(sys.stdin.fileno(), &quot;rt&quot;, newline=None) ;&#39;</span>
+                <span class="s">&#39;import _io ;assert isinstance(infile, _io.TextIOWrapper)&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="TestTextIOSignalInterrupt.test_readline"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestTextIOSignalInterrupt.test_readline">[docs]</a>    <span class="k">def</span> <span class="nf">test_readline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;readline() must handle signals and not lose data.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_test_reading</span><span class="p">(</span>
+                <span class="n">data_to_write</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello, world!&#39;</span><span class="p">,</span>
+                <span class="n">read_and_verify_code</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_READING_CODE_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                        <span class="n">read_method_name</span><span class="o">=</span><span class="s">&#39;readline&#39;</span><span class="p">,</span>
+                        <span class="n">expected</span><span class="o">=</span><span class="s">&#39;hello, world!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestTextIOSignalInterrupt.test_readlines"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestTextIOSignalInterrupt.test_readlines">[docs]</a>    <span class="k">def</span> <span class="nf">test_readlines</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;readlines() must handle signals and not lose data.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_test_reading</span><span class="p">(</span>
+                <span class="n">data_to_write</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\r\n</span><span class="s">world!&#39;</span><span class="p">,</span>
+                <span class="n">read_and_verify_code</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_READING_CODE_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                        <span class="n">read_method_name</span><span class="o">=</span><span class="s">&#39;readlines&#39;</span><span class="p">,</span>
+                        <span class="n">expected</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;world!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">]))</span>
+</div>
+<div class="viewcode-block" id="TestTextIOSignalInterrupt.test_readall"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.TestTextIOSignalInterrupt.test_readall">[docs]</a>    <span class="k">def</span> <span class="nf">test_readall</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;read() must handle signals and not lose data.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_test_reading</span><span class="p">(</span>
+                <span class="n">data_to_write</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;hello</span><span class="se">\n</span><span class="s">world!&#39;</span><span class="p">,</span>
+                <span class="n">read_and_verify_code</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_READING_CODE_TEMPLATE</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                        <span class="n">read_method_name</span><span class="o">=</span><span class="s">&#39;read&#39;</span><span class="p">,</span>
+                        <span class="n">expected</span><span class="o">=</span><span class="s">&quot;hello</span><span class="se">\n</span><span class="s">world!</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">))</span>
+
+</div></div>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_file_eintr.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">():</span>
+    <span class="n">test_cases</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">tc</span> <span class="k">for</span> <span class="n">tc</span> <span class="ow">in</span> <span class="nb">globals</span><span class="p">()</span><span class="o">.</span><span class="n">values</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">tc</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">tc</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">)]</span>
+    <span class="n">run_unittest</span><span class="p">(</span><span class="o">*</span><span class="n">test_cases</span><span class="p">)</span>
+
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

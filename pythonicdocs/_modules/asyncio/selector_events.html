@@ -1,0 +1,1088 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>asyncio.selector_events &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for asyncio.selector_events</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Event loop using a selector and related classes.</span>
+
+<span class="sd">A selector is a &quot;notify-when-ready&quot; multiplexer.  For a subclass which</span>
+<span class="sd">also includes support for signal handling, see the unix_events sub-module.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;BaseSelectorEventLoop&#39;</span><span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">collections</span>
+<span class="kn">import</span> <span class="nn">errno</span>
+<span class="kn">import</span> <span class="nn">functools</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">ssl</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>  <span class="c"># pragma: no cover</span>
+    <span class="n">ssl</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">base_events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">constants</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">selectors</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">transports</span>
+<span class="kn">from</span> <span class="nn">.log</span> <span class="kn">import</span> <span class="n">logger</span>
+
+
+<span class="k">def</span> <span class="nf">_test_selector_event</span><span class="p">(</span><span class="n">selector</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">event</span><span class="p">):</span>
+    <span class="c"># Test if the selector is monitoring &#39;event&#39; events</span>
+    <span class="c"># for the file descriptor &#39;fd&#39;.</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="n">selector</span><span class="o">.</span><span class="n">get_key</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">False</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">events</span> <span class="o">&amp;</span> <span class="n">event</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="BaseSelectorEventLoop"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop">[docs]</a><span class="k">class</span> <span class="nc">BaseSelectorEventLoop</span><span class="p">(</span><span class="n">base_events</span><span class="o">.</span><span class="n">BaseEventLoop</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Selector event loop.</span>
+
+<span class="sd">    See events.EventLoop for API specification.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">selector</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">selector</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">selector</span> <span class="o">=</span> <span class="n">selectors</span><span class="o">.</span><span class="n">DefaultSelector</span><span class="p">()</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Using selector: </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">selector</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span> <span class="o">=</span> <span class="n">selector</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_make_self_pipe</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_make_socket_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                               <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_SelectorSocketTransport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span>
+                                        <span class="n">extra</span><span class="p">,</span> <span class="n">server</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_make_ssl_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rawsock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">sslcontext</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                            <span class="n">server_side</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">server_hostname</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                            <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_SelectorSslTransport</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="n">rawsock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">sslcontext</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span>
+            <span class="n">server_side</span><span class="p">,</span> <span class="n">server_hostname</span><span class="p">,</span> <span class="n">extra</span><span class="p">,</span> <span class="n">server</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_make_datagram_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span>
+                                 <span class="n">address</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_SelectorDatagramTransport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span>
+                                          <span class="n">address</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span> <span class="n">extra</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BaseSelectorEventLoop.close"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_closed</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_close_self_pipe</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+    <span class="k">def</span> <span class="nf">_socketpair</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+    <span class="k">def</span> <span class="nf">_close_self_pipe</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_internal_fds</span> <span class="o">-=</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">_make_self_pipe</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># A self-socket, really. :-)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_socketpair</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_internal_fds</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_from_self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_process_self_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">_read_from_self</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="mi">4096</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_process_self_data</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">InterruptedError</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">except</span> <span class="n">BlockingIOError</span><span class="p">:</span>
+                <span class="k">break</span>
+
+    <span class="k">def</span> <span class="nf">_write_to_self</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># This may be called from a different thread, possibly after</span>
+        <span class="c"># _close_self_pipe() has been called or even while it is</span>
+        <span class="c"># running.  Guard for self._csock being None or closed.  When</span>
+        <span class="c"># a socket is closed, send() raises OSError (with errno set to</span>
+        <span class="c"># EBADF, but let&#39;s not rely on the exact error code).</span>
+        <span class="n">csock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span>
+        <span class="k">if</span> <span class="n">csock</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">csock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\0</span><span class="s">&#39;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_debug</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Fail to write a null byte into the &quot;</span>
+                                 <span class="s">&quot;self-pipe socket&quot;</span><span class="p">,</span>
+                                 <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_start_serving</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">protocol_factory</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span>
+                       <span class="n">sslcontext</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_accept_connection</span><span class="p">,</span>
+                        <span class="n">protocol_factory</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">sslcontext</span><span class="p">,</span> <span class="n">server</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_accept_connection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">protocol_factory</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span>
+                           <span class="n">sslcontext</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">conn</span><span class="p">,</span> <span class="n">addr</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_debug</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> got a new connection from </span><span class="si">%r</span><span class="s">: </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                             <span class="n">server</span><span class="p">,</span> <span class="n">addr</span><span class="p">,</span> <span class="n">conn</span><span class="p">)</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">,</span> <span class="n">ConnectionAbortedError</span><span class="p">):</span>
+            <span class="k">pass</span>  <span class="c"># False alarm.</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="c"># There&#39;s nowhere to send the error, so just log it.</span>
+            <span class="c"># TODO: Someone will want an error handler for this.</span>
+            <span class="k">if</span> <span class="n">exc</span><span class="o">.</span><span class="n">errno</span> <span class="ow">in</span> <span class="p">(</span><span class="n">errno</span><span class="o">.</span><span class="n">EMFILE</span><span class="p">,</span> <span class="n">errno</span><span class="o">.</span><span class="n">ENFILE</span><span class="p">,</span>
+                             <span class="n">errno</span><span class="o">.</span><span class="n">ENOBUFS</span><span class="p">,</span> <span class="n">errno</span><span class="o">.</span><span class="n">ENOMEM</span><span class="p">):</span>
+                <span class="c"># Some platforms (e.g. Linux keep reporting the FD as</span>
+                <span class="c"># ready, so we remove the read handler temporarily.</span>
+                <span class="c"># We&#39;ll try again in a while.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">({</span>
+                    <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="s">&#39;socket.accept() out of system resource&#39;</span><span class="p">,</span>
+                    <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                    <span class="s">&#39;socket&#39;</span><span class="p">:</span> <span class="n">sock</span><span class="p">,</span>
+                <span class="p">})</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">call_later</span><span class="p">(</span><span class="n">constants</span><span class="o">.</span><span class="n">ACCEPT_RETRY_DELAY</span><span class="p">,</span>
+                                <span class="bp">self</span><span class="o">.</span><span class="n">_start_serving</span><span class="p">,</span>
+                                <span class="n">protocol_factory</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">sslcontext</span><span class="p">,</span> <span class="n">server</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span>  <span class="c"># The event loop will catch, log and ignore it.</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">sslcontext</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_make_ssl_transport</span><span class="p">(</span>
+                    <span class="n">conn</span><span class="p">,</span> <span class="n">protocol_factory</span><span class="p">(),</span> <span class="n">sslcontext</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+                    <span class="n">server_side</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;peername&#39;</span><span class="p">:</span> <span class="n">addr</span><span class="p">},</span> <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_make_socket_transport</span><span class="p">(</span>
+                    <span class="n">conn</span><span class="p">,</span> <span class="n">protocol_factory</span><span class="p">(),</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;peername&#39;</span><span class="p">:</span> <span class="n">addr</span><span class="p">},</span>
+                    <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">)</span>
+        <span class="c"># It&#39;s now up to the protocol to handle the connection.</span>
+
+<div class="viewcode-block" id="BaseSelectorEventLoop.add_reader"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.add_reader">[docs]</a>    <span class="k">def</span> <span class="nf">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add a reader callback.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="n">handle</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">Handle</span><span class="p">(</span><span class="n">callback</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">get_key</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_READ</span><span class="p">,</span>
+                                    <span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">None</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mask</span><span class="p">,</span> <span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">events</span><span class="p">,</span> <span class="n">key</span><span class="o">.</span><span class="n">data</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">modify</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">mask</span> <span class="o">|</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_READ</span><span class="p">,</span>
+                                  <span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">writer</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">reader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">reader</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BaseSelectorEventLoop.remove_reader"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.remove_reader">[docs]</a>    <span class="k">def</span> <span class="nf">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Remove a reader callback.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_closed</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">get_key</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mask</span><span class="p">,</span> <span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">events</span><span class="p">,</span> <span class="n">key</span><span class="o">.</span><span class="n">data</span>
+            <span class="n">mask</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_READ</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">mask</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">unregister</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">modify</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">writer</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="n">reader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">reader</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                <span class="k">return</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="BaseSelectorEventLoop.add_writer"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.add_writer">[docs]</a>    <span class="k">def</span> <span class="nf">add_writer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add a writer callback..&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="n">handle</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">Handle</span><span class="p">(</span><span class="n">callback</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">get_key</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_WRITE</span><span class="p">,</span>
+                                    <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">handle</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mask</span><span class="p">,</span> <span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">events</span><span class="p">,</span> <span class="n">key</span><span class="o">.</span><span class="n">data</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">modify</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">mask</span> <span class="o">|</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_WRITE</span><span class="p">,</span>
+                                  <span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">handle</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">writer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">writer</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BaseSelectorEventLoop.remove_writer"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.remove_writer">[docs]</a>    <span class="k">def</span> <span class="nf">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Remove a writer callback.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_closed</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">get_key</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mask</span><span class="p">,</span> <span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">events</span><span class="p">,</span> <span class="n">key</span><span class="o">.</span><span class="n">data</span>
+            <span class="c"># Remove both writer and connector.</span>
+            <span class="n">mask</span> <span class="o">&amp;=</span> <span class="o">~</span><span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_WRITE</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">mask</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">unregister</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span><span class="o">.</span><span class="n">modify</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">mask</span><span class="p">,</span> <span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="bp">None</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="n">writer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">writer</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                <span class="k">return</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="BaseSelectorEventLoop.sock_recv"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.sock_recv">[docs]</a>    <span class="k">def</span> <span class="nf">sock_recv</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">n</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Receive data from the socket.</span>
+
+<span class="sd">        The return value is a bytes object representing the data received.</span>
+<span class="sd">        The maximum amount of data to be received at once is specified by</span>
+<span class="sd">        nbytes.</span>
+
+<span class="sd">        This method is a coroutine.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_debug</span><span class="p">()</span> <span class="ow">and</span> <span class="n">sock</span><span class="o">.</span><span class="n">gettimeout</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;the socket must be non-blocking&quot;</span><span class="p">)</span>
+        <span class="n">fut</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_sock_recv</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">fut</span>
+</div>
+    <span class="k">def</span> <span class="nf">_sock_recv</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="n">registered</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">n</span><span class="p">):</span>
+        <span class="c"># _sock_recv() can add itself as an I/O callback if the operation can&#39;t</span>
+        <span class="c"># be done immediately. Don&#39;t use it directly, call sock_recv().</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">registered</span><span class="p">:</span>
+            <span class="c"># Remove the callback early.  It should be rare that the</span>
+            <span class="c"># selector says the fd is ready but the call still returns</span>
+            <span class="c"># EAGAIN, and I am willing to take a hit in that case in</span>
+            <span class="c"># order to simplify the common case.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock_recv</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BaseSelectorEventLoop.sock_sendall"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.sock_sendall">[docs]</a>    <span class="k">def</span> <span class="nf">sock_sendall</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send data to the socket.</span>
+
+<span class="sd">        The socket must be connected to a remote socket. This method continues</span>
+<span class="sd">        to send data from data until either all data has been sent or an</span>
+<span class="sd">        error occurs. None is returned on success. On error, an exception is</span>
+<span class="sd">        raised, and there is no way to determine how much data, if any, was</span>
+<span class="sd">        successfully processed by the receiving end of the connection.</span>
+
+<span class="sd">        This method is a coroutine.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_debug</span><span class="p">()</span> <span class="ow">and</span> <span class="n">sock</span><span class="o">.</span><span class="n">gettimeout</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;the socket must be non-blocking&quot;</span><span class="p">)</span>
+        <span class="n">fut</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">data</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock_sendall</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">fut</span>
+</div>
+    <span class="k">def</span> <span class="nf">_sock_sendall</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="n">registered</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">registered</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="k">return</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="n">n</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">n</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">n</span><span class="p">:]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_writer</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock_sendall</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BaseSelectorEventLoop.sock_connect"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.sock_connect">[docs]</a>    <span class="k">def</span> <span class="nf">sock_connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Connect to a remote socket at address.</span>
+
+<span class="sd">        The address must be already resolved to avoid the trap of hanging the</span>
+<span class="sd">        entire event loop when the address requires doing a DNS lookup. For</span>
+<span class="sd">        example, it must be an IP address, not an hostname, for AF_INET and</span>
+<span class="sd">        AF_INET6 address families. Use getaddrinfo() to resolve the hostname</span>
+<span class="sd">        asynchronously.</span>
+
+<span class="sd">        This method is a coroutine.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_debug</span><span class="p">()</span> <span class="ow">and</span> <span class="n">sock</span><span class="o">.</span><span class="n">gettimeout</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;the socket must be non-blocking&quot;</span><span class="p">)</span>
+        <span class="n">fut</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">base_events</span><span class="o">.</span><span class="n">_check_resolved_address</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock_connect</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">fut</span>
+</div>
+    <span class="k">def</span> <span class="nf">_sock_connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">sock</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+                <span class="k">except</span> <span class="n">InterruptedError</span><span class="p">:</span>
+                    <span class="k">continue</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">break</span>
+        <span class="k">except</span> <span class="n">BlockingIOError</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_connect_done</span><span class="p">,</span>
+                                                    <span class="n">sock</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_writer</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock_connect_cb</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_sock_connect_done</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">fut</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+
+    <span class="k">def</span> <span class="nf">_sock_connect_cb</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="k">return</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">err</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">getsockopt</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SO_ERROR</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">err</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="c"># Jump to any except clause below.</span>
+                <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="s">&#39;Connect call failed </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">address</span><span class="p">,))</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+            <span class="c"># socket is still registered, the callback will be retried later</span>
+            <span class="k">pass</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BaseSelectorEventLoop.sock_accept"><a class="viewcode-back" href="../../asyncio.html#asyncio.selector_events.BaseSelectorEventLoop.sock_accept">[docs]</a>    <span class="k">def</span> <span class="nf">sock_accept</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Accept a connection.</span>
+
+<span class="sd">        The socket must be bound to an address and listening for connections.</span>
+<span class="sd">        The return value is a pair (conn, address) where conn is a new socket</span>
+<span class="sd">        object usable to send and receive data on the connection, and address</span>
+<span class="sd">        is the address bound to the socket on the other end of the connection.</span>
+
+<span class="sd">        This method is a coroutine.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_debug</span><span class="p">()</span> <span class="ow">and</span> <span class="n">sock</span><span class="o">.</span><span class="n">gettimeout</span><span class="p">()</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;the socket must be non-blocking&quot;</span><span class="p">)</span>
+        <span class="n">fut</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_sock_accept</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">sock</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">fut</span>
+</div>
+    <span class="k">def</span> <span class="nf">_sock_accept</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="n">registered</span><span class="p">,</span> <span class="n">sock</span><span class="p">):</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">registered</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">conn</span><span class="p">,</span> <span class="n">address</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock_accept</span><span class="p">,</span> <span class="n">fut</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="n">sock</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_result</span><span class="p">((</span><span class="n">conn</span><span class="p">,</span> <span class="n">address</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_process_events</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event_list</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">mask</span> <span class="ow">in</span> <span class="n">event_list</span><span class="p">:</span>
+            <span class="n">fileobj</span><span class="p">,</span> <span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">writer</span><span class="p">)</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">fileobj</span><span class="p">,</span> <span class="n">key</span><span class="o">.</span><span class="n">data</span>
+            <span class="k">if</span> <span class="n">mask</span> <span class="o">&amp;</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_READ</span> <span class="ow">and</span> <span class="n">reader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">reader</span><span class="o">.</span><span class="n">_cancelled</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="n">fileobj</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_add_callback</span><span class="p">(</span><span class="n">reader</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">mask</span> <span class="o">&amp;</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_WRITE</span> <span class="ow">and</span> <span class="n">writer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">writer</span><span class="o">.</span><span class="n">_cancelled</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="n">fileobj</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_add_callback</span><span class="p">(</span><span class="n">writer</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_stop_serving</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+        <span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+</div>
+<span class="k">class</span> <span class="nc">_SelectorTransport</span><span class="p">(</span><span class="n">transports</span><span class="o">.</span><span class="n">_FlowControlMixin</span><span class="p">,</span>
+                         <span class="n">transports</span><span class="o">.</span><span class="n">Transport</span><span class="p">):</span>
+
+    <span class="n">max_size</span> <span class="o">=</span> <span class="mi">256</span> <span class="o">*</span> <span class="mi">1024</span>  <span class="c"># Buffer size passed to recv().</span>
+
+    <span class="n">_buffer_factory</span> <span class="o">=</span> <span class="nb">bytearray</span>  <span class="c"># Constructs initial value for self._buffer.</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">extra</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">extra</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">[</span><span class="s">&#39;socket&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sock</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">[</span><span class="s">&#39;sockname&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">getsockname</span><span class="p">()</span>
+        <span class="k">if</span> <span class="s">&#39;peername&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">[</span><span class="s">&#39;peername&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">getpeername</span><span class="p">()</span>
+            <span class="k">except</span> <span class="n">socket</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">[</span><span class="s">&#39;peername&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">loop</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span> <span class="o">=</span> <span class="n">sock</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">=</span> <span class="n">protocol</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_server</span> <span class="o">=</span> <span class="n">server</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer_factory</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c"># Set when call to connection_lost scheduled.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span> <span class="o">=</span> <span class="bp">False</span>  <span class="c"># Set when close() called.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_server</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_server</span><span class="o">.</span><span class="n">_attach</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&#39;fd=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">]</span>
+        <span class="c"># test if the transport was closed</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">polling</span> <span class="o">=</span> <span class="n">_test_selector_event</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">_selector</span><span class="p">,</span>
+                                           <span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_READ</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">polling</span><span class="p">:</span>
+                <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;read=polling&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;read=idle&#39;</span><span class="p">)</span>
+
+            <span class="n">polling</span> <span class="o">=</span> <span class="n">_test_selector_event</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">_selector</span><span class="p">,</span>
+                                           <span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_WRITE</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">polling</span><span class="p">:</span>
+                <span class="n">state</span> <span class="o">=</span> <span class="s">&#39;polling&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">state</span> <span class="o">=</span> <span class="s">&#39;idle&#39;</span>
+
+            <span class="n">bufsize</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_write_buffer_size</span><span class="p">()</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;write=&lt;</span><span class="si">%s</span><span class="s">, bufsize=</span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="n">bufsize</span><span class="p">))</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">abort</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_force_close</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_call_connection_lost</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_fatal_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="s">&#39;Fatal error on transport&#39;</span><span class="p">):</span>
+        <span class="c"># Should be called from exception handler only.</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="n">BrokenPipeError</span><span class="p">,</span> <span class="n">ConnectionResetError</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">({</span>
+                <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="n">message</span><span class="p">,</span>
+                <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                <span class="s">&#39;transport&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="p">,</span>
+                <span class="s">&#39;protocol&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="p">,</span>
+            <span class="p">})</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_force_close</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_force_close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_call_connection_lost</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_call_connection_lost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">connection_lost</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="n">server</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_server</span>
+            <span class="k">if</span> <span class="n">server</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">server</span><span class="o">.</span><span class="n">_detach</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_server</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">get_write_buffer_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">_SelectorSocketTransport</span><span class="p">(</span><span class="n">_SelectorTransport</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">extra</span><span class="p">,</span> <span class="n">server</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_ready</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">connection_made</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># wait until protocol.connection_made() has been called</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="n">waiter</span><span class="o">.</span><span class="n">_set_result_unless_cancelled</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">pause_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Cannot pause_reading() when closing&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Already paused&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> pauses reading&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">resume_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Not paused&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_ready</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> resumes reading&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_read_ready</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">max_size</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal read error on socket transport&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">data</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">data_received</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> received EOF&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">keep_open</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">eof_received</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">keep_open</span><span class="p">:</span>
+                    <span class="c"># We&#39;re keeping the connection open so the</span>
+                    <span class="c"># protocol can write more, but we still can&#39;t</span>
+                    <span class="c"># receive more, so remove the reader callback.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">,</span> <span class="n">memoryview</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;data argument must be byte-ish (</span><span class="si">%r</span><span class="s">)&#39;</span><span class="p">,</span>
+                            <span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Cannot call write() after write_eof()&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">&gt;=</span> <span class="n">constants</span><span class="o">.</span><span class="n">LOG_THRESHOLD_FOR_CONNLOST_WRITES</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&#39;socket.send() raised exception.&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="c"># Optimization: try to send now.</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+                <span class="k">pass</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal write error on socket transport&#39;</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">n</span><span class="p">:]</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+                    <span class="k">return</span>
+            <span class="c"># Not all was written; register write handler.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_ready</span><span class="p">)</span>
+
+        <span class="c"># Add it to the buffer.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_pause_protocol</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_write_ready</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">,</span> <span class="s">&#39;Data should not be empty&#39;</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal write error on socket transport&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">n</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[:</span><span class="n">n</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_resume_protocol</span><span class="p">()</span>  <span class="c"># May append to buffer.</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_call_connection_lost</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">shutdown</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SHUT_WR</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">shutdown</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SHUT_WR</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">can_write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+
+<span class="k">class</span> <span class="nc">_SelectorSslTransport</span><span class="p">(</span><span class="n">_SelectorTransport</span><span class="p">):</span>
+
+    <span class="n">_buffer_factory</span> <span class="o">=</span> <span class="nb">bytearray</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="p">,</span> <span class="n">rawsock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">sslcontext</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="n">server_side</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">server_hostname</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">ssl</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;stdlib ssl module not available&#39;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">server_side</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">sslcontext</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Server side ssl needs a valid SSLContext&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">sslcontext</span><span class="p">:</span>
+                <span class="c"># Client side may pass ssl=True to use a default</span>
+                <span class="c"># context; in that case the sslcontext passed is None.</span>
+                <span class="c"># The default is the same as used by urllib with</span>
+                <span class="c"># cadefault=True.</span>
+                <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">ssl</span><span class="p">,</span> <span class="s">&#39;_create_stdlib_context&#39;</span><span class="p">):</span>
+                    <span class="n">sslcontext</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">_create_stdlib_context</span><span class="p">(</span>
+                        <span class="n">cert_reqs</span><span class="o">=</span><span class="n">ssl</span><span class="o">.</span><span class="n">CERT_REQUIRED</span><span class="p">,</span>
+                        <span class="n">check_hostname</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">server_hostname</span><span class="p">))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># Fallback for Python 3.3.</span>
+                    <span class="n">sslcontext</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLContext</span><span class="p">(</span><span class="n">ssl</span><span class="o">.</span><span class="n">PROTOCOL_SSLv23</span><span class="p">)</span>
+                    <span class="n">sslcontext</span><span class="o">.</span><span class="n">options</span> <span class="o">|=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">OP_NO_SSLv2</span>
+                    <span class="n">sslcontext</span><span class="o">.</span><span class="n">set_default_verify_paths</span><span class="p">()</span>
+                    <span class="n">sslcontext</span><span class="o">.</span><span class="n">verify_mode</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">CERT_REQUIRED</span>
+
+        <span class="n">wrap_kwargs</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s">&#39;server_side&#39;</span><span class="p">:</span> <span class="n">server_side</span><span class="p">,</span>
+            <span class="s">&#39;do_handshake_on_connect&#39;</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">server_hostname</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">server_side</span> <span class="ow">and</span> <span class="n">ssl</span><span class="o">.</span><span class="n">HAS_SNI</span><span class="p">:</span>
+            <span class="n">wrap_kwargs</span><span class="p">[</span><span class="s">&#39;server_hostname&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">server_hostname</span>
+        <span class="n">sslsock</span> <span class="o">=</span> <span class="n">sslcontext</span><span class="o">.</span><span class="n">wrap_socket</span><span class="p">(</span><span class="n">rawsock</span><span class="p">,</span> <span class="o">**</span><span class="n">wrap_kwargs</span><span class="p">)</span>
+
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="p">,</span> <span class="n">sslsock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">extra</span><span class="p">,</span> <span class="n">server</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_server_hostname</span> <span class="o">=</span> <span class="n">server_hostname</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="n">waiter</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_sslcontext</span> <span class="o">=</span> <span class="n">sslcontext</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+
+        <span class="c"># SSL-specific extra info.  (peercert is set later)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">sslcontext</span><span class="o">=</span><span class="n">sslcontext</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> starts SSL handshake&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+            <span class="n">start_time</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">start_time</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_on_handshake</span><span class="p">(</span><span class="n">start_time</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_on_handshake</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">start_time</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">do_handshake</span><span class="p">()</span>
+        <span class="k">except</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLWantReadError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span>
+                                  <span class="bp">self</span><span class="o">.</span><span class="n">_on_handshake</span><span class="p">,</span> <span class="n">start_time</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">except</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLWantWriteError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span>
+                                  <span class="bp">self</span><span class="o">.</span><span class="n">_on_handshake</span><span class="p">,</span> <span class="n">start_time</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">except</span> <span class="ne">BaseException</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s">: SSL handshake failed&quot;</span><span class="p">,</span>
+                               <span class="bp">self</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="ne">Exception</span><span class="p">):</span>
+                <span class="k">return</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+
+        <span class="n">peercert</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">getpeercert</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sslcontext</span><span class="p">,</span> <span class="s">&#39;check_hostname&#39;</span><span class="p">):</span>
+            <span class="c"># Verify hostname if requested, Python 3.4+ uses check_hostname</span>
+            <span class="c"># and checks the hostname in do_handshake()</span>
+            <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_server_hostname</span> <span class="ow">and</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_sslcontext</span><span class="o">.</span><span class="n">verify_mode</span> <span class="o">!=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">CERT_NONE</span><span class="p">):</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">ssl</span><span class="o">.</span><span class="n">match_hostname</span><span class="p">(</span><span class="n">peercert</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_server_hostname</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s">: SSL handshake failed &quot;</span>
+                                       <span class="s">&quot;on matching the hostname&quot;</span><span class="p">,</span>
+                                       <span class="bp">self</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+                    <span class="k">return</span>
+
+        <span class="c"># Add extra info that becomes available after handshake.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">peercert</span><span class="o">=</span><span class="n">peercert</span><span class="p">,</span>
+                           <span class="n">cipher</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">cipher</span><span class="p">(),</span>
+                           <span class="n">compression</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">compression</span><span class="p">(),</span>
+                           <span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_read_wants_write</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write_wants_read</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_ready</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">connection_made</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># wait until protocol.connection_made() has been called</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span><span class="o">.</span><span class="n">_set_result_unless_cancelled</span><span class="p">,</span>
+                                 <span class="bp">None</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">dt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="n">start_time</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s">: SSL handshake took </span><span class="si">%.1f</span><span class="s"> ms&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span> <span class="n">dt</span> <span class="o">*</span> <span class="mf">1e3</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">pause_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># XXX This is a bit icky, given the comment at the top of</span>
+        <span class="c"># _read_ready().  Is it possible to evoke a deadlock?  I don&#39;t</span>
+        <span class="c"># know, although it doesn&#39;t look like it; write() will still</span>
+        <span class="c"># accept more data for the buffer and eventually the app will</span>
+        <span class="c"># call resume_reading() again, and things will flow again.</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Cannot pause_reading() when closing&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Already paused&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> pauses reading&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">resume_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Not paused&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_ready</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> resumes reading&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_read_ready</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_wants_read</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_write_wants_read</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_write_ready</span><span class="p">()</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_ready</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">max_size</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">,</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLWantReadError</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="k">except</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLWantWriteError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_read_wants_write</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_ready</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal read error on SSL transport&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">data</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">data_received</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> received EOF&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                    <span class="n">keep_open</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">eof_received</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">keep_open</span><span class="p">:</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&#39;returning true from eof_received() &#39;</span>
+                                       <span class="s">&#39;has no effect when using ssl&#39;</span><span class="p">)</span>
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_write_ready</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_wants_write</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_read_wants_write</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_read_ready</span><span class="p">()</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_ready</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+            <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">,</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLWantWriteError</span><span class="p">):</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">except</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLWantReadError</span><span class="p">:</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_write_wants_read</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal write error on SSL transport&#39;</span><span class="p">)</span>
+                <span class="k">return</span>
+
+            <span class="k">if</span> <span class="n">n</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[:</span><span class="n">n</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_resume_protocol</span><span class="p">()</span>  <span class="c"># May append to buffer.</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_call_connection_lost</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">,</span> <span class="n">memoryview</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;data argument must be byte-ish (</span><span class="si">%r</span><span class="s">)&#39;</span><span class="p">,</span>
+                            <span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">&gt;=</span> <span class="n">constants</span><span class="o">.</span><span class="n">LOG_THRESHOLD_FOR_CONNLOST_WRITES</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&#39;socket.send() raised exception.&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_ready</span><span class="p">)</span>
+
+        <span class="c"># Add it to the buffer.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_pause_protocol</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">can_write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">False</span>
+
+
+<span class="k">class</span> <span class="nc">_SelectorDatagramTransport</span><span class="p">(</span><span class="n">_SelectorTransport</span><span class="p">):</span>
+
+    <span class="n">_buffer_factory</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">deque</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">address</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">extra</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="n">address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_ready</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">connection_made</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># wait until protocol.connection_made() has been called</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="n">waiter</span><span class="o">.</span><span class="n">_set_result_unless_cancelled</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_write_buffer_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="k">for</span> <span class="n">data</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_read_ready</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span><span class="p">,</span> <span class="n">addr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">recvfrom</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">max_size</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">error_received</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal read error on datagram transport&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">datagram_received</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">addr</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">sendto</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">addr</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">,</span> <span class="n">memoryview</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;data argument must be byte-ish (</span><span class="si">%r</span><span class="s">)&#39;</span><span class="p">,</span>
+                            <span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="ow">and</span> <span class="n">addr</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid address: must be None or </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span>
+                             <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">,))</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">&gt;=</span> <span class="n">constants</span><span class="o">.</span><span class="n">LOG_THRESHOLD_FOR_CONNLOST_WRITES</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&#39;socket.send() raised exception.&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="c"># Attempt to send it right away first.</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">sendto</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">addr</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">add_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sendto_ready</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">error_received</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span>
+                                  <span class="s">&#39;Fatal write error on datagram transport&#39;</span><span class="p">)</span>
+                <span class="k">return</span>
+
+        <span class="c"># Ensure that what we buffer is immutable.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="nb">bytes</span><span class="p">(</span><span class="n">data</span><span class="p">),</span> <span class="n">addr</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_pause_protocol</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_sendto_ready</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="n">data</span><span class="p">,</span> <span class="n">addr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">popleft</span><span class="p">()</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">sendto</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">addr</span><span class="p">)</span>
+            <span class="k">except</span> <span class="p">(</span><span class="n">BlockingIOError</span><span class="p">,</span> <span class="n">InterruptedError</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">appendleft</span><span class="p">((</span><span class="n">data</span><span class="p">,</span> <span class="n">addr</span><span class="p">))</span>  <span class="c"># Try again later.</span>
+                <span class="k">break</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">error_received</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span>
+                                  <span class="s">&#39;Fatal write error on datagram transport&#39;</span><span class="p">)</span>
+                <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_resume_protocol</span><span class="p">()</span>  <span class="c"># May append to buffer.</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock_fd</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_call_connection_lost</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

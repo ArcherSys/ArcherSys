@@ -1,0 +1,191 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>multiprocessing.popen_spawn_win32 &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for multiprocessing.popen_spawn_win32</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">msvcrt</span>
+<span class="kn">import</span> <span class="nn">signal</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">_winapi</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">context</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">spawn</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">reduction</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">util</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;Popen&#39;</span><span class="p">]</span>
+
+<span class="c">#</span>
+<span class="c">#</span>
+<span class="c">#</span>
+
+<span class="n">TERMINATE</span> <span class="o">=</span> <span class="mh">0x10000</span>
+<span class="n">WINEXE</span> <span class="o">=</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">sys</span><span class="p">,</span> <span class="s">&#39;frozen&#39;</span><span class="p">,</span> <span class="bp">False</span><span class="p">))</span>
+<span class="n">WINSERVICE</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;pythonservice.exe&quot;</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># We define a Popen class similar to the one from subprocess, but</span>
+<span class="c"># whose constructor takes a process object as its argument.</span>
+<span class="c">#</span>
+
+<div class="viewcode-block" id="Popen"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.popen_spawn_win32.Popen">[docs]</a><span class="k">class</span> <span class="nc">Popen</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Start a subprocess to run the code of a process object</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">method</span> <span class="o">=</span> <span class="s">&#39;spawn&#39;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">process_obj</span><span class="p">):</span>
+        <span class="n">prep_data</span> <span class="o">=</span> <span class="n">spawn</span><span class="o">.</span><span class="n">get_preparation_data</span><span class="p">(</span><span class="n">process_obj</span><span class="o">.</span><span class="n">_name</span><span class="p">)</span>
+
+        <span class="c"># read end of pipe will be &quot;stolen&quot; by the child process</span>
+        <span class="c"># -- see spawn_main() in spawn.py.</span>
+        <span class="n">rhandle</span><span class="p">,</span> <span class="n">whandle</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">CreatePipe</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">wfd</span> <span class="o">=</span> <span class="n">msvcrt</span><span class="o">.</span><span class="n">open_osfhandle</span><span class="p">(</span><span class="n">whandle</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="n">spawn</span><span class="o">.</span><span class="n">get_command_line</span><span class="p">(</span><span class="n">parent_pid</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">(),</span>
+                                     <span class="n">pipe_handle</span><span class="o">=</span><span class="n">rhandle</span><span class="p">)</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&#39;&quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">cmd</span><span class="p">)</span>
+
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">wfd</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">,</span> <span class="n">closefd</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="k">as</span> <span class="n">to_child</span><span class="p">:</span>
+            <span class="c"># start process</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">hp</span><span class="p">,</span> <span class="n">ht</span><span class="p">,</span> <span class="n">pid</span><span class="p">,</span> <span class="n">tid</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">CreateProcess</span><span class="p">(</span>
+                    <span class="n">spawn</span><span class="o">.</span><span class="n">get_executable</span><span class="p">(),</span> <span class="n">cmd</span><span class="p">,</span>
+                    <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="n">ht</span><span class="p">)</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="n">rhandle</span><span class="p">)</span>
+                <span class="k">raise</span>
+
+            <span class="c"># set attributes of self</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">pid</span> <span class="o">=</span> <span class="n">pid</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">returncode</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="o">=</span> <span class="n">hp</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sentinel</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">hp</span><span class="p">)</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">Finalize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sentinel</span><span class="p">,))</span>
+
+            <span class="c"># send information to child</span>
+            <span class="n">context</span><span class="o">.</span><span class="n">set_spawning_popen</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">reduction</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">prep_data</span><span class="p">,</span> <span class="n">to_child</span><span class="p">)</span>
+                <span class="n">reduction</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">process_obj</span><span class="p">,</span> <span class="n">to_child</span><span class="p">)</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="n">context</span><span class="o">.</span><span class="n">set_spawning_popen</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Popen.duplicate_for_child"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.popen_spawn_win32.Popen.duplicate_for_child">[docs]</a>    <span class="k">def</span> <span class="nf">duplicate_for_child</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="bp">self</span> <span class="ow">is</span> <span class="n">context</span><span class="o">.</span><span class="n">get_spawning_popen</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">reduction</span><span class="o">.</span><span class="n">duplicate</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sentinel</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Popen.wait"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.popen_spawn_win32.Popen.wait">[docs]</a>    <span class="k">def</span> <span class="nf">wait</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">returncode</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">msecs</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">INFINITE</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">msecs</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">int</span><span class="p">(</span><span class="n">timeout</span> <span class="o">*</span> <span class="mi">1000</span> <span class="o">+</span> <span class="mf">0.5</span><span class="p">))</span>
+
+            <span class="n">res</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">WaitForSingleObject</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">),</span> <span class="n">msecs</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">res</span> <span class="o">==</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">WAIT_OBJECT_0</span><span class="p">:</span>
+                <span class="n">code</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GetExitCodeProcess</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">code</span> <span class="o">==</span> <span class="n">TERMINATE</span><span class="p">:</span>
+                    <span class="n">code</span> <span class="o">=</span> <span class="o">-</span><span class="n">signal</span><span class="o">.</span><span class="n">SIGTERM</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">returncode</span> <span class="o">=</span> <span class="n">code</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">returncode</span>
+</div>
+<div class="viewcode-block" id="Popen.poll"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.popen_spawn_win32.Popen.poll">[docs]</a>    <span class="k">def</span> <span class="nf">poll</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Popen.terminate"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.popen_spawn_win32.Popen.terminate">[docs]</a>    <span class="k">def</span> <span class="nf">terminate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">returncode</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">TerminateProcess</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">),</span> <span class="n">TERMINATE</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">1.0</span><span class="p">)</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="k">raise</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

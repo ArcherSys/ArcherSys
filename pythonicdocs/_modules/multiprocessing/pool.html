@@ -1,0 +1,861 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>multiprocessing.pool &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for multiprocessing.pool</h1><div class="highlight"><pre>
+<span class="c">#</span>
+<span class="c"># Module providing the `Pool` class for managing a process pool</span>
+<span class="c">#</span>
+<span class="c"># multiprocessing/pool.py</span>
+<span class="c">#</span>
+<span class="c"># Copyright (c) 2006-2008, R Oudkerk</span>
+<span class="c"># Licensed to PSF under a Contributor Agreement.</span>
+<span class="c">#</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;Pool&#39;</span><span class="p">,</span> <span class="s">&#39;ThreadPool&#39;</span><span class="p">]</span>
+
+<span class="c">#</span>
+<span class="c"># Imports</span>
+<span class="c">#</span>
+
+<span class="kn">import</span> <span class="nn">threading</span>
+<span class="kn">import</span> <span class="nn">queue</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
+<span class="kn">import</span> <span class="nn">collections</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+
+<span class="c"># If threading is available then ThreadPool should be provided.  Therefore</span>
+<span class="c"># we avoid top-level imports which are liable to fail on some systems.</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">util</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">get_context</span><span class="p">,</span> <span class="n">TimeoutError</span>
+
+<span class="c">#</span>
+<span class="c"># Constants representing the state of a pool</span>
+<span class="c">#</span>
+
+<span class="n">RUN</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">CLOSE</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">TERMINATE</span> <span class="o">=</span> <span class="mi">2</span>
+
+<span class="c">#</span>
+<span class="c"># Miscellaneous</span>
+<span class="c">#</span>
+
+<span class="n">job_counter</span> <span class="o">=</span> <span class="n">itertools</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+
+<span class="k">def</span> <span class="nf">mapstar</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
+    <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">))</span>
+
+<span class="k">def</span> <span class="nf">starmapstar</span><span class="p">(</span><span class="n">args</span><span class="p">):</span>
+    <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">itertools</span><span class="o">.</span><span class="n">starmap</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">args</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+
+<span class="c">#</span>
+<span class="c"># Hack to embed stringification of remote traceback in local traceback</span>
+<span class="c">#</span>
+
+<span class="k">class</span> <span class="nc">RemoteTraceback</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tb</span> <span class="o">=</span> <span class="n">tb</span>
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">tb</span>
+
+<span class="k">class</span> <span class="nc">ExceptionWithTraceback</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+        <span class="n">tb</span> <span class="o">=</span> <span class="n">traceback</span><span class="o">.</span><span class="n">format_exception</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">exc</span><span class="p">),</span> <span class="n">exc</span><span class="p">,</span> <span class="n">tb</span><span class="p">)</span>
+        <span class="n">tb</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tb</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">exc</span> <span class="o">=</span> <span class="n">exc</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tb</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&quot;&quot;&quot;</span><span class="se">\n</span><span class="si">%s</span><span class="s">&quot;&quot;&quot;&#39;</span> <span class="o">%</span> <span class="n">tb</span>
+    <span class="k">def</span> <span class="nf">__reduce__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">rebuild_exc</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">exc</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">tb</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">rebuild_exc</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+    <span class="n">exc</span><span class="o">.</span><span class="n">__cause__</span> <span class="o">=</span> <span class="n">RemoteTraceback</span><span class="p">(</span><span class="n">tb</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">exc</span>
+
+<span class="c">#</span>
+<span class="c"># Code run by worker processes</span>
+<span class="c">#</span>
+
+<span class="k">class</span> <span class="nc">MaybeEncodingError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Wraps possible unpickleable errors, so they can be</span>
+<span class="sd">    safely sent through the socket.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">exc</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">MaybeEncodingError</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">exc</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;Error sending result: &#39;</span><span class="si">%s</span><span class="s">&#39;. Reason: &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">value</span><span class="p">,</span>
+                                                             <span class="bp">self</span><span class="o">.</span><span class="n">exc</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;&lt;MaybeEncodingError: </span><span class="si">%s</span><span class="s">&gt;&quot;</span> <span class="o">%</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">worker</span><span class="p">(</span><span class="n">inqueue</span><span class="p">,</span> <span class="n">outqueue</span><span class="p">,</span> <span class="n">initializer</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">initargs</span><span class="o">=</span><span class="p">(),</span> <span class="n">maxtasks</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+           <span class="n">wrap_exception</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="n">maxtasks</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">maxtasks</span><span class="p">)</span> <span class="o">==</span> <span class="nb">int</span> <span class="ow">and</span> <span class="n">maxtasks</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">put</span> <span class="o">=</span> <span class="n">outqueue</span><span class="o">.</span><span class="n">put</span>
+    <span class="n">get</span> <span class="o">=</span> <span class="n">inqueue</span><span class="o">.</span><span class="n">get</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">inqueue</span><span class="p">,</span> <span class="s">&#39;_writer&#39;</span><span class="p">):</span>
+        <span class="n">inqueue</span><span class="o">.</span><span class="n">_writer</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">outqueue</span><span class="o">.</span><span class="n">_reader</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">initializer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">initializer</span><span class="p">(</span><span class="o">*</span><span class="n">initargs</span><span class="p">)</span>
+
+    <span class="n">completed</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">maxtasks</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="p">(</span><span class="n">maxtasks</span> <span class="ow">and</span> <span class="n">completed</span> <span class="o">&lt;</span> <span class="n">maxtasks</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">task</span> <span class="o">=</span> <span class="n">get</span><span class="p">()</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">EOFError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">):</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;worker got EOFError or OSError -- exiting&#39;</span><span class="p">)</span>
+            <span class="k">break</span>
+
+        <span class="k">if</span> <span class="n">task</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;worker got sentinel -- exiting&#39;</span><span class="p">)</span>
+            <span class="k">break</span>
+
+        <span class="n">job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwds</span> <span class="o">=</span> <span class="n">task</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">wrap_exception</span><span class="p">:</span>
+                <span class="n">e</span> <span class="o">=</span> <span class="n">ExceptionWithTraceback</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">__traceback__</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">put</span><span class="p">((</span><span class="n">job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">result</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">wrapped</span> <span class="o">=</span> <span class="n">MaybeEncodingError</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">result</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Possible encoding error while sending result: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span>
+                <span class="n">wrapped</span><span class="p">))</span>
+            <span class="n">put</span><span class="p">((</span><span class="n">job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="n">wrapped</span><span class="p">)))</span>
+        <span class="n">completed</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;worker exiting after </span><span class="si">%d</span><span class="s"> tasks&#39;</span> <span class="o">%</span> <span class="n">completed</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Class representing a process pool</span>
+<span class="c">#</span>
+
+<div class="viewcode-block" id="Pool"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool">[docs]</a><span class="k">class</span> <span class="nc">Pool</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Class which supports an async version of applying functions to arguments.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">_wrap_exception</span> <span class="o">=</span> <span class="bp">True</span>
+
+<div class="viewcode-block" id="Pool.Process"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.Process">[docs]</a>    <span class="k">def</span> <span class="nf">Process</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ctx</span><span class="o">.</span><span class="n">Process</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">processes</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">initializer</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">initargs</span><span class="o">=</span><span class="p">(),</span>
+                 <span class="n">maxtasksperchild</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ctx</span> <span class="o">=</span> <span class="n">context</span> <span class="ow">or</span> <span class="n">get_context</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_setup_queues</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span> <span class="o">=</span> <span class="n">queue</span><span class="o">.</span><span class="n">Queue</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">RUN</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maxtasksperchild</span> <span class="o">=</span> <span class="n">maxtasksperchild</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initializer</span> <span class="o">=</span> <span class="n">initializer</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initargs</span> <span class="o">=</span> <span class="n">initargs</span>
+
+        <span class="k">if</span> <span class="n">processes</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">processes</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">cpu_count</span><span class="p">()</span> <span class="ow">or</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">processes</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Number of processes must be at least 1&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">initializer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">initializer</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;initializer must be a callable&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_processes</span> <span class="o">=</span> <span class="n">processes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_repopulate_pool</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_worker_handler</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span>
+            <span class="n">target</span><span class="o">=</span><span class="n">Pool</span><span class="o">.</span><span class="n">_handle_workers</span><span class="p">,</span>
+            <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_worker_handler</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_worker_handler</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">RUN</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_worker_handler</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_task_handler</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span>
+            <span class="n">target</span><span class="o">=</span><span class="n">Pool</span><span class="o">.</span><span class="n">_handle_tasks</span><span class="p">,</span>
+            <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_quick_put</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_outqueue</span><span class="p">,</span>
+                  <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_task_handler</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_task_handler</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">RUN</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_task_handler</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_result_handler</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span>
+            <span class="n">target</span><span class="o">=</span><span class="n">Pool</span><span class="o">.</span><span class="n">_handle_results</span><span class="p">,</span>
+            <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_outqueue</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_quick_get</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">)</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_result_handler</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_result_handler</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">RUN</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_result_handler</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_terminate</span> <span class="o">=</span> <span class="n">util</span><span class="o">.</span><span class="n">Finalize</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_terminate_pool</span><span class="p">,</span>
+            <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_inqueue</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_outqueue</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="p">,</span>
+                  <span class="bp">self</span><span class="o">.</span><span class="n">_worker_handler</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_task_handler</span><span class="p">,</span>
+                  <span class="bp">self</span><span class="o">.</span><span class="n">_result_handler</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">),</span>
+            <span class="n">exitpriority</span><span class="o">=</span><span class="mi">15</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_join_exited_workers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Cleanup after any worker processes which have exited due to reaching</span>
+<span class="sd">        their specified lifetime.  Returns True if any workers were cleaned up.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">cleaned</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="p">))):</span>
+            <span class="n">worker</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">worker</span><span class="o">.</span><span class="n">exitcode</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="c"># worker exited</span>
+                <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;cleaning up worker </span><span class="si">%d</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">i</span><span class="p">)</span>
+                <span class="n">worker</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+                <span class="n">cleaned</span> <span class="o">=</span> <span class="bp">True</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">cleaned</span>
+
+    <span class="k">def</span> <span class="nf">_repopulate_pool</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Bring the number of pool processes up to the specified number,</span>
+<span class="sd">        for use after reaping workers which have exited.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_processes</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="p">)):</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">Process</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">worker</span><span class="p">,</span>
+                             <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_inqueue</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_outqueue</span><span class="p">,</span>
+                                   <span class="bp">self</span><span class="o">.</span><span class="n">_initializer</span><span class="p">,</span>
+                                   <span class="bp">self</span><span class="o">.</span><span class="n">_initargs</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_maxtasksperchild</span><span class="p">,</span>
+                                   <span class="bp">self</span><span class="o">.</span><span class="n">_wrap_exception</span><span class="p">)</span>
+                            <span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">w</span><span class="p">)</span>
+            <span class="n">w</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">w</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;Process&#39;</span><span class="p">,</span> <span class="s">&#39;PoolWorker&#39;</span><span class="p">)</span>
+            <span class="n">w</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="n">w</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;added worker&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_maintain_pool</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Clean up any exited workers and start replacements for them.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_join_exited_workers</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_repopulate_pool</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_setup_queues</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_inqueue</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ctx</span><span class="o">.</span><span class="n">SimpleQueue</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_outqueue</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ctx</span><span class="o">.</span><span class="n">SimpleQueue</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_quick_put</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_inqueue</span><span class="o">.</span><span class="n">_writer</span><span class="o">.</span><span class="n">send</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_quick_get</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_outqueue</span><span class="o">.</span><span class="n">_reader</span><span class="o">.</span><span class="n">recv</span>
+
+<div class="viewcode-block" id="Pool.apply"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.apply">[docs]</a>    <span class="k">def</span> <span class="nf">apply</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwds</span><span class="o">=</span><span class="p">{}):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Equivalent of `func(*args, **kwds)`.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">RUN</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">apply_async</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwds</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Pool.map"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.map">[docs]</a>    <span class="k">def</span> <span class="nf">map</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Apply `func` to each element in `iterable`, collecting the results</span>
+<span class="sd">        in a list that is returned.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_map_async</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">mapstar</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Pool.starmap"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.starmap">[docs]</a>    <span class="k">def</span> <span class="nf">starmap</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Like `map()` method but the elements of the `iterable` are expected to</span>
+<span class="sd">        be iterables as well and will be unpacked as arguments. Hence</span>
+<span class="sd">        `func` and (a, b) becomes func(a, b).</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_map_async</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">starmapstar</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">)</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Pool.starmap_async"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.starmap_async">[docs]</a>    <span class="k">def</span> <span class="nf">starmap_async</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">callback</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">error_callback</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Asynchronous version of `starmap()` method.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_map_async</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">starmapstar</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">,</span>
+                               <span class="n">callback</span><span class="p">,</span> <span class="n">error_callback</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Pool.imap"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.imap">[docs]</a>    <span class="k">def</span> <span class="nf">imap</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Equivalent of `map()` -- can be MUCH slower than `Pool.map()`.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">RUN</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Pool not running&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">chunksize</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">IMapIterator</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span><span class="o">.</span><span class="n">put</span><span class="p">((((</span><span class="n">result</span><span class="o">.</span><span class="n">_job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,),</span> <span class="p">{})</span>
+                         <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">iterable</span><span class="p">)),</span> <span class="n">result</span><span class="o">.</span><span class="n">_set_length</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">result</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">chunksize</span> <span class="o">&gt;</span> <span class="mi">1</span>
+            <span class="n">task_batches</span> <span class="o">=</span> <span class="n">Pool</span><span class="o">.</span><span class="n">_get_tasks</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">IMapIterator</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span><span class="o">.</span><span class="n">put</span><span class="p">((((</span><span class="n">result</span><span class="o">.</span><span class="n">_job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">mapstar</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,),</span> <span class="p">{})</span>
+                     <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">task_batches</span><span class="p">)),</span> <span class="n">result</span><span class="o">.</span><span class="n">_set_length</span><span class="p">))</span>
+            <span class="k">return</span> <span class="p">(</span><span class="n">item</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">result</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">chunk</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Pool.imap_unordered"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.imap_unordered">[docs]</a>    <span class="k">def</span> <span class="nf">imap_unordered</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Like `imap()` method but ordering of results is arbitrary.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">RUN</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Pool not running&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">chunksize</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">IMapUnorderedIterator</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span><span class="o">.</span><span class="n">put</span><span class="p">((((</span><span class="n">result</span><span class="o">.</span><span class="n">_job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,),</span> <span class="p">{})</span>
+                         <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">iterable</span><span class="p">)),</span> <span class="n">result</span><span class="o">.</span><span class="n">_set_length</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">result</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">chunksize</span> <span class="o">&gt;</span> <span class="mi">1</span>
+            <span class="n">task_batches</span> <span class="o">=</span> <span class="n">Pool</span><span class="o">.</span><span class="n">_get_tasks</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">IMapUnorderedIterator</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span><span class="o">.</span><span class="n">put</span><span class="p">((((</span><span class="n">result</span><span class="o">.</span><span class="n">_job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">mapstar</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,),</span> <span class="p">{})</span>
+                     <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">task_batches</span><span class="p">)),</span> <span class="n">result</span><span class="o">.</span><span class="n">_set_length</span><span class="p">))</span>
+            <span class="k">return</span> <span class="p">(</span><span class="n">item</span> <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">result</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">chunk</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Pool.apply_async"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.apply_async">[docs]</a>    <span class="k">def</span> <span class="nf">apply_async</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(),</span> <span class="n">kwds</span><span class="o">=</span><span class="p">{},</span> <span class="n">callback</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">error_callback</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Asynchronous version of `apply()` method.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">RUN</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Pool not running&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">ApplyResult</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">error_callback</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span><span class="o">.</span><span class="n">put</span><span class="p">(([(</span><span class="n">result</span><span class="o">.</span><span class="n">_job</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwds</span><span class="p">)],</span> <span class="bp">None</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="Pool.map_async"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.map_async">[docs]</a>    <span class="k">def</span> <span class="nf">map_async</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">callback</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">error_callback</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Asynchronous version of `map()` method.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_map_async</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">mapstar</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span>
+            <span class="n">error_callback</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_map_async</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">mapper</span><span class="p">,</span> <span class="n">chunksize</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">callback</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+            <span class="n">error_callback</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Helper function to implement map, starmap and their async counterparts.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">RUN</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Pool not running&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">iterable</span><span class="p">,</span> <span class="s">&#39;__len__&#39;</span><span class="p">):</span>
+            <span class="n">iterable</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">iterable</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">chunksize</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">chunksize</span><span class="p">,</span> <span class="n">extra</span> <span class="o">=</span> <span class="nb">divmod</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">iterable</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="p">)</span> <span class="o">*</span> <span class="mi">4</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">extra</span><span class="p">:</span>
+                <span class="n">chunksize</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">iterable</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">chunksize</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="n">task_batches</span> <span class="o">=</span> <span class="n">Pool</span><span class="o">.</span><span class="n">_get_tasks</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">iterable</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">MapResult</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">iterable</span><span class="p">),</span> <span class="n">callback</span><span class="p">,</span>
+                           <span class="n">error_callback</span><span class="o">=</span><span class="n">error_callback</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_taskqueue</span><span class="o">.</span><span class="n">put</span><span class="p">((((</span><span class="n">result</span><span class="o">.</span><span class="n">_job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">mapper</span><span class="p">,</span> <span class="p">(</span><span class="n">x</span><span class="p">,),</span> <span class="p">{})</span>
+                              <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">task_batches</span><span class="p">)),</span> <span class="bp">None</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_handle_workers</span><span class="p">(</span><span class="n">pool</span><span class="p">):</span>
+        <span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span>
+
+        <span class="c"># Keep maintaining workers until the cache gets drained, unless the pool</span>
+        <span class="c"># is terminated.</span>
+        <span class="k">while</span> <span class="n">thread</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">RUN</span> <span class="ow">or</span> <span class="p">(</span><span class="n">pool</span><span class="o">.</span><span class="n">_cache</span> <span class="ow">and</span> <span class="n">thread</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">TERMINATE</span><span class="p">):</span>
+            <span class="n">pool</span><span class="o">.</span><span class="n">_maintain_pool</span><span class="p">()</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>
+        <span class="c"># send sentinel to stop workers</span>
+        <span class="n">pool</span><span class="o">.</span><span class="n">_taskqueue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;worker handler exiting&#39;</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_handle_tasks</span><span class="p">(</span><span class="n">taskqueue</span><span class="p">,</span> <span class="n">put</span><span class="p">,</span> <span class="n">outqueue</span><span class="p">,</span> <span class="n">pool</span><span class="p">,</span> <span class="n">cache</span><span class="p">):</span>
+        <span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">taskseq</span><span class="p">,</span> <span class="n">set_length</span> <span class="ow">in</span> <span class="nb">iter</span><span class="p">(</span><span class="n">taskqueue</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="bp">None</span><span class="p">):</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">task</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">taskseq</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">thread</span><span class="o">.</span><span class="n">_state</span><span class="p">:</span>
+                    <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;task handler found thread._state != RUN&#39;</span><span class="p">)</span>
+                    <span class="k">break</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">put</span><span class="p">(</span><span class="n">task</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">job</span><span class="p">,</span> <span class="n">ind</span> <span class="o">=</span> <span class="n">task</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">cache</span><span class="p">[</span><span class="n">job</span><span class="p">]</span><span class="o">.</span><span class="n">_set</span><span class="p">(</span><span class="n">ind</span><span class="p">,</span> <span class="p">(</span><span class="bp">False</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+                    <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                        <span class="k">pass</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">set_length</span><span class="p">:</span>
+                    <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;doing set_length()&#39;</span><span class="p">)</span>
+                    <span class="n">set_length</span><span class="p">(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;task handler got sentinel&#39;</span><span class="p">)</span>
+
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c"># tell result handler to finish when cache is empty</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;task handler sending sentinel to result handler&#39;</span><span class="p">)</span>
+            <span class="n">outqueue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+            <span class="c"># tell workers there is no more work</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;task handler sending sentinel to workers&#39;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">pool</span><span class="p">:</span>
+                <span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;task handler got OSError when sending sentinels&#39;</span><span class="p">)</span>
+
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;task handler exiting&#39;</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_handle_results</span><span class="p">(</span><span class="n">outqueue</span><span class="p">,</span> <span class="n">get</span><span class="p">,</span> <span class="n">cache</span><span class="p">):</span>
+        <span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span>
+
+        <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">task</span> <span class="o">=</span> <span class="n">get</span><span class="p">()</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">EOFError</span><span class="p">):</span>
+                <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;result handler got EOFError/OSError -- exiting&#39;</span><span class="p">)</span>
+                <span class="k">return</span>
+
+            <span class="k">if</span> <span class="n">thread</span><span class="o">.</span><span class="n">_state</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">thread</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">TERMINATE</span>
+                <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;result handler found thread._state=TERMINATE&#39;</span><span class="p">)</span>
+                <span class="k">break</span>
+
+            <span class="k">if</span> <span class="n">task</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;result handler got sentinel&#39;</span><span class="p">)</span>
+                <span class="k">break</span>
+
+            <span class="n">job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">obj</span> <span class="o">=</span> <span class="n">task</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">cache</span><span class="p">[</span><span class="n">job</span><span class="p">]</span><span class="o">.</span><span class="n">_set</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">obj</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                <span class="k">pass</span>
+
+        <span class="k">while</span> <span class="n">cache</span> <span class="ow">and</span> <span class="n">thread</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">TERMINATE</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">task</span> <span class="o">=</span> <span class="n">get</span><span class="p">()</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">EOFError</span><span class="p">):</span>
+                <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;result handler got EOFError/OSError -- exiting&#39;</span><span class="p">)</span>
+                <span class="k">return</span>
+
+            <span class="k">if</span> <span class="n">task</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;result handler ignoring extra sentinel&#39;</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="n">job</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">obj</span> <span class="o">=</span> <span class="n">task</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">cache</span><span class="p">[</span><span class="n">job</span><span class="p">]</span><span class="o">.</span><span class="n">_set</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">obj</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                <span class="k">pass</span>
+
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">outqueue</span><span class="p">,</span> <span class="s">&#39;_reader&#39;</span><span class="p">):</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;ensuring that outqueue is not full&#39;</span><span class="p">)</span>
+            <span class="c"># If we don&#39;t make room available in outqueue then</span>
+            <span class="c"># attempts to add the sentinel (None) to outqueue may</span>
+            <span class="c"># block.  There is guaranteed to be no more than 2 sentinels.</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">):</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="n">outqueue</span><span class="o">.</span><span class="n">_reader</span><span class="o">.</span><span class="n">poll</span><span class="p">():</span>
+                        <span class="k">break</span>
+                    <span class="n">get</span><span class="p">()</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">EOFError</span><span class="p">):</span>
+                <span class="k">pass</span>
+
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;result handler exiting: len(cache)=</span><span class="si">%s</span><span class="s">, thread._state=</span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span>
+              <span class="nb">len</span><span class="p">(</span><span class="n">cache</span><span class="p">),</span> <span class="n">thread</span><span class="o">.</span><span class="n">_state</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_get_tasks</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">it</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+        <span class="n">it</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">it</span><span class="p">)</span>
+        <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">itertools</span><span class="o">.</span><span class="n">islice</span><span class="p">(</span><span class="n">it</span><span class="p">,</span> <span class="n">size</span><span class="p">))</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">x</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="k">yield</span> <span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__reduce__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span>
+              <span class="s">&#39;pool objects cannot be passed between processes or pickled&#39;</span>
+              <span class="p">)</span>
+
+<div class="viewcode-block" id="Pool.close"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;closing pool&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">RUN</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">CLOSE</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_worker_handler</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">CLOSE</span>
+</div>
+<div class="viewcode-block" id="Pool.terminate"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.terminate">[docs]</a>    <span class="k">def</span> <span class="nf">terminate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;terminating pool&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">TERMINATE</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_worker_handler</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">TERMINATE</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_terminate</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Pool.join"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.Pool.join">[docs]</a>    <span class="k">def</span> <span class="nf">join</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;joining pool&#39;</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="ow">in</span> <span class="p">(</span><span class="n">CLOSE</span><span class="p">,</span> <span class="n">TERMINATE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_worker_handler</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_task_handler</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_result_handler</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pool</span><span class="p">:</span>
+            <span class="n">p</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div>
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_help_stuff_finish</span><span class="p">(</span><span class="n">inqueue</span><span class="p">,</span> <span class="n">task_handler</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+        <span class="c"># task_handler may be blocked trying to put items on inqueue</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;removing tasks from inqueue until task handler finished&#39;</span><span class="p">)</span>
+        <span class="n">inqueue</span><span class="o">.</span><span class="n">_rlock</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="k">while</span> <span class="n">task_handler</span><span class="o">.</span><span class="n">is_alive</span><span class="p">()</span> <span class="ow">and</span> <span class="n">inqueue</span><span class="o">.</span><span class="n">_reader</span><span class="o">.</span><span class="n">poll</span><span class="p">():</span>
+            <span class="n">inqueue</span><span class="o">.</span><span class="n">_reader</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">_terminate_pool</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">taskqueue</span><span class="p">,</span> <span class="n">inqueue</span><span class="p">,</span> <span class="n">outqueue</span><span class="p">,</span> <span class="n">pool</span><span class="p">,</span>
+                        <span class="n">worker_handler</span><span class="p">,</span> <span class="n">task_handler</span><span class="p">,</span> <span class="n">result_handler</span><span class="p">,</span> <span class="n">cache</span><span class="p">):</span>
+        <span class="c"># this is guaranteed to only be called once</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;finalizing pool&#39;</span><span class="p">)</span>
+
+        <span class="n">worker_handler</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">TERMINATE</span>
+        <span class="n">task_handler</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">TERMINATE</span>
+
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;helping task handler/workers to finish&#39;</span><span class="p">)</span>
+        <span class="n">cls</span><span class="o">.</span><span class="n">_help_stuff_finish</span><span class="p">(</span><span class="n">inqueue</span><span class="p">,</span> <span class="n">task_handler</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">pool</span><span class="p">))</span>
+
+        <span class="k">assert</span> <span class="n">result_handler</span><span class="o">.</span><span class="n">is_alive</span><span class="p">()</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">cache</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span>
+
+        <span class="n">result_handler</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">TERMINATE</span>
+        <span class="n">outqueue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>                  <span class="c"># sentinel</span>
+
+        <span class="c"># We must wait for the worker handler to exit before terminating</span>
+        <span class="c"># workers because we don&#39;t want workers to be restarted behind our back.</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;joining worker handler&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">worker_handler</span><span class="p">:</span>
+            <span class="n">worker_handler</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+        <span class="c"># Terminate workers which haven&#39;t already finished.</span>
+        <span class="k">if</span> <span class="n">pool</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">pool</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s">&#39;terminate&#39;</span><span class="p">):</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;terminating workers&#39;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">pool</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">exitcode</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="n">p</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>
+
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;joining task handler&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">task_handler</span><span class="p">:</span>
+            <span class="n">task_handler</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;joining result handler&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">threading</span><span class="o">.</span><span class="n">current_thread</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">result_handler</span><span class="p">:</span>
+            <span class="n">result_handler</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">pool</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">pool</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="s">&#39;terminate&#39;</span><span class="p">):</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;joining pool workers&#39;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">pool</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">is_alive</span><span class="p">():</span>
+                    <span class="c"># worker has not yet exited</span>
+                    <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;cleaning up worker </span><span class="si">%d</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">p</span><span class="o">.</span><span class="n">pid</span><span class="p">)</span>
+                    <span class="n">p</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_val</span><span class="p">,</span> <span class="n">exc_tb</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>
+
+<span class="c">#</span>
+<span class="c"># Class whose instances are returned by `Pool.apply_async()`</span>
+<span class="c">#</span>
+</div>
+<span class="k">class</span> <span class="nc">ApplyResult</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">error_callback</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_event</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_job</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">job_counter</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span> <span class="o">=</span> <span class="n">cache</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_callback</span> <span class="o">=</span> <span class="n">callback</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_error_callback</span> <span class="o">=</span> <span class="n">error_callback</span>
+        <span class="n">cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">ready</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_event</span><span class="o">.</span><span class="n">is_set</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">successful</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">ready</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_success</span>
+
+    <span class="k">def</span> <span class="nf">wait</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_event</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">ready</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="n">TimeoutError</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_success</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_value</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="bp">self</span><span class="o">.</span><span class="n">_value</span>
+
+    <span class="k">def</span> <span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_success</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_value</span> <span class="o">=</span> <span class="n">obj</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callback</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_success</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_value</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_error_callback</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_success</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_error_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_value</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span>
+
+<span class="n">AsyncResult</span> <span class="o">=</span> <span class="n">ApplyResult</span>       <span class="c"># create alias -- see #17805</span>
+
+<span class="c">#</span>
+<span class="c"># Class whose instances are returned by `Pool.map_async()`</span>
+<span class="c">#</span>
+
+<span class="k">class</span> <span class="nc">MapResult</span><span class="p">(</span><span class="n">ApplyResult</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="n">chunksize</span><span class="p">,</span> <span class="n">length</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">error_callback</span><span class="p">):</span>
+        <span class="n">ApplyResult</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span>
+                             <span class="n">error_callback</span><span class="o">=</span><span class="n">error_callback</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_success</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_value</span> <span class="o">=</span> <span class="p">[</span><span class="bp">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">length</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_chunksize</span> <span class="o">=</span> <span class="n">chunksize</span>
+        <span class="k">if</span> <span class="n">chunksize</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_number_left</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+            <span class="k">del</span> <span class="n">cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_number_left</span> <span class="o">=</span> <span class="n">length</span><span class="o">//</span><span class="n">chunksize</span> <span class="o">+</span> <span class="nb">bool</span><span class="p">(</span><span class="n">length</span> <span class="o">%</span> <span class="n">chunksize</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">success_result</span><span class="p">):</span>
+        <span class="n">success</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">success_result</span>
+        <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_value</span><span class="p">[</span><span class="n">i</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">_chunksize</span><span class="p">:(</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">_chunksize</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_number_left</span> <span class="o">-=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_number_left</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callback</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_value</span><span class="p">)</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_success</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_value</span> <span class="o">=</span> <span class="n">result</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_error_callback</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_error_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_value</span><span class="p">)</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+
+<span class="c">#</span>
+<span class="c"># Class whose instances are returned by `Pool.imap()`</span>
+<span class="c">#</span>
+
+<span class="k">class</span> <span class="nc">IMapIterator</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cache</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Condition</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_job</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">job_counter</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span> <span class="o">=</span> <span class="n">cache</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_items</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">deque</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_length</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_unsorted</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">next</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">item</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_items</span><span class="o">.</span><span class="n">popleft</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_length</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">StopIteration</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">item</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_items</span><span class="o">.</span><span class="n">popleft</span><span class="p">()</span>
+                <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_length</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">StopIteration</span>
+                    <span class="k">raise</span> <span class="n">TimeoutError</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+
+        <span class="n">success</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">item</span>
+        <span class="k">if</span> <span class="n">success</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">raise</span> <span class="n">value</span>
+
+    <span class="n">__next__</span> <span class="o">=</span> <span class="nb">next</span>                    <span class="c"># XXX</span>
+
+    <span class="k">def</span> <span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">==</span> <span class="n">i</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_items</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unsorted</span><span class="p">:</span>
+                    <span class="n">obj</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unsorted</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_items</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">notify</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_unsorted</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">obj</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_length</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_set_length</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">length</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_length</span> <span class="o">=</span> <span class="n">length</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_length</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">notify</span><span class="p">()</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+
+<span class="c">#</span>
+<span class="c"># Class whose instances are returned by `Pool.imap_unordered()`</span>
+<span class="c">#</span>
+
+<span class="k">class</span> <span class="nc">IMapUnorderedIterator</span><span class="p">(</span><span class="n">IMapIterator</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">_set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_items</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">notify</span><span class="p">()</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_length</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_job</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cond</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+
+<span class="c">#</span>
+<span class="c">#</span>
+<span class="c">#</span>
+
+<div class="viewcode-block" id="ThreadPool"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.ThreadPool">[docs]</a><span class="k">class</span> <span class="nc">ThreadPool</span><span class="p">(</span><span class="n">Pool</span><span class="p">):</span>
+    <span class="n">_wrap_exception</span> <span class="o">=</span> <span class="bp">False</span>
+
+    <span class="nd">@staticmethod</span>
+<div class="viewcode-block" id="ThreadPool.Process"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.pool.ThreadPool.Process">[docs]</a>    <span class="k">def</span> <span class="nf">Process</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+        <span class="kn">from</span> <span class="nn">.dummy</span> <span class="kn">import</span> <span class="n">Process</span>
+        <span class="k">return</span> <span class="n">Process</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">processes</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">initializer</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">initargs</span><span class="o">=</span><span class="p">()):</span>
+        <span class="n">Pool</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">processes</span><span class="p">,</span> <span class="n">initializer</span><span class="p">,</span> <span class="n">initargs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_setup_queues</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_inqueue</span> <span class="o">=</span> <span class="n">queue</span><span class="o">.</span><span class="n">Queue</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_outqueue</span> <span class="o">=</span> <span class="n">queue</span><span class="o">.</span><span class="n">Queue</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_quick_put</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_inqueue</span><span class="o">.</span><span class="n">put</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_quick_get</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_outqueue</span><span class="o">.</span><span class="n">get</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_help_stuff_finish</span><span class="p">(</span><span class="n">inqueue</span><span class="p">,</span> <span class="n">task_handler</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+        <span class="c"># put sentinels at head of inqueue to make workers finish</span>
+        <span class="n">inqueue</span><span class="o">.</span><span class="n">not_empty</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">inqueue</span><span class="o">.</span><span class="n">queue</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="n">inqueue</span><span class="o">.</span><span class="n">queue</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="bp">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">size</span><span class="p">)</span>
+            <span class="n">inqueue</span><span class="o">.</span><span class="n">not_empty</span><span class="o">.</span><span class="n">notify_all</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">inqueue</span><span class="o">.</span><span class="n">not_empty</span><span class="o">.</span><span class="n">release</span><span class="p">()</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

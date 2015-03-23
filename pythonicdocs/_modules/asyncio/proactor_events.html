@@ -1,0 +1,591 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>asyncio.proactor_events &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for asyncio.proactor_events</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Event loop using a proactor and related classes.</span>
+
+<span class="sd">A proactor is a &quot;notify-on-completion&quot; multiplexer.  Currently a</span>
+<span class="sd">proactor is only implemented on Windows with IOCP.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;BaseProactorEventLoop&#39;</span><span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">socket</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">base_events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">constants</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">transports</span>
+<span class="kn">from</span> <span class="nn">.log</span> <span class="kn">import</span> <span class="n">logger</span>
+
+
+<span class="k">class</span> <span class="nc">_ProactorBasePipeTransport</span><span class="p">(</span><span class="n">transports</span><span class="o">.</span><span class="n">_FlowControlMixin</span><span class="p">,</span>
+                                 <span class="n">transports</span><span class="o">.</span><span class="n">BaseTransport</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Base class for pipe and socket transports.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">extra</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_set_extra</span><span class="p">(</span><span class="n">sock</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">loop</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span> <span class="o">=</span> <span class="n">sock</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">=</span> <span class="n">protocol</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_server</span> <span class="o">=</span> <span class="n">server</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="bp">None</span>  <span class="c"># None or bytearray.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pending_write</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span> <span class="o">=</span> <span class="bp">False</span>  <span class="c"># Set when close() called.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_eof_written</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_server</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_server</span><span class="o">.</span><span class="n">_attach</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">connection_made</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># wait until protocol.connection_made() has been called</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="n">waiter</span><span class="o">.</span><span class="n">_set_result_unless_cancelled</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&#39;fd=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;read=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;write=</span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>
+            <span class="n">bufsize</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;write_bufsize=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">bufsize</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof_written</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;EOF written&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_set_extra</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">[</span><span class="s">&#39;pipe&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sock</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_call_connection_lost</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_fatal_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span> <span class="n">message</span><span class="o">=</span><span class="s">&#39;Fatal error on pipe transport&#39;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="p">(</span><span class="n">BrokenPipeError</span><span class="p">,</span> <span class="n">ConnectionResetError</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">({</span>
+                <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="n">message</span><span class="p">,</span>
+                <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                <span class="s">&#39;transport&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="p">,</span>
+                <span class="s">&#39;protocol&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="p">,</span>
+            <span class="p">})</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_force_close</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_force_close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pending_write</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_call_connection_lost</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_call_connection_lost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">connection_lost</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c"># XXX If there is a pending overlapped read on the other</span>
+            <span class="c"># end then it may fail with ERROR_NETNAME_DELETED if we</span>
+            <span class="c"># just close our end.  First calling shutdown() seems to</span>
+            <span class="c"># cure it, but maybe using DisconnectEx() would be better.</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="p">,</span> <span class="s">&#39;shutdown&#39;</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">shutdown</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SHUT_RDWR</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="n">server</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_server</span>
+            <span class="k">if</span> <span class="n">server</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">server</span><span class="o">.</span><span class="n">_detach</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_server</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">get_write_buffer_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pending_write</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">size</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">size</span>
+
+
+<span class="k">class</span> <span class="nc">_ProactorReadPipeTransport</span><span class="p">(</span><span class="n">_ProactorBasePipeTransport</span><span class="p">,</span>
+                                 <span class="n">transports</span><span class="o">.</span><span class="n">ReadTransport</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Transport for read pipes.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                 <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span> <span class="n">extra</span><span class="p">,</span> <span class="n">server</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop_reading</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">pause_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Cannot pause_reading() when closing&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Already paused&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> pauses reading&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">resume_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Not paused&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop_reading</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> resumes reading&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_loop_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fut</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">fut</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="ow">is</span> <span class="n">fut</span> <span class="ow">or</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">and</span>
+                                                 <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">fut</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>  <span class="c"># deliver data later in &quot;finally&quot; clause</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+                <span class="c"># since close() has been called we ignore any read data</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">return</span>
+
+            <span class="k">if</span> <span class="n">data</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">:</span>
+                <span class="c"># we got end-of-file so no need to reschedule a new read</span>
+                <span class="k">return</span>
+
+            <span class="c"># reschedule a new read</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="p">,</span> <span class="mi">4096</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ConnectionAbortedError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal read error on pipe transport&#39;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Read error on pipe transport while closing&quot;</span><span class="p">,</span>
+                             <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ConnectionResetError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_force_close</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal read error on pipe transport&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+                <span class="k">raise</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop_reading</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">data</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">data_received</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> received EOF&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+                <span class="n">keep_open</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">eof_received</span><span class="p">()</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">keep_open</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+
+<span class="k">class</span> <span class="nc">_ProactorBaseWritePipeTransport</span><span class="p">(</span><span class="n">_ProactorBasePipeTransport</span><span class="p">,</span>
+                                      <span class="n">transports</span><span class="o">.</span><span class="n">WriteTransport</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Transport for write pipes.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">,</span> <span class="n">memoryview</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;data argument must be byte-ish (</span><span class="si">%r</span><span class="s">)&#39;</span><span class="p">,</span>
+                            <span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof_written</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;write_eof() already called&#39;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">&gt;=</span> <span class="n">constants</span><span class="o">.</span><span class="n">LOG_THRESHOLD_FOR_CONNLOST_WRITES</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&#39;socket.send() raised exception.&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_conn_lost</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">return</span>
+
+        <span class="c"># Observable states:</span>
+        <span class="c"># 1. IDLE: _write_fut and _buffer both None</span>
+        <span class="c"># 2. WRITING: _write_fut set; _buffer None</span>
+        <span class="c"># 3. BACKED UP: _write_fut set; _buffer a bytearray</span>
+        <span class="c"># We always copy the data, so the caller can&#39;t modify it</span>
+        <span class="c"># while we&#39;re still waiting for the I/O to happen.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>  <span class="c"># IDLE -&gt; WRITING</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="ow">is</span> <span class="bp">None</span>
+            <span class="c"># Pass a copy, except if it&#39;s already immutable.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop_writing</span><span class="p">(</span><span class="n">data</span><span class="o">=</span><span class="nb">bytes</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+            <span class="c"># XXX Should we pause the protocol at this point</span>
+            <span class="c"># if len(data) &gt; self._high_water?  (That would</span>
+            <span class="c"># require keeping track of the number of bytes passed</span>
+            <span class="c"># to a send() that hasn&#39;t finished yet.)</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">:</span>  <span class="c"># WRITING -&gt; BACKED UP</span>
+            <span class="c"># Make a mutable copy which we can extend.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_pause_protocol</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>  <span class="c"># BACKED UP</span>
+            <span class="c"># Append to buffer (also copies).</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_pause_protocol</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_loop_writing</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">f</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">f</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pending_write</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">if</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_call_connection_lost</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof_written</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">shutdown</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SHUT_WR</span><span class="p">)</span>
+                <span class="c"># Now that we&#39;ve reduced the buffer size, tell the</span>
+                <span class="c"># protocol to resume writing if it was paused.  Note that</span>
+                <span class="c"># we do this last since the callback is called immediately</span>
+                <span class="c"># and it may add more data to the buffer (even causing the</span>
+                <span class="c"># protocol to be paused again).</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_resume_protocol</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                    <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pending_write</span> <span class="o">==</span> <span class="mi">0</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_pending_write</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop_writing</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_pause_protocol</span><span class="p">()</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop_writing</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ConnectionResetError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_force_close</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fatal_error</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="s">&#39;Fatal write error on pipe transport&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">can_write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+    <span class="k">def</span> <span class="nf">write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">abort</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_force_close</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">_ProactorWritePipeTransport</span><span class="p">(</span><span class="n">_ProactorBaseWritePipeTransport</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_pipe_closed</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_pipe_closed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fut</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="c"># the transport has been closed</span>
+            <span class="k">return</span>
+        <span class="k">assert</span> <span class="n">fut</span><span class="o">.</span><span class="n">result</span><span class="p">()</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="ow">is</span> <span class="bp">None</span>
+            <span class="k">return</span>
+        <span class="k">assert</span> <span class="n">fut</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="p">,</span> <span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_read_fut</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_force_close</span><span class="p">(</span><span class="n">BrokenPipeError</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+
+<span class="k">class</span> <span class="nc">_ProactorDuplexPipeTransport</span><span class="p">(</span><span class="n">_ProactorReadPipeTransport</span><span class="p">,</span>
+                                   <span class="n">_ProactorBaseWritePipeTransport</span><span class="p">,</span>
+                                   <span class="n">transports</span><span class="o">.</span><span class="n">Transport</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Transport for duplex pipes.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">can_write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">False</span>
+
+    <span class="k">def</span> <span class="nf">write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+
+<span class="k">class</span> <span class="nc">_ProactorSocketTransport</span><span class="p">(</span><span class="n">_ProactorReadPipeTransport</span><span class="p">,</span>
+                               <span class="n">_ProactorBaseWritePipeTransport</span><span class="p">,</span>
+                               <span class="n">transports</span><span class="o">.</span><span class="n">Transport</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Transport for connected sockets.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_set_extra</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">[</span><span class="s">&#39;socket&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sock</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">[</span><span class="s">&#39;sockname&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">getsockname</span><span class="p">()</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">error</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;getsockname() failed on </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                             <span class="n">sock</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&#39;peername&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_extra</span><span class="p">[</span><span class="s">&#39;peername&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">getpeername</span><span class="p">()</span>
+            <span class="k">except</span> <span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">error</span><span class="p">,</span> <span class="ne">AttributeError</span><span class="p">):</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;getpeername() failed on </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                                   <span class="n">sock</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">can_write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+    <span class="k">def</span> <span class="nf">write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_closing</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof_written</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_eof_written</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_write_fut</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_sock</span><span class="o">.</span><span class="n">shutdown</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SHUT_WR</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="BaseProactorEventLoop"><a class="viewcode-back" href="../../asyncio.html#asyncio.proactor_events.BaseProactorEventLoop">[docs]</a><span class="k">class</span> <span class="nc">BaseProactorEventLoop</span><span class="p">(</span><span class="n">base_events</span><span class="o">.</span><span class="n">BaseEventLoop</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">proactor</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;Using proactor: </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">proactor</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span> <span class="o">=</span> <span class="n">proactor</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span> <span class="o">=</span> <span class="n">proactor</span>   <span class="c"># convenient alias</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_self_reading_future</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_accept_futures</span> <span class="o">=</span> <span class="p">{}</span>   <span class="c"># socket file descriptor =&gt; Future</span>
+        <span class="n">proactor</span><span class="o">.</span><span class="n">set_loop</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_make_self_pipe</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_make_socket_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                               <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_ProactorSocketTransport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span>
+                                        <span class="n">extra</span><span class="p">,</span> <span class="n">server</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_make_duplex_pipe_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                                    <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_ProactorDuplexPipeTransport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                                            <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span> <span class="n">extra</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_make_read_pipe_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                                  <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">_ProactorReadPipeTransport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span> <span class="n">extra</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_make_write_pipe_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                                   <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="c"># We want connection_lost() to be called when other end closes</span>
+        <span class="k">return</span> <span class="n">_ProactorWritePipeTransport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                                           <span class="n">sock</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">waiter</span><span class="p">,</span> <span class="n">extra</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BaseProactorEventLoop.close"><a class="viewcode-back" href="../../asyncio.html#asyncio.proactor_events.BaseProactorEventLoop.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_closed</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stop_accept_futures</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_close_self_pipe</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="BaseProactorEventLoop.sock_recv"><a class="viewcode-back" href="../../asyncio.html#asyncio.proactor_events.BaseProactorEventLoop.sock_recv">[docs]</a>    <span class="k">def</span> <span class="nf">sock_recv</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">n</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseProactorEventLoop.sock_sendall"><a class="viewcode-back" href="../../asyncio.html#asyncio.proactor_events.BaseProactorEventLoop.sock_sendall">[docs]</a>    <span class="k">def</span> <span class="nf">sock_sendall</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseProactorEventLoop.sock_connect"><a class="viewcode-back" href="../../asyncio.html#asyncio.proactor_events.BaseProactorEventLoop.sock_connect">[docs]</a>    <span class="k">def</span> <span class="nf">sock_connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">base_events</span><span class="o">.</span><span class="n">_check_resolved_address</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="n">fut</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="p">)</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">fut</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseProactorEventLoop.sock_accept"><a class="viewcode-back" href="../../asyncio.html#asyncio.proactor_events.BaseProactorEventLoop.sock_accept">[docs]</a>    <span class="k">def</span> <span class="nf">sock_accept</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">accept</span><span class="p">(</span><span class="n">sock</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_socketpair</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+    <span class="k">def</span> <span class="nf">_close_self_pipe</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_self_reading_future</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_self_reading_future</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_self_reading_future</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_internal_fds</span> <span class="o">-=</span> <span class="mi">1</span>
+
+    <span class="k">def</span> <span class="nf">_make_self_pipe</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># A self-socket, really. :-)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_socketpair</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_internal_fds</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="c"># don&#39;t check the current loop because _make_self_pipe() is called</span>
+        <span class="c"># from the event loop constructor</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop_self_reading</span><span class="p">,</span> <span class="p">(),</span> <span class="n">check_loop</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_loop_self_reading</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">f</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>  <span class="c"># may raise</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_ssock</span><span class="p">,</span> <span class="mi">4096</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">raise</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_self_reading_future</span> <span class="o">=</span> <span class="n">f</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop_self_reading</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_write_to_self</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_csock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\0</span><span class="s">&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_start_serving</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">protocol_factory</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">ssl</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">server</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">ssl</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;IocpEventLoop is incompatible with SSL.&#39;</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">loop</span><span class="p">(</span><span class="n">f</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="n">conn</span><span class="p">,</span> <span class="n">addr</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_debug</span><span class="p">:</span>
+                        <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> got a new connection from </span><span class="si">%r</span><span class="s">: </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                                     <span class="n">server</span><span class="p">,</span> <span class="n">addr</span><span class="p">,</span> <span class="n">conn</span><span class="p">)</span>
+                    <span class="n">protocol</span> <span class="o">=</span> <span class="n">protocol_factory</span><span class="p">()</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_make_socket_transport</span><span class="p">(</span>
+                        <span class="n">conn</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span>
+                        <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;peername&#39;</span><span class="p">:</span> <span class="n">addr</span><span class="p">},</span> <span class="n">server</span><span class="o">=</span><span class="n">server</span><span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_closed</span><span class="p">():</span>
+                    <span class="k">return</span>
+                <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">accept</span><span class="p">(</span><span class="n">sock</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">({</span>
+                        <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="s">&#39;Accept failed on a socket&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                        <span class="s">&#39;socket&#39;</span><span class="p">:</span> <span class="n">sock</span><span class="p">,</span>
+                    <span class="p">})</span>
+                    <span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_debug</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;Accept failed on socket </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                                 <span class="n">sock</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+                <span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_accept_futures</span><span class="p">[</span><span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()]</span> <span class="o">=</span> <span class="n">f</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">loop</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="n">loop</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_process_events</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event_list</span><span class="p">):</span>
+        <span class="k">pass</span>    <span class="c"># XXX hard work currently done in poll</span>
+
+    <span class="k">def</span> <span class="nf">_stop_accept_futures</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_accept_futures</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">future</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_accept_futures</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_stop_serving</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stop_accept_futures</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">_stop_serving</span><span class="p">(</span><span class="n">sock</span><span class="p">)</span>
+        <span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

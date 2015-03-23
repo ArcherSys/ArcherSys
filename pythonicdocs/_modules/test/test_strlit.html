@@ -1,0 +1,298 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_strlit &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_strlit</h1><div class="highlight"><pre>
+<span class="sd">r&quot;&quot;&quot;Test correct treatment of various string literals by the parser.</span>
+
+<span class="sd">There are four types of string literals:</span>
+
+<span class="sd">    &#39;abc&#39;             -- normal str</span>
+<span class="sd">    r&#39;abc&#39;            -- raw str</span>
+<span class="sd">    b&#39;xyz&#39;            -- normal bytes</span>
+<span class="sd">    br&#39;xyz&#39; | rb&#39;xyz&#39; -- raw bytes</span>
+
+<span class="sd">The difference between normal and raw strings is of course that in a</span>
+<span class="sd">raw string, \ escapes (while still used to determine the end of the</span>
+<span class="sd">literal) are not interpreted, so that r&#39;\x00&#39; contains four</span>
+<span class="sd">characters: a backslash, an x, and two zeros; while &#39;\x00&#39; contains a</span>
+<span class="sd">single character (code point zero).</span>
+
+<span class="sd">The tricky thing is what should happen when non-ASCII bytes are used</span>
+<span class="sd">inside literals.  For bytes literals, this is considered illegal.  But</span>
+<span class="sd">for str literals, those bytes are supposed to be decoded using the</span>
+<span class="sd">encoding declared for the file (UTF-8 by default).</span>
+
+<span class="sd">We have to test this with various file encodings.  We also test it with</span>
+<span class="sd">exec()/eval(), which uses a different code path.</span>
+
+<span class="sd">This file is really about correct treatment of encodings and</span>
+<span class="sd">backslashes.  It doesn&#39;t concern itself with issues like single</span>
+<span class="sd">vs. double quotes or singly- vs. triply-quoted strings: that&#39;s dealt</span>
+<span class="sd">with elsewhere (I assume).</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">shutil</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">import</span> <span class="nn">test.support</span>
+
+
+<span class="n">TEMPLATE</span> <span class="o">=</span> <span class="s">r&quot;&quot;&quot;# coding: </span><span class="si">%s</span><span class="s"></span>
+<span class="s">a = &#39;x&#39;</span>
+<span class="s">assert ord(a) == 120</span>
+<span class="s">b = &#39;\x01&#39;</span>
+<span class="s">assert ord(b) == 1</span>
+<span class="s">c = r&#39;\x01&#39;</span>
+<span class="s">assert list(map(ord, c)) == [92, 120, 48, 49]</span>
+<span class="s">d = &#39;\x81&#39;</span>
+<span class="s">assert ord(d) == 0x81</span>
+<span class="s">e = r&#39;\x81&#39;</span>
+<span class="s">assert list(map(ord, e)) == [92, 120, 56, 49]</span>
+<span class="s">f = &#39;\u1881&#39;</span>
+<span class="s">assert ord(f) == 0x1881</span>
+<span class="s">g = r&#39;\u1881&#39;</span>
+<span class="s">assert list(map(ord, g)) == [92, 117, 49, 56, 56, 49]</span>
+<span class="s">h = &#39;\U0001d120&#39;</span>
+<span class="s">assert ord(h) == 0x1d120</span>
+<span class="s">i = r&#39;\U0001d120&#39;</span>
+<span class="s">assert list(map(ord, i)) == [92, 85, 48, 48, 48, 49, 100, 49, 50, 48]</span>
+<span class="s">&quot;&quot;&quot;</span>
+
+
+<div class="viewcode-block" id="byte"><a class="viewcode-back" href="../../test.html#test.test_strlit.byte">[docs]</a><span class="k">def</span> <span class="nf">byte</span><span class="p">(</span><span class="n">i</span><span class="p">):</span>
+    <span class="k">return</span> <span class="nb">bytes</span><span class="p">([</span><span class="n">i</span><span class="p">])</span>
+
+</div>
+<div class="viewcode-block" id="TestLiterals"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals">[docs]</a><span class="k">class</span> <span class="nc">TestLiterals</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="TestLiterals.setUp"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">save_path</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">[:]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tmpdir</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">()</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">tmpdir</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.tearDown"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">[:]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">save_path</span>
+        <span class="n">shutil</span><span class="o">.</span><span class="n">rmtree</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmpdir</span><span class="p">,</span> <span class="n">ignore_errors</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_template"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_template">[docs]</a>    <span class="k">def</span> <span class="nf">test_template</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Check that the template doesn&#39;t contain any non-printables</span>
+        <span class="c"># except for \n.</span>
+        <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">TEMPLATE</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">c</span> <span class="o">==</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span> <span class="ow">or</span> <span class="s">&#39; &#39;</span> <span class="o">&lt;=</span> <span class="n">c</span> <span class="o">&lt;=</span> <span class="s">&#39;~&#39;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_eval_str_normal"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_eval_str_normal">[docs]</a>    <span class="k">def</span> <span class="nf">test_eval_str_normal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; &#39;x&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;x&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; &#39;\x01&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; &#39;</span><span class="se">\x01</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; &#39;\x81&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x81</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; &#39;</span><span class="se">\x81</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x81</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; &#39;\u1881&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x1881</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; &#39;</span><span class="se">\u1881</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x1881</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; &#39;\U0001d120&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x1d120</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; &#39;</span><span class="se">\U0001d120</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x1d120</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_eval_str_incomplete"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_eval_str_incomplete">[docs]</a>    <span class="k">def</span> <span class="nf">test_eval_str_incomplete</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\x&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\x0&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\u&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\u0&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\u00&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\u000&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\U&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\U0&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\U00&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\U000&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\U0000&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\U00000&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\U000000&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; &#39;\U0000000&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_eval_str_raw"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_eval_str_raw">[docs]</a>    <span class="k">def</span> <span class="nf">test_eval_str_raw</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; r&#39;x&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;x&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; r&#39;\x01&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span> <span class="o">+</span> <span class="s">&#39;x01&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; r&#39;</span><span class="se">\x01</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; r&#39;\x81&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span> <span class="o">+</span> <span class="s">&#39;x81&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; r&#39;</span><span class="se">\x81</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x81</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; r&#39;\u1881&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span> <span class="o">+</span> <span class="s">&#39;u1881&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; r&#39;</span><span class="se">\u1881</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x1881</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; r&#39;\U0001d120&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span> <span class="o">+</span> <span class="s">&#39;U0001d120&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; r&#39;</span><span class="se">\U0001d120</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="nb">chr</span><span class="p">(</span><span class="mh">0x1d120</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_eval_bytes_normal"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_eval_bytes_normal">[docs]</a>    <span class="k">def</span> <span class="nf">test_eval_bytes_normal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; b&#39;x&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&#39;x&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; b&#39;\x01&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">byte</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; b&#39;</span><span class="se">\x01</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">byte</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; b&#39;\x81&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">byte</span><span class="p">(</span><span class="mh">0x81</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; b&#39;</span><span class="se">\x81</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; b&#39;\u1881&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;u1881&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; b&#39;</span><span class="se">\u1881</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; b&#39;\U0001d120&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;U0001d120&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; b&#39;</span><span class="se">\U0001d120</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_eval_bytes_incomplete"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_eval_bytes_incomplete">[docs]</a>    <span class="k">def</span> <span class="nf">test_eval_bytes_incomplete</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; b&#39;\x&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">r&quot;&quot;&quot; b&#39;\x0&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_eval_bytes_raw"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_eval_bytes_raw">[docs]</a>    <span class="k">def</span> <span class="nf">test_eval_bytes_raw</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; br&#39;x&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&#39;x&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; rb&#39;x&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&#39;x&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; br&#39;\x01&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;x01&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; rb&#39;\x01&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;x01&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; br&#39;</span><span class="se">\x01</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">byte</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; rb&#39;</span><span class="se">\x01</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">byte</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; br&#39;\x81&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\\</span><span class="s">&quot;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&quot;x81&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; rb&#39;\x81&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\\</span><span class="s">&quot;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&quot;x81&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; br&#39;</span><span class="se">\x81</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; rb&#39;</span><span class="se">\x81</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; br&#39;\u1881&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\\</span><span class="s">&quot;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&quot;u1881&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; rb&#39;\u1881&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\\</span><span class="s">&quot;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&quot;u1881&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; br&#39;</span><span class="se">\u1881</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; rb&#39;</span><span class="se">\u1881</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; br&#39;\U0001d120&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\\</span><span class="s">&quot;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&quot;U0001d120&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">r&quot;&quot;&quot; rb&#39;\U0001d120&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\\</span><span class="s">&quot;</span> <span class="o">+</span> <span class="n">b</span><span class="s">&quot;U0001d120&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; br&#39;</span><span class="se">\U0001d120</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; rb&#39;</span><span class="se">\U0001d120</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; bb&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; rr&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; brr&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; bbr&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; rrb&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; rbb&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_eval_str_u"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_eval_str_u">[docs]</a>    <span class="k">def</span> <span class="nf">test_eval_str_u</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; u&#39;x&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;x&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; U&#39;</span><span class="se">\u00e4</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;ä&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">eval</span><span class="p">(</span><span class="s">&quot;&quot;&quot; u&#39;</span><span class="se">\N{LATIN SMALL LETTER A WITH DIAERESIS}</span><span class="s">&#39; &quot;&quot;&quot;</span><span class="p">),</span> <span class="s">&#39;ä&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; ur&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; ru&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; bu&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="nb">eval</span><span class="p">,</span> <span class="s">&quot;&quot;&quot; ub&#39;&#39; &quot;&quot;&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.check_encoding"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.check_encoding">[docs]</a>    <span class="k">def</span> <span class="nf">check_encoding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">encoding</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="s">&quot;&quot;</span><span class="p">):</span>
+        <span class="n">modname</span> <span class="o">=</span> <span class="s">&quot;xx_&quot;</span> <span class="o">+</span> <span class="n">encoding</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;-&quot;</span><span class="p">,</span> <span class="s">&quot;_&quot;</span><span class="p">)</span>
+        <span class="n">fn</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tmpdir</span><span class="p">,</span> <span class="n">modname</span> <span class="o">+</span> <span class="s">&quot;.py&quot;</span><span class="p">)</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="n">encoding</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">TEMPLATE</span> <span class="o">%</span> <span class="n">encoding</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">extra</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="nb">__import__</span><span class="p">(</span><span class="n">modname</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="n">modname</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_file_utf_8"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_file_utf_8">[docs]</a>    <span class="k">def</span> <span class="nf">test_file_utf_8</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">extra</span> <span class="o">=</span> <span class="s">&quot;z = &#39;</span><span class="se">\u1234</span><span class="s">&#39;; assert ord(z) == 0x1234</span><span class="se">\n</span><span class="s">&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_encoding</span><span class="p">(</span><span class="s">&quot;utf-8&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_file_utf_8_error"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_file_utf_8_error">[docs]</a>    <span class="k">def</span> <span class="nf">test_file_utf_8_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">extra</span> <span class="o">=</span> <span class="s">&quot;b&#39;</span><span class="se">\x80</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">SyntaxError</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_encoding</span><span class="p">,</span> <span class="s">&quot;utf-8&quot;</span><span class="p">,</span> <span class="n">extra</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_file_utf8"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_file_utf8">[docs]</a>    <span class="k">def</span> <span class="nf">test_file_utf8</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_encoding</span><span class="p">(</span><span class="s">&quot;utf-8&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_file_iso_8859_1"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_file_iso_8859_1">[docs]</a>    <span class="k">def</span> <span class="nf">test_file_iso_8859_1</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_encoding</span><span class="p">(</span><span class="s">&quot;iso-8859-1&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_file_latin_1"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_file_latin_1">[docs]</a>    <span class="k">def</span> <span class="nf">test_file_latin_1</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_encoding</span><span class="p">(</span><span class="s">&quot;latin-1&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLiterals.test_file_latin9"><a class="viewcode-back" href="../../test.html#test.test_strlit.TestLiterals.test_file_latin9">[docs]</a>    <span class="k">def</span> <span class="nf">test_file_latin9</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_encoding</span><span class="p">(</span><span class="s">&quot;latin9&quot;</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_strlit.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">():</span>
+    <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">run_unittest</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

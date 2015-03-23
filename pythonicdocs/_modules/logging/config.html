@@ -1,0 +1,1020 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>logging.config &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="logging" href="../logging.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" >Module code</a> &raquo;</li>
+          <li class="nav-item nav-item-2"><a href="../logging.html" accesskey="U">logging</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for logging.config</h1><div class="highlight"><pre>
+<span class="c"># Copyright 2001-2014 by Vinay Sajip. All Rights Reserved.</span>
+<span class="c">#</span>
+<span class="c"># Permission to use, copy, modify, and distribute this software and its</span>
+<span class="c"># documentation for any purpose and without fee is hereby granted,</span>
+<span class="c"># provided that the above copyright notice appear in all copies and that</span>
+<span class="c"># both that copyright notice and this permission notice appear in</span>
+<span class="c"># supporting documentation, and that the name of Vinay Sajip</span>
+<span class="c"># not be used in advertising or publicity pertaining to distribution</span>
+<span class="c"># of the software without specific, written prior permission.</span>
+<span class="c"># VINAY SAJIP DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE, INCLUDING</span>
+<span class="c"># ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL</span>
+<span class="c"># VINAY SAJIP BE LIABLE FOR ANY SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR</span>
+<span class="c"># ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER</span>
+<span class="c"># IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT</span>
+<span class="c"># OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Configuration functions for the logging package for Python. The core package</span>
+<span class="sd">is based on PEP 282 and comments thereto in comp.lang.python, and influenced</span>
+<span class="sd">by Apache&#39;s log4j system.</span>
+
+<span class="sd">Copyright (C) 2001-2014 Vinay Sajip. All Rights Reserved.</span>
+
+<span class="sd">To use, simply &#39;import logging&#39; and log away!</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">errno</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">logging.handlers</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">_thread</span> <span class="kn">as</span> <span class="nn">thread</span>
+    <span class="kn">import</span> <span class="nn">threading</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span> <span class="c">#pragma: no cover</span>
+    <span class="n">thread</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="kn">from</span> <span class="nn">socketserver</span> <span class="kn">import</span> <span class="n">ThreadingTCPServer</span><span class="p">,</span> <span class="n">StreamRequestHandler</span>
+
+
+<span class="n">DEFAULT_LOGGING_CONFIG_PORT</span> <span class="o">=</span> <span class="mi">9030</span>
+
+<span class="n">RESET_ERROR</span> <span class="o">=</span> <span class="n">errno</span><span class="o">.</span><span class="n">ECONNRESET</span>
+
+<span class="c">#</span>
+<span class="c">#   The following code implements a socket listener for on-the-fly</span>
+<span class="c">#   reconfiguration of logging.</span>
+<span class="c">#</span>
+<span class="c">#   _listener holds the server object doing the listening</span>
+<span class="n">_listener</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="fileConfig"><a class="viewcode-back" href="../../logging.html#logging.config.fileConfig">[docs]</a><span class="k">def</span> <span class="nf">fileConfig</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">defaults</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">disable_existing_loggers</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Read the logging configuration from a ConfigParser-format file.</span>
+
+<span class="sd">    This can be called several times from an application, allowing an end user</span>
+<span class="sd">    the ability to select from various pre-canned configurations (if the</span>
+<span class="sd">    developer provides a mechanism to present the choices and load the chosen</span>
+<span class="sd">    configuration).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">import</span> <span class="nn">configparser</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="n">configparser</span><span class="o">.</span><span class="n">RawConfigParser</span><span class="p">):</span>
+        <span class="n">cp</span> <span class="o">=</span> <span class="n">fname</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">cp</span> <span class="o">=</span> <span class="n">configparser</span><span class="o">.</span><span class="n">ConfigParser</span><span class="p">(</span><span class="n">defaults</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="s">&#39;readline&#39;</span><span class="p">):</span>
+            <span class="n">cp</span><span class="o">.</span><span class="n">read_file</span><span class="p">(</span><span class="n">fname</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">cp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">fname</span><span class="p">)</span>
+
+    <span class="n">formatters</span> <span class="o">=</span> <span class="n">_create_formatters</span><span class="p">(</span><span class="n">cp</span><span class="p">)</span>
+
+    <span class="c"># critical section</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">_acquireLock</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">_handlers</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">logging</span><span class="o">.</span><span class="n">_handlerList</span><span class="p">[:]</span>
+        <span class="c"># Handlers add themselves to logging._handlers</span>
+        <span class="n">handlers</span> <span class="o">=</span> <span class="n">_install_handlers</span><span class="p">(</span><span class="n">cp</span><span class="p">,</span> <span class="n">formatters</span><span class="p">)</span>
+        <span class="n">_install_loggers</span><span class="p">(</span><span class="n">cp</span><span class="p">,</span> <span class="n">handlers</span><span class="p">,</span> <span class="n">disable_existing_loggers</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">_releaseLock</span><span class="p">()</span>
+
+</div>
+<span class="k">def</span> <span class="nf">_resolve</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Resolve a dotted name to a global object.&quot;&quot;&quot;</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+    <span class="n">used</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">found</span> <span class="o">=</span> <span class="nb">__import__</span><span class="p">(</span><span class="n">used</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">name</span><span class="p">:</span>
+        <span class="n">used</span> <span class="o">=</span> <span class="n">used</span> <span class="o">+</span> <span class="s">&#39;.&#39;</span> <span class="o">+</span> <span class="n">n</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">found</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+            <span class="nb">__import__</span><span class="p">(</span><span class="n">used</span><span class="p">)</span>
+            <span class="n">found</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">found</span>
+
+<span class="k">def</span> <span class="nf">_strip_spaces</span><span class="p">(</span><span class="n">alist</span><span class="p">):</span>
+    <span class="k">return</span> <span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">alist</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_create_formatters</span><span class="p">(</span><span class="n">cp</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Create and return formatters&quot;&quot;&quot;</span>
+    <span class="n">flist</span> <span class="o">=</span> <span class="n">cp</span><span class="p">[</span><span class="s">&quot;formatters&quot;</span><span class="p">][</span><span class="s">&quot;keys&quot;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">len</span><span class="p">(</span><span class="n">flist</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="n">flist</span> <span class="o">=</span> <span class="n">flist</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;,&quot;</span><span class="p">)</span>
+    <span class="n">flist</span> <span class="o">=</span> <span class="n">_strip_spaces</span><span class="p">(</span><span class="n">flist</span><span class="p">)</span>
+    <span class="n">formatters</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">form</span> <span class="ow">in</span> <span class="n">flist</span><span class="p">:</span>
+        <span class="n">sectname</span> <span class="o">=</span> <span class="s">&quot;formatter_</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">form</span>
+        <span class="n">fs</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">sectname</span><span class="p">,</span> <span class="s">&quot;format&quot;</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+        <span class="n">dfs</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">sectname</span><span class="p">,</span> <span class="s">&quot;datefmt&quot;</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span>
+        <span class="n">class_name</span> <span class="o">=</span> <span class="n">cp</span><span class="p">[</span><span class="n">sectname</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;class&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">class_name</span><span class="p">:</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="n">_resolve</span><span class="p">(</span><span class="n">class_name</span><span class="p">)</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">c</span><span class="p">(</span><span class="n">fs</span><span class="p">,</span> <span class="n">dfs</span><span class="p">)</span>
+        <span class="n">formatters</span><span class="p">[</span><span class="n">form</span><span class="p">]</span> <span class="o">=</span> <span class="n">f</span>
+    <span class="k">return</span> <span class="n">formatters</span>
+
+
+<span class="k">def</span> <span class="nf">_install_handlers</span><span class="p">(</span><span class="n">cp</span><span class="p">,</span> <span class="n">formatters</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Install and return handlers&quot;&quot;&quot;</span>
+    <span class="n">hlist</span> <span class="o">=</span> <span class="n">cp</span><span class="p">[</span><span class="s">&quot;handlers&quot;</span><span class="p">][</span><span class="s">&quot;keys&quot;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="nb">len</span><span class="p">(</span><span class="n">hlist</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">{}</span>
+    <span class="n">hlist</span> <span class="o">=</span> <span class="n">hlist</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;,&quot;</span><span class="p">)</span>
+    <span class="n">hlist</span> <span class="o">=</span> <span class="n">_strip_spaces</span><span class="p">(</span><span class="n">hlist</span><span class="p">)</span>
+    <span class="n">handlers</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">fixups</span> <span class="o">=</span> <span class="p">[]</span> <span class="c">#for inter-handler references</span>
+    <span class="k">for</span> <span class="n">hand</span> <span class="ow">in</span> <span class="n">hlist</span><span class="p">:</span>
+        <span class="n">section</span> <span class="o">=</span> <span class="n">cp</span><span class="p">[</span><span class="s">&quot;handler_</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">hand</span><span class="p">]</span>
+        <span class="n">klass</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="s">&quot;class&quot;</span><span class="p">]</span>
+        <span class="n">fmt</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;formatter&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">klass</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="nb">vars</span><span class="p">(</span><span class="n">logging</span><span class="p">))</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">NameError</span><span class="p">):</span>
+            <span class="n">klass</span> <span class="o">=</span> <span class="n">_resolve</span><span class="p">(</span><span class="n">klass</span><span class="p">)</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="s">&quot;args&quot;</span><span class="p">]</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="nb">vars</span><span class="p">(</span><span class="n">logging</span><span class="p">))</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="n">klass</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&quot;level&quot;</span> <span class="ow">in</span> <span class="n">section</span><span class="p">:</span>
+            <span class="n">level</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="s">&quot;level&quot;</span><span class="p">]</span>
+            <span class="n">h</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">fmt</span><span class="p">):</span>
+            <span class="n">h</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">formatters</span><span class="p">[</span><span class="n">fmt</span><span class="p">])</span>
+        <span class="k">if</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">handlers</span><span class="o">.</span><span class="n">MemoryHandler</span><span class="p">):</span>
+            <span class="n">target</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;target&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">target</span><span class="p">):</span> <span class="c">#the target handler may not be loaded yet, so keep for later...</span>
+                <span class="n">fixups</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">h</span><span class="p">,</span> <span class="n">target</span><span class="p">))</span>
+        <span class="n">handlers</span><span class="p">[</span><span class="n">hand</span><span class="p">]</span> <span class="o">=</span> <span class="n">h</span>
+    <span class="c">#now all handlers are loaded, fixup inter-handler references...</span>
+    <span class="k">for</span> <span class="n">h</span><span class="p">,</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">fixups</span><span class="p">:</span>
+        <span class="n">h</span><span class="o">.</span><span class="n">setTarget</span><span class="p">(</span><span class="n">handlers</span><span class="p">[</span><span class="n">t</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">handlers</span>
+
+<span class="k">def</span> <span class="nf">_handle_existing_loggers</span><span class="p">(</span><span class="n">existing</span><span class="p">,</span> <span class="n">child_loggers</span><span class="p">,</span> <span class="n">disable_existing</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    When (re)configuring logging, handle loggers which were in the previous</span>
+<span class="sd">    configuration but are not in the new configuration. There&#39;s no point</span>
+<span class="sd">    deleting them as other threads may continue to hold references to them;</span>
+<span class="sd">    and by disabling them, you stop them doing any logging.</span>
+
+<span class="sd">    However, don&#39;t disable children of named loggers, as that&#39;s probably not</span>
+<span class="sd">    what was intended by the user. Also, allow existing loggers to NOT be</span>
+<span class="sd">    disabled if disable_existing is false.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">root</span>
+    <span class="k">for</span> <span class="n">log</span> <span class="ow">in</span> <span class="n">existing</span><span class="p">:</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">root</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">loggerDict</span><span class="p">[</span><span class="n">log</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">log</span> <span class="ow">in</span> <span class="n">child_loggers</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">level</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">NOTSET</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">handlers</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">propagate</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">disabled</span> <span class="o">=</span> <span class="n">disable_existing</span>
+
+<span class="k">def</span> <span class="nf">_install_loggers</span><span class="p">(</span><span class="n">cp</span><span class="p">,</span> <span class="n">handlers</span><span class="p">,</span> <span class="n">disable_existing</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Create and install loggers&quot;&quot;&quot;</span>
+
+    <span class="c"># configure the root first</span>
+    <span class="n">llist</span> <span class="o">=</span> <span class="n">cp</span><span class="p">[</span><span class="s">&quot;loggers&quot;</span><span class="p">][</span><span class="s">&quot;keys&quot;</span><span class="p">]</span>
+    <span class="n">llist</span> <span class="o">=</span> <span class="n">llist</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;,&quot;</span><span class="p">)</span>
+    <span class="n">llist</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">llist</span><span class="p">))</span>
+    <span class="n">llist</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="s">&quot;root&quot;</span><span class="p">)</span>
+    <span class="n">section</span> <span class="o">=</span> <span class="n">cp</span><span class="p">[</span><span class="s">&quot;logger_root&quot;</span><span class="p">]</span>
+    <span class="n">root</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">root</span>
+    <span class="n">log</span> <span class="o">=</span> <span class="n">root</span>
+    <span class="k">if</span> <span class="s">&quot;level&quot;</span> <span class="ow">in</span> <span class="n">section</span><span class="p">:</span>
+        <span class="n">level</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="s">&quot;level&quot;</span><span class="p">]</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">root</span><span class="o">.</span><span class="n">handlers</span><span class="p">[:]:</span>
+        <span class="n">root</span><span class="o">.</span><span class="n">removeHandler</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+    <span class="n">hlist</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="s">&quot;handlers&quot;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">hlist</span><span class="p">):</span>
+        <span class="n">hlist</span> <span class="o">=</span> <span class="n">hlist</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;,&quot;</span><span class="p">)</span>
+        <span class="n">hlist</span> <span class="o">=</span> <span class="n">_strip_spaces</span><span class="p">(</span><span class="n">hlist</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">hand</span> <span class="ow">in</span> <span class="n">hlist</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">handlers</span><span class="p">[</span><span class="n">hand</span><span class="p">])</span>
+
+    <span class="c">#and now the others...</span>
+    <span class="c">#we don&#39;t want to lose the existing loggers,</span>
+    <span class="c">#since other threads may have pointers to them.</span>
+    <span class="c">#existing is set to contain all existing loggers,</span>
+    <span class="c">#and as we go through the new configuration we</span>
+    <span class="c">#remove any which are configured. At the end,</span>
+    <span class="c">#what&#39;s left in existing is the set of loggers</span>
+    <span class="c">#which were in the previous configuration but</span>
+    <span class="c">#which are not in the new configuration.</span>
+    <span class="n">existing</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">root</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">loggerDict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="c">#The list needs to be sorted so that we can</span>
+    <span class="c">#avoid disabling child loggers of explicitly</span>
+    <span class="c">#named loggers. With a sorted list it is easier</span>
+    <span class="c">#to find the child loggers.</span>
+    <span class="n">existing</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+    <span class="c">#We&#39;ll keep the list of existing loggers</span>
+    <span class="c">#which are children of named loggers here...</span>
+    <span class="n">child_loggers</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="c">#now set up the new ones...</span>
+    <span class="k">for</span> <span class="n">log</span> <span class="ow">in</span> <span class="n">llist</span><span class="p">:</span>
+        <span class="n">section</span> <span class="o">=</span> <span class="n">cp</span><span class="p">[</span><span class="s">&quot;logger_</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">log</span><span class="p">]</span>
+        <span class="n">qn</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="s">&quot;qualname&quot;</span><span class="p">]</span>
+        <span class="n">propagate</span> <span class="o">=</span> <span class="n">section</span><span class="o">.</span><span class="n">getint</span><span class="p">(</span><span class="s">&quot;propagate&quot;</span><span class="p">,</span> <span class="n">fallback</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">qn</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">qn</span> <span class="ow">in</span> <span class="n">existing</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="n">existing</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">qn</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span> <span class="c"># start with the entry after qn</span>
+            <span class="n">prefixed</span> <span class="o">=</span> <span class="n">qn</span> <span class="o">+</span> <span class="s">&quot;.&quot;</span>
+            <span class="n">pflen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">prefixed</span><span class="p">)</span>
+            <span class="n">num_existing</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">existing</span><span class="p">)</span>
+            <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">num_existing</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">existing</span><span class="p">[</span><span class="n">i</span><span class="p">][:</span><span class="n">pflen</span><span class="p">]</span> <span class="o">==</span> <span class="n">prefixed</span><span class="p">:</span>
+                    <span class="n">child_loggers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">existing</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+                <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">existing</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">qn</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&quot;level&quot;</span> <span class="ow">in</span> <span class="n">section</span><span class="p">:</span>
+            <span class="n">level</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="s">&quot;level&quot;</span><span class="p">]</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">logger</span><span class="o">.</span><span class="n">handlers</span><span class="p">[:]:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">removeHandler</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">propagate</span> <span class="o">=</span> <span class="n">propagate</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">disabled</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">hlist</span> <span class="o">=</span> <span class="n">section</span><span class="p">[</span><span class="s">&quot;handlers&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">hlist</span><span class="p">):</span>
+            <span class="n">hlist</span> <span class="o">=</span> <span class="n">hlist</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;,&quot;</span><span class="p">)</span>
+            <span class="n">hlist</span> <span class="o">=</span> <span class="n">_strip_spaces</span><span class="p">(</span><span class="n">hlist</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">hand</span> <span class="ow">in</span> <span class="n">hlist</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="n">handlers</span><span class="p">[</span><span class="n">hand</span><span class="p">])</span>
+
+    <span class="c">#Disable any old loggers. There&#39;s no point deleting</span>
+    <span class="c">#them as other threads may continue to hold references</span>
+    <span class="c">#and by disabling them, you stop them doing any logging.</span>
+    <span class="c">#However, don&#39;t disable children of named loggers, as that&#39;s</span>
+    <span class="c">#probably not what was intended by the user.</span>
+    <span class="c">#for log in existing:</span>
+    <span class="c">#    logger = root.manager.loggerDict[log]</span>
+    <span class="c">#    if log in child_loggers:</span>
+    <span class="c">#        logger.level = logging.NOTSET</span>
+    <span class="c">#        logger.handlers = []</span>
+    <span class="c">#        logger.propagate = 1</span>
+    <span class="c">#    elif disable_existing_loggers:</span>
+    <span class="c">#        logger.disabled = 1</span>
+    <span class="n">_handle_existing_loggers</span><span class="p">(</span><span class="n">existing</span><span class="p">,</span> <span class="n">child_loggers</span><span class="p">,</span> <span class="n">disable_existing</span><span class="p">)</span>
+
+<span class="n">IDENTIFIER</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&#39;^[a-z_][a-z0-9_]*$&#39;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">I</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="valid_ident"><a class="viewcode-back" href="../../logging.html#logging.config.valid_ident">[docs]</a><span class="k">def</span> <span class="nf">valid_ident</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">IDENTIFIER</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">m</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Not a valid Python identifier: </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">s</span><span class="p">)</span>
+    <span class="k">return</span> <span class="bp">True</span>
+
+</div>
+<div class="viewcode-block" id="ConvertingMixin"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingMixin">[docs]</a><span class="k">class</span> <span class="nc">ConvertingMixin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;For ConvertingXXX&#39;s, this mixin class provides common functions&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ConvertingMixin.convert_with_key"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingMixin.convert_with_key">[docs]</a>    <span class="k">def</span> <span class="nf">convert_with_key</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configurator</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="c">#If the converted value is different, save for next time</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">result</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">replace</span><span class="p">:</span>
+                <span class="bp">self</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">result</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="n">ConvertingDict</span><span class="p">,</span> <span class="n">ConvertingList</span><span class="p">,</span>
+                               <span class="n">ConvertingTuple</span><span class="p">):</span>
+                <span class="n">result</span><span class="o">.</span><span class="n">parent</span> <span class="o">=</span> <span class="bp">self</span>
+                <span class="n">result</span><span class="o">.</span><span class="n">key</span> <span class="o">=</span> <span class="n">key</span>
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="ConvertingMixin.convert"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingMixin.convert">[docs]</a>    <span class="k">def</span> <span class="nf">convert</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configurator</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">result</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">result</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="n">ConvertingDict</span><span class="p">,</span> <span class="n">ConvertingList</span><span class="p">,</span>
+                               <span class="n">ConvertingTuple</span><span class="p">):</span>
+                <span class="n">result</span><span class="o">.</span><span class="n">parent</span> <span class="o">=</span> <span class="bp">self</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+
+<span class="c"># The ConvertingXXX classes are wrappers around standard Python containers,</span>
+<span class="c"># and they serve to convert any suitable values in the container. The</span>
+<span class="c"># conversion converts base dicts, lists and tuples to their wrapped</span>
+<span class="c"># equivalents, whereas strings which match a conversion format are converted</span>
+<span class="c"># appropriately.</span>
+<span class="c">#</span>
+<span class="c"># Each wrapper should have a configurator attribute holding the actual</span>
+<span class="c"># configurator to use for conversion.</span>
+</div></div>
+<div class="viewcode-block" id="ConvertingDict"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingDict">[docs]</a><span class="k">class</span> <span class="nc">ConvertingDict</span><span class="p">(</span><span class="nb">dict</span><span class="p">,</span> <span class="n">ConvertingMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A converting dictionary wrapper.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">dict</span><span class="o">.</span><span class="n">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">convert_with_key</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ConvertingDict.get"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingDict.get">[docs]</a>    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">convert_with_key</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ConvertingDict.pop"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingDict.pop">[docs]</a>    <span class="k">def</span> <span class="nf">pop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">dict</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">convert_with_key</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="ConvertingList"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingList">[docs]</a><span class="k">class</span> <span class="nc">ConvertingList</span><span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="n">ConvertingMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A converting list wrapper.&quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">list</span><span class="o">.</span><span class="n">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">convert_with_key</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ConvertingList.pop"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingList.pop">[docs]</a>    <span class="k">def</span> <span class="nf">pop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idx</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">list</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idx</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">convert</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="ConvertingTuple"><a class="viewcode-back" href="../../logging.html#logging.config.ConvertingTuple">[docs]</a><span class="k">class</span> <span class="nc">ConvertingTuple</span><span class="p">(</span><span class="nb">tuple</span><span class="p">,</span> <span class="n">ConvertingMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A converting tuple wrapper.&quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">tuple</span><span class="o">.</span><span class="n">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">)</span>
+        <span class="c"># Can&#39;t replace a tuple entry.</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">convert_with_key</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseConfigurator"><a class="viewcode-back" href="../../logging.html#logging.config.BaseConfigurator">[docs]</a><span class="k">class</span> <span class="nc">BaseConfigurator</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The configurator base class which defines some useful defaults.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">CONVERT_PATTERN</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^(?P&lt;prefix&gt;[a-z]+)://(?P&lt;suffix&gt;.*)$&#39;</span><span class="p">)</span>
+
+    <span class="n">WORD_PATTERN</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^\s*(\w+)\s*&#39;</span><span class="p">)</span>
+    <span class="n">DOT_PATTERN</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^\.\s*(\w+)\s*&#39;</span><span class="p">)</span>
+    <span class="n">INDEX_PATTERN</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^\[\s*(\w+)\s*\]\s*&#39;</span><span class="p">)</span>
+    <span class="n">DIGIT_PATTERN</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^\d+$&#39;</span><span class="p">)</span>
+
+    <span class="n">value_converters</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s">&#39;ext&#39;</span> <span class="p">:</span> <span class="s">&#39;ext_convert&#39;</span><span class="p">,</span>
+        <span class="s">&#39;cfg&#39;</span> <span class="p">:</span> <span class="s">&#39;cfg_convert&#39;</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="c"># We might want to use a different one, e.g. importlib</span>
+    <span class="n">importer</span> <span class="o">=</span> <span class="nb">staticmethod</span><span class="p">(</span><span class="nb">__import__</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span> <span class="o">=</span> <span class="n">ConvertingDict</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="o">.</span><span class="n">configurator</span> <span class="o">=</span> <span class="bp">self</span>
+
+<div class="viewcode-block" id="BaseConfigurator.resolve"><a class="viewcode-back" href="../../logging.html#logging.config.BaseConfigurator.resolve">[docs]</a>    <span class="k">def</span> <span class="nf">resolve</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">s</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Resolve strings to objects using standard import and attribute</span>
+<span class="sd">        syntax.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+        <span class="n">used</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">found</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">importer</span><span class="p">(</span><span class="n">used</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">frag</span> <span class="ow">in</span> <span class="n">name</span><span class="p">:</span>
+                <span class="n">used</span> <span class="o">+=</span> <span class="s">&#39;.&#39;</span> <span class="o">+</span> <span class="n">frag</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">found</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="n">frag</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">importer</span><span class="p">(</span><span class="n">used</span><span class="p">)</span>
+                    <span class="n">found</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">found</span><span class="p">,</span> <span class="n">frag</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">found</span>
+        <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+            <span class="n">e</span><span class="p">,</span> <span class="n">tb</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">()[</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="n">v</span> <span class="o">=</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Cannot resolve </span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+            <span class="n">v</span><span class="o">.</span><span class="n">__cause__</span><span class="p">,</span> <span class="n">v</span><span class="o">.</span><span class="n">__traceback__</span> <span class="o">=</span> <span class="n">e</span><span class="p">,</span> <span class="n">tb</span>
+            <span class="k">raise</span> <span class="n">v</span>
+</div>
+<div class="viewcode-block" id="BaseConfigurator.ext_convert"><a class="viewcode-back" href="../../logging.html#logging.config.BaseConfigurator.ext_convert">[docs]</a>    <span class="k">def</span> <span class="nf">ext_convert</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Default converter for the ext:// protocol.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseConfigurator.cfg_convert"><a class="viewcode-back" href="../../logging.html#logging.config.BaseConfigurator.cfg_convert">[docs]</a>    <span class="k">def</span> <span class="nf">cfg_convert</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Default converter for the cfg:// protocol.&quot;&quot;&quot;</span>
+        <span class="n">rest</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">WORD_PATTERN</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">rest</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">m</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Unable to convert </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">rest</span> <span class="o">=</span> <span class="n">rest</span><span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">end</span><span class="p">():]</span>
+            <span class="n">d</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">()[</span><span class="mi">0</span><span class="p">]]</span>
+            <span class="c">#print d, rest</span>
+            <span class="k">while</span> <span class="n">rest</span><span class="p">:</span>
+                <span class="n">m</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">DOT_PATTERN</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">rest</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">m</span><span class="p">:</span>
+                    <span class="n">d</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">()[</span><span class="mi">0</span><span class="p">]]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">m</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">INDEX_PATTERN</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">rest</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">m</span><span class="p">:</span>
+                        <span class="n">idx</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+                        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">DIGIT_PATTERN</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">idx</span><span class="p">):</span>
+                            <span class="n">d</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="k">try</span><span class="p">:</span>
+                                <span class="n">n</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">idx</span><span class="p">)</span> <span class="c"># try as number first (most likely)</span>
+                                <span class="n">d</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="n">n</span><span class="p">]</span>
+                            <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+                                <span class="n">d</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">m</span><span class="p">:</span>
+                    <span class="n">rest</span> <span class="o">=</span> <span class="n">rest</span><span class="p">[</span><span class="n">m</span><span class="o">.</span><span class="n">end</span><span class="p">():]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to convert &#39;</span>
+                                     <span class="s">&#39;</span><span class="si">%r</span><span class="s"> at </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">rest</span><span class="p">))</span>
+        <span class="c">#rest should be empty</span>
+        <span class="k">return</span> <span class="n">d</span>
+</div>
+<div class="viewcode-block" id="BaseConfigurator.convert"><a class="viewcode-back" href="../../logging.html#logging.config.BaseConfigurator.convert">[docs]</a>    <span class="k">def</span> <span class="nf">convert</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert values to an appropriate type. dicts, lists and tuples are</span>
+<span class="sd">        replaced by their converting alternatives. Strings are checked to</span>
+<span class="sd">        see if they have a conversion format and are converted if they do.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">ConvertingDict</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">ConvertingDict</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">value</span><span class="o">.</span><span class="n">configurator</span> <span class="o">=</span> <span class="bp">self</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">ConvertingList</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">ConvertingList</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">value</span><span class="o">.</span><span class="n">configurator</span> <span class="o">=</span> <span class="bp">self</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">ConvertingTuple</span><span class="p">)</span> <span class="ow">and</span>\
+                 <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">):</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">ConvertingTuple</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">value</span><span class="o">.</span><span class="n">configurator</span> <span class="o">=</span> <span class="bp">self</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span> <span class="c"># str for py3k</span>
+            <span class="n">m</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">CONVERT_PATTERN</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">m</span><span class="p">:</span>
+                <span class="n">d</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">groupdict</span><span class="p">()</span>
+                <span class="n">prefix</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="s">&#39;prefix&#39;</span><span class="p">]</span>
+                <span class="n">converter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">value_converters</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">converter</span><span class="p">:</span>
+                    <span class="n">suffix</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="s">&#39;suffix&#39;</span><span class="p">]</span>
+                    <span class="n">converter</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">converter</span><span class="p">)</span>
+                    <span class="n">value</span> <span class="o">=</span> <span class="n">converter</span><span class="p">(</span><span class="n">suffix</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">value</span>
+</div>
+<div class="viewcode-block" id="BaseConfigurator.configure_custom"><a class="viewcode-back" href="../../logging.html#logging.config.BaseConfigurator.configure_custom">[docs]</a>    <span class="k">def</span> <span class="nf">configure_custom</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Configure an object with a user-supplied factory.&quot;&quot;&quot;</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;()&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">c</span><span class="p">):</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+        <span class="n">props</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="c"># Check for valid identifiers</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">([(</span><span class="n">k</span><span class="p">,</span> <span class="n">config</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">config</span> <span class="k">if</span> <span class="n">valid_ident</span><span class="p">(</span><span class="n">k</span><span class="p">)])</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">c</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">props</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">props</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="BaseConfigurator.as_tuple"><a class="viewcode-back" href="../../logging.html#logging.config.BaseConfigurator.as_tuple">[docs]</a>    <span class="k">def</span> <span class="nf">as_tuple</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Utility function which converts lists to tuples.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">value</span>
+</div></div>
+<div class="viewcode-block" id="DictConfigurator"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator">[docs]</a><span class="k">class</span> <span class="nc">DictConfigurator</span><span class="p">(</span><span class="n">BaseConfigurator</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Configure logging using a dictionary-like object to describe the</span>
+<span class="sd">    configuration.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="DictConfigurator.configure"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.configure">[docs]</a>    <span class="k">def</span> <span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Do the configuration.&quot;&quot;&quot;</span>
+
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span>
+        <span class="k">if</span> <span class="s">&#39;version&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;dictionary doesn&#39;t specify a version&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">config</span><span class="p">[</span><span class="s">&#39;version&#39;</span><span class="p">]</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Unsupported version: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">config</span><span class="p">[</span><span class="s">&#39;version&#39;</span><span class="p">])</span>
+        <span class="n">incremental</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;incremental&#39;</span><span class="p">,</span> <span class="bp">False</span><span class="p">)</span>
+        <span class="n">EMPTY_DICT</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">_acquireLock</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">incremental</span><span class="p">:</span>
+                <span class="n">handlers</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;handlers&#39;</span><span class="p">,</span> <span class="n">EMPTY_DICT</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">handlers</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">name</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">logging</span><span class="o">.</span><span class="n">_handlers</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;No handler found with &#39;</span>
+                                         <span class="s">&#39;name </span><span class="si">%r</span><span class="s">&#39;</span>  <span class="o">%</span> <span class="n">name</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">try</span><span class="p">:</span>
+                            <span class="n">handler</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">_handlers</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                            <span class="n">handler_config</span> <span class="o">=</span> <span class="n">handlers</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                            <span class="n">level</span> <span class="o">=</span> <span class="n">handler_config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;level&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+                            <span class="k">if</span> <span class="n">level</span><span class="p">:</span>
+                                <span class="n">handler</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">_checkLevel</span><span class="p">(</span><span class="n">level</span><span class="p">))</span>
+                        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure handler &#39;</span>
+                                             <span class="s">&#39;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+                <span class="n">loggers</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;loggers&#39;</span><span class="p">,</span> <span class="n">EMPTY_DICT</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">loggers</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">configure_logger</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">loggers</span><span class="p">[</span><span class="n">name</span><span class="p">],</span> <span class="bp">True</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure logger &#39;</span>
+                                         <span class="s">&#39;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+                <span class="n">root</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;root&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">root</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">configure_root</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure root &#39;</span>
+                                         <span class="s">&#39;logger: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">e</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">disable_existing</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;disable_existing_loggers&#39;</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+
+                <span class="n">logging</span><span class="o">.</span><span class="n">_handlers</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+                <span class="k">del</span> <span class="n">logging</span><span class="o">.</span><span class="n">_handlerList</span><span class="p">[:]</span>
+
+                <span class="c"># Do formatters first - they don&#39;t refer to anything else</span>
+                <span class="n">formatters</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;formatters&#39;</span><span class="p">,</span> <span class="n">EMPTY_DICT</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">formatters</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">formatters</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configure_formatter</span><span class="p">(</span>
+                                                            <span class="n">formatters</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure &#39;</span>
+                                         <span class="s">&#39;formatter </span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+                <span class="c"># Next, do filters - they don&#39;t refer to anything else, either</span>
+                <span class="n">filters</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;filters&#39;</span><span class="p">,</span> <span class="n">EMPTY_DICT</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">filters</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">filters</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configure_filter</span><span class="p">(</span><span class="n">filters</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure &#39;</span>
+                                         <span class="s">&#39;filter </span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+
+                <span class="c"># Next, do handlers - they refer to formatters and filters</span>
+                <span class="c"># As handlers can refer to other handlers, sort the keys</span>
+                <span class="c"># to allow a deterministic order of configuration</span>
+                <span class="n">handlers</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;handlers&#39;</span><span class="p">,</span> <span class="n">EMPTY_DICT</span><span class="p">)</span>
+                <span class="n">deferred</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">handlers</span><span class="p">):</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configure_handler</span><span class="p">(</span><span class="n">handlers</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+                        <span class="n">handler</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
+                        <span class="n">handlers</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">handler</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="s">&#39;target not configured yet&#39;</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">):</span>
+                            <span class="n">deferred</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure handler &#39;</span>
+                                             <span class="s">&#39;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+
+                <span class="c"># Now do any that were deferred</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">deferred</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configure_handler</span><span class="p">(</span><span class="n">handlers</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+                        <span class="n">handler</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
+                        <span class="n">handlers</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">handler</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure handler &#39;</span>
+                                         <span class="s">&#39;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+
+                <span class="c"># Next, do loggers - they refer to handlers and filters</span>
+
+                <span class="c">#we don&#39;t want to lose the existing loggers,</span>
+                <span class="c">#since other threads may have pointers to them.</span>
+                <span class="c">#existing is set to contain all existing loggers,</span>
+                <span class="c">#and as we go through the new configuration we</span>
+                <span class="c">#remove any which are configured. At the end,</span>
+                <span class="c">#what&#39;s left in existing is the set of loggers</span>
+                <span class="c">#which were in the previous configuration but</span>
+                <span class="c">#which are not in the new configuration.</span>
+                <span class="n">root</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">root</span>
+                <span class="n">existing</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">root</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">loggerDict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+                <span class="c">#The list needs to be sorted so that we can</span>
+                <span class="c">#avoid disabling child loggers of explicitly</span>
+                <span class="c">#named loggers. With a sorted list it is easier</span>
+                <span class="c">#to find the child loggers.</span>
+                <span class="n">existing</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+                <span class="c">#We&#39;ll keep the list of existing loggers</span>
+                <span class="c">#which are children of named loggers here...</span>
+                <span class="n">child_loggers</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="c">#now set up the new ones...</span>
+                <span class="n">loggers</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;loggers&#39;</span><span class="p">,</span> <span class="n">EMPTY_DICT</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">loggers</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">existing</span><span class="p">:</span>
+                        <span class="n">i</span> <span class="o">=</span> <span class="n">existing</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span> <span class="c"># look after name</span>
+                        <span class="n">prefixed</span> <span class="o">=</span> <span class="n">name</span> <span class="o">+</span> <span class="s">&quot;.&quot;</span>
+                        <span class="n">pflen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">prefixed</span><span class="p">)</span>
+                        <span class="n">num_existing</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">existing</span><span class="p">)</span>
+                        <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">num_existing</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">existing</span><span class="p">[</span><span class="n">i</span><span class="p">][:</span><span class="n">pflen</span><span class="p">]</span> <span class="o">==</span> <span class="n">prefixed</span><span class="p">:</span>
+                                <span class="n">child_loggers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">existing</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+                            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+                        <span class="n">existing</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">configure_logger</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">loggers</span><span class="p">[</span><span class="n">name</span><span class="p">])</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure logger &#39;</span>
+                                         <span class="s">&#39;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+
+                <span class="c">#Disable any old loggers. There&#39;s no point deleting</span>
+                <span class="c">#them as other threads may continue to hold references</span>
+                <span class="c">#and by disabling them, you stop them doing any logging.</span>
+                <span class="c">#However, don&#39;t disable children of named loggers, as that&#39;s</span>
+                <span class="c">#probably not what was intended by the user.</span>
+                <span class="c">#for log in existing:</span>
+                <span class="c">#    logger = root.manager.loggerDict[log]</span>
+                <span class="c">#    if log in child_loggers:</span>
+                <span class="c">#        logger.level = logging.NOTSET</span>
+                <span class="c">#        logger.handlers = []</span>
+                <span class="c">#        logger.propagate = True</span>
+                <span class="c">#    elif disable_existing:</span>
+                <span class="c">#        logger.disabled = True</span>
+                <span class="n">_handle_existing_loggers</span><span class="p">(</span><span class="n">existing</span><span class="p">,</span> <span class="n">child_loggers</span><span class="p">,</span>
+                                         <span class="n">disable_existing</span><span class="p">)</span>
+
+                <span class="c"># And finally, do the root logger</span>
+                <span class="n">root</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;root&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">root</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">configure_root</span><span class="p">(</span><span class="n">root</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to configure root &#39;</span>
+                                         <span class="s">&#39;logger: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">e</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">_releaseLock</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DictConfigurator.configure_formatter"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.configure_formatter">[docs]</a>    <span class="k">def</span> <span class="nf">configure_formatter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Configure a formatter from a dictionary.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s">&#39;()&#39;</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+            <span class="n">factory</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s">&#39;()&#39;</span><span class="p">]</span> <span class="c"># for use in exception handler</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configure_custom</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">TypeError</span> <span class="k">as</span> <span class="n">te</span><span class="p">:</span>
+                <span class="k">if</span> <span class="s">&quot;&#39;format&#39;&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">te</span><span class="p">):</span>
+                    <span class="k">raise</span>
+                <span class="c">#Name of parameter changed from fmt to format.</span>
+                <span class="c">#Retry with old name.</span>
+                <span class="c">#This is so that code can be used with older Python versions</span>
+                <span class="c">#(e.g. by Django)</span>
+                <span class="n">config</span><span class="p">[</span><span class="s">&#39;fmt&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;format&#39;</span><span class="p">)</span>
+                <span class="n">config</span><span class="p">[</span><span class="s">&#39;()&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">factory</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configure_custom</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fmt</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;format&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">dfmt</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;datefmt&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">style</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;style&#39;</span><span class="p">,</span> <span class="s">&#39;%&#39;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">Formatter</span><span class="p">(</span><span class="n">fmt</span><span class="p">,</span> <span class="n">dfmt</span><span class="p">,</span> <span class="n">style</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="DictConfigurator.configure_filter"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.configure_filter">[docs]</a>    <span class="k">def</span> <span class="nf">configure_filter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Configure a filter from a dictionary.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s">&#39;()&#39;</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">configure_custom</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;name&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">Filter</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="DictConfigurator.add_filters"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.add_filters">[docs]</a>    <span class="k">def</span> <span class="nf">add_filters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filterer</span><span class="p">,</span> <span class="n">filters</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add filters to a filterer from a list of names.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">filters</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">filterer</span><span class="o">.</span><span class="n">addFilter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;filters&#39;</span><span class="p">][</span><span class="n">f</span><span class="p">])</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to add filter </span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="DictConfigurator.configure_handler"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.configure_handler">[docs]</a>    <span class="k">def</span> <span class="nf">configure_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Configure a handler from a dictionary.&quot;&quot;&quot;</span>
+        <span class="n">config_copy</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">config</span><span class="p">)</span>  <span class="c"># for restoring in case of error</span>
+        <span class="n">formatter</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;formatter&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">formatter</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">formatter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;formatters&#39;</span><span class="p">][</span><span class="n">formatter</span><span class="p">]</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to set formatter &#39;</span>
+                                 <span class="s">&#39;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">formatter</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+        <span class="n">level</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;level&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="n">filters</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;filters&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&#39;()&#39;</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;()&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">callable</span><span class="p">(</span><span class="n">c</span><span class="p">):</span>
+                <span class="n">c</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+            <span class="n">factory</span> <span class="o">=</span> <span class="n">c</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">cname</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;class&#39;</span><span class="p">)</span>
+            <span class="n">klass</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">resolve</span><span class="p">(</span><span class="n">cname</span><span class="p">)</span>
+            <span class="c">#Special case for handler which refers to another handler</span>
+            <span class="k">if</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">handlers</span><span class="o">.</span><span class="n">MemoryHandler</span><span class="p">)</span> <span class="ow">and</span>\
+                <span class="s">&#39;target&#39;</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">th</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;handlers&#39;</span><span class="p">][</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;target&#39;</span><span class="p">]]</span>
+                    <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">th</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">Handler</span><span class="p">):</span>
+                        <span class="n">config</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">config_copy</span><span class="p">)</span>  <span class="c"># restore for deferred cfg</span>
+                        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;target not configured yet&#39;</span><span class="p">)</span>
+                    <span class="n">config</span><span class="p">[</span><span class="s">&#39;target&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">th</span>
+                <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to set target handler &#39;</span>
+                                     <span class="s">&#39;</span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;target&#39;</span><span class="p">],</span> <span class="n">e</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">handlers</span><span class="o">.</span><span class="n">SMTPHandler</span><span class="p">)</span> <span class="ow">and</span>\
+                <span class="s">&#39;mailhost&#39;</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+                <span class="n">config</span><span class="p">[</span><span class="s">&#39;mailhost&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">as_tuple</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;mailhost&#39;</span><span class="p">])</span>
+            <span class="k">elif</span> <span class="nb">issubclass</span><span class="p">(</span><span class="n">klass</span><span class="p">,</span> <span class="n">logging</span><span class="o">.</span><span class="n">handlers</span><span class="o">.</span><span class="n">SysLogHandler</span><span class="p">)</span> <span class="ow">and</span>\
+                <span class="s">&#39;address&#39;</span> <span class="ow">in</span> <span class="n">config</span><span class="p">:</span>
+                <span class="n">config</span><span class="p">[</span><span class="s">&#39;address&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">as_tuple</span><span class="p">(</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;address&#39;</span><span class="p">])</span>
+            <span class="n">factory</span> <span class="o">=</span> <span class="n">klass</span>
+        <span class="n">props</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="n">kwargs</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">([(</span><span class="n">k</span><span class="p">,</span> <span class="n">config</span><span class="p">[</span><span class="n">k</span><span class="p">])</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">config</span> <span class="k">if</span> <span class="n">valid_ident</span><span class="p">(</span><span class="n">k</span><span class="p">)])</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">factory</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">TypeError</span> <span class="k">as</span> <span class="n">te</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s">&quot;&#39;stream&#39;&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">te</span><span class="p">):</span>
+                <span class="k">raise</span>
+            <span class="c">#The argument name changed from strm to stream</span>
+            <span class="c">#Retry with old name.</span>
+            <span class="c">#This is so that code can be used with older Python versions</span>
+            <span class="c">#(e.g. by Django)</span>
+            <span class="n">kwargs</span><span class="p">[</span><span class="s">&#39;strm&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">kwargs</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&#39;stream&#39;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">factory</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">formatter</span><span class="p">:</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">setFormatter</span><span class="p">(</span><span class="n">formatter</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">level</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">_checkLevel</span><span class="p">(</span><span class="n">level</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">filters</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_filters</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">filters</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">props</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">props</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="DictConfigurator.add_handlers"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.add_handlers">[docs]</a>    <span class="k">def</span> <span class="nf">add_handlers</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">handlers</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add handlers to a logger from a list of names.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">handlers</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">addHandler</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config</span><span class="p">[</span><span class="s">&#39;handlers&#39;</span><span class="p">][</span><span class="n">h</span><span class="p">])</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Unable to add handler </span><span class="si">%r</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">h</span><span class="p">,</span> <span class="n">e</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="DictConfigurator.common_logger_config"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.common_logger_config">[docs]</a>    <span class="k">def</span> <span class="nf">common_logger_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">logger</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">incremental</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Perform configuration which is common to root and non-root loggers.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">level</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;level&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">level</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">_checkLevel</span><span class="p">(</span><span class="n">level</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">incremental</span><span class="p">:</span>
+            <span class="c">#Remove any existing handlers</span>
+            <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">logger</span><span class="o">.</span><span class="n">handlers</span><span class="p">[:]:</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">removeHandler</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+            <span class="n">handlers</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;handlers&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">handlers</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_handlers</span><span class="p">(</span><span class="n">logger</span><span class="p">,</span> <span class="n">handlers</span><span class="p">)</span>
+            <span class="n">filters</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;filters&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">filters</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_filters</span><span class="p">(</span><span class="n">logger</span><span class="p">,</span> <span class="n">filters</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DictConfigurator.configure_logger"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.configure_logger">[docs]</a>    <span class="k">def</span> <span class="nf">configure_logger</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">incremental</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Configure a non-root logger from a dictionary.&quot;&quot;&quot;</span>
+        <span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">common_logger_config</span><span class="p">(</span><span class="n">logger</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">incremental</span><span class="p">)</span>
+        <span class="n">propagate</span> <span class="o">=</span> <span class="n">config</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;propagate&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">propagate</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">propagate</span> <span class="o">=</span> <span class="n">propagate</span>
+</div>
+<div class="viewcode-block" id="DictConfigurator.configure_root"><a class="viewcode-back" href="../../logging.html#logging.config.DictConfigurator.configure_root">[docs]</a>    <span class="k">def</span> <span class="nf">configure_root</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">incremental</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Configure a root logger from a dictionary.&quot;&quot;&quot;</span>
+        <span class="n">root</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">common_logger_config</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">config</span><span class="p">,</span> <span class="n">incremental</span><span class="p">)</span>
+</div></div>
+<span class="n">dictConfigClass</span> <span class="o">=</span> <span class="n">DictConfigurator</span>
+
+<div class="viewcode-block" id="dictConfig"><a class="viewcode-back" href="../../logging.html#logging.config.dictConfig">[docs]</a><span class="k">def</span> <span class="nf">dictConfig</span><span class="p">(</span><span class="n">config</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Configure logging using a dictionary.&quot;&quot;&quot;</span>
+    <span class="n">dictConfigClass</span><span class="p">(</span><span class="n">config</span><span class="p">)</span><span class="o">.</span><span class="n">configure</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="listen"><a class="viewcode-back" href="../../logging.html#logging.config.listen">[docs]</a><span class="k">def</span> <span class="nf">listen</span><span class="p">(</span><span class="n">port</span><span class="o">=</span><span class="n">DEFAULT_LOGGING_CONFIG_PORT</span><span class="p">,</span> <span class="n">verify</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Start up a socket server on the specified port, and listen for new</span>
+<span class="sd">    configurations.</span>
+
+<span class="sd">    These will be sent as a file suitable for processing by fileConfig().</span>
+<span class="sd">    Returns a Thread object on which you can call start() to start the server,</span>
+<span class="sd">    and which you can join() when appropriate. To stop the server, call</span>
+<span class="sd">    stopListening().</span>
+
+<span class="sd">    Use the ``verify`` argument to verify any bytes received across the wire</span>
+<span class="sd">    from a client. If specified, it should be a callable which receives a</span>
+<span class="sd">    single argument - the bytes of configuration data received across the</span>
+<span class="sd">    network - and it should return either ``None``, to indicate that the</span>
+<span class="sd">    passed in bytes could not be verified and should be discarded, or a</span>
+<span class="sd">    byte string which is then passed to the configuration machinery as</span>
+<span class="sd">    normal. Note that you can return transformed bytes, e.g. by decrypting</span>
+<span class="sd">    the bytes passed in.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">thread</span><span class="p">:</span> <span class="c">#pragma: no cover</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s">&quot;listen() needs threading to work&quot;</span><span class="p">)</span>
+
+    <span class="k">class</span> <span class="nc">ConfigStreamHandler</span><span class="p">(</span><span class="n">StreamRequestHandler</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Handler for a logging configuration request.</span>
+
+<span class="sd">        It expects a completely new logging configuration and uses fileConfig</span>
+<span class="sd">        to install it.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">def</span> <span class="nf">handle</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">            Handle a request.</span>
+
+<span class="sd">            Each request is expected to be a 4-byte length, packed using</span>
+<span class="sd">            struct.pack(&quot;&gt;L&quot;, n), followed by the config file.</span>
+<span class="sd">            Uses fileConfig() to do the grunt work.</span>
+<span class="sd">            &quot;&quot;&quot;</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">conn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">connection</span>
+                <span class="n">chunk</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+                    <span class="n">slen</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s">&quot;&gt;L&quot;</span><span class="p">,</span> <span class="n">chunk</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="n">chunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">slen</span><span class="p">)</span>
+                    <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">slen</span><span class="p">:</span>
+                        <span class="n">chunk</span> <span class="o">=</span> <span class="n">chunk</span> <span class="o">+</span> <span class="n">conn</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">slen</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">))</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">verify</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                        <span class="n">chunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">verify</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">chunk</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>   <span class="c"># verified, can process</span>
+                        <span class="n">chunk</span> <span class="o">=</span> <span class="n">chunk</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&quot;utf-8&quot;</span><span class="p">)</span>
+                        <span class="k">try</span><span class="p">:</span>
+                            <span class="kn">import</span> <span class="nn">json</span>
+                            <span class="n">d</span> <span class="o">=</span><span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+                            <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span>
+                            <span class="n">dictConfig</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+                        <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                            <span class="c">#Apply new configuration.</span>
+
+                            <span class="nb">file</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+                            <span class="k">try</span><span class="p">:</span>
+                                <span class="n">fileConfig</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+                            <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                                <span class="n">traceback</span><span class="o">.</span><span class="n">print_exc</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">ready</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">ready</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">!=</span> <span class="n">RESET_ERROR</span><span class="p">:</span>
+                    <span class="k">raise</span>
+
+    <span class="k">class</span> <span class="nc">ConfigSocketReceiver</span><span class="p">(</span><span class="n">ThreadingTCPServer</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        A simple TCP socket-based logging config receiver.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="n">allow_reuse_address</span> <span class="o">=</span> <span class="mi">1</span>
+
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="n">DEFAULT_LOGGING_CONFIG_PORT</span><span class="p">,</span>
+                     <span class="n">handler</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">ready</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">verify</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="n">ThreadingTCPServer</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">),</span> <span class="n">handler</span><span class="p">)</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">_acquireLock</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">abort</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">_releaseLock</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ready</span> <span class="o">=</span> <span class="n">ready</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">verify</span> <span class="o">=</span> <span class="n">verify</span>
+
+        <span class="k">def</span> <span class="nf">serve_until_stopped</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="kn">import</span> <span class="nn">select</span>
+            <span class="n">abort</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">while</span> <span class="ow">not</span> <span class="n">abort</span><span class="p">:</span>
+                <span class="n">rd</span><span class="p">,</span> <span class="n">wr</span><span class="p">,</span> <span class="n">ex</span> <span class="o">=</span> <span class="n">select</span><span class="o">.</span><span class="n">select</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">fileno</span><span class="p">()],</span>
+                                           <span class="p">[],</span> <span class="p">[],</span>
+                                           <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">rd</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">handle_request</span><span class="p">()</span>
+                <span class="n">logging</span><span class="o">.</span><span class="n">_acquireLock</span><span class="p">()</span>
+                <span class="n">abort</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">abort</span>
+                <span class="n">logging</span><span class="o">.</span><span class="n">_releaseLock</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">class</span> <span class="nc">Server</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">):</span>
+
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rcvr</span><span class="p">,</span> <span class="n">hdlr</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">verify</span><span class="p">):</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">Server</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">rcvr</span> <span class="o">=</span> <span class="n">rcvr</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">hdlr</span> <span class="o">=</span> <span class="n">hdlr</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">port</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">verify</span> <span class="o">=</span> <span class="n">verify</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ready</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+
+        <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="n">server</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rcvr</span><span class="p">(</span><span class="n">port</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">handler</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">hdlr</span><span class="p">,</span>
+                               <span class="n">ready</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">ready</span><span class="p">,</span>
+                               <span class="n">verify</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">verify</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">server_address</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ready</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+            <span class="k">global</span> <span class="n">_listener</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">_acquireLock</span><span class="p">()</span>
+            <span class="n">_listener</span> <span class="o">=</span> <span class="n">server</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">_releaseLock</span><span class="p">()</span>
+            <span class="n">server</span><span class="o">.</span><span class="n">serve_until_stopped</span><span class="p">()</span>
+
+    <span class="k">return</span> <span class="n">Server</span><span class="p">(</span><span class="n">ConfigSocketReceiver</span><span class="p">,</span> <span class="n">ConfigStreamHandler</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">verify</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="stopListening"><a class="viewcode-back" href="../../logging.html#logging.config.stopListening">[docs]</a><span class="k">def</span> <span class="nf">stopListening</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Stop the listening server which was created with a call to listen().</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_listener</span>
+    <span class="n">logging</span><span class="o">.</span><span class="n">_acquireLock</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">_listener</span><span class="p">:</span>
+            <span class="n">_listener</span><span class="o">.</span><span class="n">abort</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">_listener</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">logging</span><span class="o">.</span><span class="n">_releaseLock</span><span class="p">()</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

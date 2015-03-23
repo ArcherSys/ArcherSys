@@ -1,0 +1,381 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_multiprocessing_main_handling &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_multiprocessing_main_handling</h1><div class="highlight"><pre>
+<span class="c"># tests __main__ module handling in multiprocessing</span>
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">support</span>
+<span class="c"># Skip tests if _thread or _multiprocessing wasn&#39;t built.</span>
+<span class="n">support</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s">&#39;_thread&#39;</span><span class="p">)</span>
+<span class="n">support</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s">&#39;_multiprocessing&#39;</span><span class="p">)</span>
+
+<span class="kn">import</span> <span class="nn">importlib</span>
+<span class="kn">import</span> <span class="nn">importlib.machinery</span>
+<span class="kn">import</span> <span class="nn">zipimport</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">os.path</span>
+<span class="kn">import</span> <span class="nn">py_compile</span>
+
+<span class="kn">from</span> <span class="nn">test.script_helper</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">make_pkg</span><span class="p">,</span> <span class="n">make_script</span><span class="p">,</span> <span class="n">make_zip_pkg</span><span class="p">,</span> <span class="n">make_zip_script</span><span class="p">,</span>
+    <span class="n">assert_python_ok</span><span class="p">,</span> <span class="n">assert_python_failure</span><span class="p">,</span> <span class="n">temp_dir</span><span class="p">,</span>
+    <span class="n">spawn_python</span><span class="p">,</span> <span class="n">kill_python</span><span class="p">)</span>
+
+<span class="c"># Look up which start methods are available to test</span>
+<span class="kn">import</span> <span class="nn">multiprocessing</span>
+<span class="n">AVAILABLE_START_METHODS</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">multiprocessing</span><span class="o">.</span><span class="n">get_all_start_methods</span><span class="p">())</span>
+
+<span class="c"># Issue #22332: Skip tests if sem_open implementation is broken.</span>
+<span class="n">support</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s">&#39;multiprocessing.synchronize&#39;</span><span class="p">)</span>
+
+<span class="n">verbose</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">verbose</span>
+
+<span class="n">test_source</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s"># multiprocessing includes all sorts of shenanigans to make __main__</span>
+<span class="s"># attributes accessible in the subprocess in a pickle compatible way.</span>
+
+<span class="s"># We run the &quot;doesn&#39;t work in the interactive interpreter&quot; example from</span>
+<span class="s"># the docs to make sure it *does* work from an executed __main__,</span>
+<span class="s"># regardless of the invocation mechanism</span>
+
+<span class="s">import sys</span>
+<span class="s">import time</span>
+<span class="s">from multiprocessing import Pool, set_start_method</span>
+
+<span class="s"># We use this __main__ defined function in the map call below in order to</span>
+<span class="s"># check that multiprocessing in correctly running the unguarded</span>
+<span class="s"># code in child processes and then making it available as __main__</span>
+<span class="s">def f(x):</span>
+<span class="s">    return x*x</span>
+
+<span class="s"># Check explicit relative imports</span>
+<span class="s">if &quot;check_sibling&quot; in __file__:</span>
+<span class="s">    # We&#39;re inside a package and not in a __main__.py file</span>
+<span class="s">    # so make sure explicit relative imports work correctly</span>
+<span class="s">    from . import sibling</span>
+
+<span class="s">if __name__ == &#39;__main__&#39;:</span>
+<span class="s">    start_method = sys.argv[1]</span>
+<span class="s">    set_start_method(start_method)</span>
+<span class="s">    p = Pool(5)</span>
+<span class="s">    results = []</span>
+<span class="s">    p.map_async(f, [1, 2, 3], callback=results.extend)</span>
+<span class="s">    deadline = time.time() + 10 # up to 10 s to report the results</span>
+<span class="s">    while not results:</span>
+<span class="s">        time.sleep(0.05)</span>
+<span class="s">        if time.time() &gt; deadline:</span>
+<span class="s">            raise RuntimeError(&quot;Timed out waiting for results&quot;)</span>
+<span class="s">    results.sort()</span>
+<span class="s">    print(start_method, &quot;-&gt;&quot;, results)</span>
+<span class="s">&quot;&quot;&quot;</span>
+
+<span class="n">test_source_main_skipped_in_children</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s"># __main__.py files have an implied &quot;if __name__ == &#39;__main__&#39;&quot; so</span>
+<span class="s"># multiprocessing should always skip running them in child processes</span>
+
+<span class="s"># This means we can&#39;t use __main__ defined functions in child processes,</span>
+<span class="s"># so we just use &quot;int&quot; as a passthrough operation below</span>
+
+<span class="s">if __name__ != &quot;__main__&quot;:</span>
+<span class="s">    raise RuntimeError(&quot;Should only be called as __main__!&quot;)</span>
+
+<span class="s">import sys</span>
+<span class="s">import time</span>
+<span class="s">from multiprocessing import Pool, set_start_method</span>
+
+<span class="s">start_method = sys.argv[1]</span>
+<span class="s">set_start_method(start_method)</span>
+<span class="s">p = Pool(5)</span>
+<span class="s">results = []</span>
+<span class="s">p.map_async(int, [1, 4, 9], callback=results.extend)</span>
+<span class="s">deadline = time.time() + 10 # up to 10 s to report the results</span>
+<span class="s">while not results:</span>
+<span class="s">    time.sleep(0.05)</span>
+<span class="s">    if time.time() &gt; deadline:</span>
+<span class="s">        raise RuntimeError(&quot;Timed out waiting for results&quot;)</span>
+<span class="s">results.sort()</span>
+<span class="s">print(start_method, &quot;-&gt;&quot;, results)</span>
+<span class="s">&quot;&quot;&quot;</span>
+
+<span class="c"># These helpers were copied from test_cmd_line_script &amp; tweaked a bit...</span>
+
+<span class="k">def</span> <span class="nf">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">script_basename</span><span class="p">,</span>
+                      <span class="n">source</span><span class="o">=</span><span class="n">test_source</span><span class="p">,</span> <span class="n">omit_suffix</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="n">to_return</span> <span class="o">=</span> <span class="n">make_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">script_basename</span><span class="p">,</span>
+                            <span class="n">source</span><span class="p">,</span> <span class="n">omit_suffix</span><span class="p">)</span>
+    <span class="c"># Hack to check explicit relative imports</span>
+    <span class="k">if</span> <span class="n">script_basename</span> <span class="o">==</span> <span class="s">&quot;check_sibling&quot;</span><span class="p">:</span>
+        <span class="n">make_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&quot;sibling&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">)</span>
+    <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">to_return</span>
+
+<span class="k">def</span> <span class="nf">_make_test_zip_pkg</span><span class="p">(</span><span class="n">zip_dir</span><span class="p">,</span> <span class="n">zip_basename</span><span class="p">,</span> <span class="n">pkg_name</span><span class="p">,</span> <span class="n">script_basename</span><span class="p">,</span>
+                       <span class="n">source</span><span class="o">=</span><span class="n">test_source</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+    <span class="n">to_return</span> <span class="o">=</span> <span class="n">make_zip_pkg</span><span class="p">(</span><span class="n">zip_dir</span><span class="p">,</span> <span class="n">zip_basename</span><span class="p">,</span> <span class="n">pkg_name</span><span class="p">,</span> <span class="n">script_basename</span><span class="p">,</span>
+                             <span class="n">source</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+    <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">to_return</span>
+
+<span class="c"># There&#39;s no easy way to pass the script directory in to get</span>
+<span class="c"># -m to work (avoiding that is the whole point of making</span>
+<span class="c"># directories and zipfiles executable!)</span>
+<span class="c"># So we fake it for testing purposes with a custom launch script</span>
+<span class="n">launch_source</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s">import sys, os.path, runpy</span>
+<span class="s">sys.path.insert(0, </span><span class="si">%s</span><span class="s">)</span>
+<span class="s">runpy._run_module_as_main(</span><span class="si">%r</span><span class="s">)</span>
+<span class="s">&quot;&quot;&quot;</span>
+
+<span class="k">def</span> <span class="nf">_make_launch_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">script_basename</span><span class="p">,</span> <span class="n">module_name</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">path</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="s">&quot;os.path.dirname(__file__)&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="n">source</span> <span class="o">=</span> <span class="n">launch_source</span> <span class="o">%</span> <span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">module_name</span><span class="p">)</span>
+    <span class="n">to_return</span> <span class="o">=</span> <span class="n">make_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">script_basename</span><span class="p">,</span> <span class="n">source</span><span class="p">)</span>
+    <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">to_return</span>
+
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin">[docs]</a><span class="k">class</span> <span class="nc">MultiProcessingCmdLineMixin</span><span class="p">():</span>
+    <span class="n">maxDiff</span> <span class="o">=</span> <span class="bp">None</span> <span class="c"># Show full tracebacks on subprocess failure</span>
+
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.setUp"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_method</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">AVAILABLE_START_METHODS</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">skipTest</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> start method not available&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_method</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_check_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">script_name</span><span class="p">,</span> <span class="n">exit_code</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;Output from test script </span><span class="si">%r</span><span class="s">:&quot;</span> <span class="o">%</span> <span class="n">script_name</span><span class="p">)</span>
+            <span class="k">print</span><span class="p">(</span><span class="n">out</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">exit_code</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">err</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">),</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="n">expected_results</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> -&gt; [1, 4, 9]&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_method</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">expected_results</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_script</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">script_name</span><span class="p">,</span> <span class="o">*</span><span class="n">cmd_line_switches</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">__debug__</span><span class="p">:</span>
+            <span class="n">cmd_line_switches</span> <span class="o">+=</span> <span class="p">(</span><span class="s">&#39;-&#39;</span> <span class="o">+</span> <span class="s">&#39;O&#39;</span> <span class="o">*</span> <span class="n">sys</span><span class="o">.</span><span class="n">flags</span><span class="o">.</span><span class="n">optimize</span><span class="p">,)</span>
+        <span class="n">run_args</span> <span class="o">=</span> <span class="n">cmd_line_switches</span> <span class="o">+</span> <span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_method</span><span class="p">)</span>
+        <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="o">*</span><span class="n">run_args</span><span class="p">,</span> <span class="n">__isolated</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_output</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_basic_script"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_basic_script">[docs]</a>    <span class="k">def</span> <span class="nf">test_basic_script</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;script&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_basic_script_no_suffix"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_basic_script_no_suffix">[docs]</a>    <span class="k">def</span> <span class="nf">test_basic_script_no_suffix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;script&#39;</span><span class="p">,</span>
+                                            <span class="n">omit_suffix</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_ipython_workaround"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_ipython_workaround">[docs]</a>    <span class="k">def</span> <span class="nf">test_ipython_workaround</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Some versions of the IPython launch script are missing the</span>
+        <span class="c"># __name__ = &quot;__main__&quot; guard, and multiprocessing has long had</span>
+        <span class="c"># a workaround for that case</span>
+        <span class="c"># See https://github.com/ipython/ipython/issues/4698</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="n">test_source_main_skipped_in_children</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;ipython&#39;</span><span class="p">,</span>
+                                            <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="n">script_no_suffix</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;ipython&#39;</span><span class="p">,</span>
+                                                 <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">,</span>
+                                                 <span class="n">omit_suffix</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_no_suffix</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_script_compiled"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_script_compiled">[docs]</a>    <span class="k">def</span> <span class="nf">test_script_compiled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;script&#39;</span><span class="p">)</span>
+            <span class="n">py_compile</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="n">pyc_file</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">make_legacy_pyc</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">pyc_file</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_directory"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_directory">[docs]</a>    <span class="k">def</span> <span class="nf">test_directory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">main_in_children_source</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;__main__&#39;</span><span class="p">,</span>
+                                            <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_directory_compiled"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_directory_compiled">[docs]</a>    <span class="k">def</span> <span class="nf">test_directory_compiled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">main_in_children_source</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;__main__&#39;</span><span class="p">,</span>
+                                            <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">)</span>
+            <span class="n">py_compile</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="n">pyc_file</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">make_legacy_pyc</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_zipfile"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_zipfile">[docs]</a>    <span class="k">def</span> <span class="nf">test_zipfile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">main_in_children_source</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;__main__&#39;</span><span class="p">,</span>
+                                            <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">)</span>
+            <span class="n">zip_name</span><span class="p">,</span> <span class="n">run_name</span> <span class="o">=</span> <span class="n">make_zip_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_zip&#39;</span><span class="p">,</span> <span class="n">script_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">zip_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_zipfile_compiled"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_zipfile_compiled">[docs]</a>    <span class="k">def</span> <span class="nf">test_zipfile_compiled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">main_in_children_source</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;__main__&#39;</span><span class="p">,</span>
+                                            <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">)</span>
+            <span class="n">compiled_name</span> <span class="o">=</span> <span class="n">py_compile</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">zip_name</span><span class="p">,</span> <span class="n">run_name</span> <span class="o">=</span> <span class="n">make_zip_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_zip&#39;</span><span class="p">,</span> <span class="n">compiled_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">zip_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_module_in_package"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_module_in_package">[docs]</a>    <span class="k">def</span> <span class="nf">test_module_in_package</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">pkg_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_pkg&#39;</span><span class="p">)</span>
+            <span class="n">make_pkg</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">)</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="s">&#39;check_sibling&#39;</span><span class="p">)</span>
+            <span class="n">launch_name</span> <span class="o">=</span> <span class="n">_make_launch_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;launch&#39;</span><span class="p">,</span>
+                                              <span class="s">&#39;test_pkg.check_sibling&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">launch_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_module_in_package_in_zipfile"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_module_in_package_in_zipfile">[docs]</a>    <span class="k">def</span> <span class="nf">test_module_in_package_in_zipfile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">zip_name</span><span class="p">,</span> <span class="n">run_name</span> <span class="o">=</span> <span class="n">_make_test_zip_pkg</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_zip&#39;</span><span class="p">,</span> <span class="s">&#39;test_pkg&#39;</span><span class="p">,</span> <span class="s">&#39;script&#39;</span><span class="p">)</span>
+            <span class="n">launch_name</span> <span class="o">=</span> <span class="n">_make_launch_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;launch&#39;</span><span class="p">,</span> <span class="s">&#39;test_pkg.script&#39;</span><span class="p">,</span> <span class="n">zip_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">launch_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_module_in_subpackage_in_zipfile"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_module_in_subpackage_in_zipfile">[docs]</a>    <span class="k">def</span> <span class="nf">test_module_in_subpackage_in_zipfile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">zip_name</span><span class="p">,</span> <span class="n">run_name</span> <span class="o">=</span> <span class="n">_make_test_zip_pkg</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_zip&#39;</span><span class="p">,</span> <span class="s">&#39;test_pkg&#39;</span><span class="p">,</span> <span class="s">&#39;script&#39;</span><span class="p">,</span> <span class="n">depth</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+            <span class="n">launch_name</span> <span class="o">=</span> <span class="n">_make_launch_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;launch&#39;</span><span class="p">,</span> <span class="s">&#39;test_pkg.test_pkg.script&#39;</span><span class="p">,</span> <span class="n">zip_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">launch_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_package"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_package">[docs]</a>    <span class="k">def</span> <span class="nf">test_package</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">main_in_children_source</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">pkg_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_pkg&#39;</span><span class="p">)</span>
+            <span class="n">make_pkg</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">)</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="s">&#39;__main__&#39;</span><span class="p">,</span>
+                                            <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">)</span>
+            <span class="n">launch_name</span> <span class="o">=</span> <span class="n">_make_launch_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;launch&#39;</span><span class="p">,</span> <span class="s">&#39;test_pkg&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">launch_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="MultiProcessingCmdLineMixin.test_package_compiled"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.MultiProcessingCmdLineMixin.test_package_compiled">[docs]</a>    <span class="k">def</span> <span class="nf">test_package_compiled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">main_in_children_source</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">pkg_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_pkg&#39;</span><span class="p">)</span>
+            <span class="n">make_pkg</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">)</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="n">_make_test_script</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="s">&#39;__main__&#39;</span><span class="p">,</span>
+                                            <span class="n">source</span><span class="o">=</span><span class="n">source</span><span class="p">)</span>
+            <span class="n">compiled_name</span> <span class="o">=</span> <span class="n">py_compile</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="n">pyc_file</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">make_legacy_pyc</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="n">launch_name</span> <span class="o">=</span> <span class="n">_make_launch_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;launch&#39;</span><span class="p">,</span> <span class="s">&#39;test_pkg&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">launch_name</span><span class="p">)</span>
+
+<span class="c"># Test all supported start methods (setupClass skips as appropriate)</span>
+</div></div>
+<div class="viewcode-block" id="SpawnCmdLineTest"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.SpawnCmdLineTest">[docs]</a><span class="k">class</span> <span class="nc">SpawnCmdLineTest</span><span class="p">(</span><span class="n">MultiProcessingCmdLineMixin</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">start_method</span> <span class="o">=</span> <span class="s">&#39;spawn&#39;</span>
+    <span class="n">main_in_children_source</span> <span class="o">=</span> <span class="n">test_source_main_skipped_in_children</span>
+</div>
+<div class="viewcode-block" id="ForkCmdLineTest"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.ForkCmdLineTest">[docs]</a><span class="k">class</span> <span class="nc">ForkCmdLineTest</span><span class="p">(</span><span class="n">MultiProcessingCmdLineMixin</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">start_method</span> <span class="o">=</span> <span class="s">&#39;fork&#39;</span>
+    <span class="n">main_in_children_source</span> <span class="o">=</span> <span class="n">test_source</span>
+</div>
+<div class="viewcode-block" id="ForkServerCmdLineTest"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.ForkServerCmdLineTest">[docs]</a><span class="k">class</span> <span class="nc">ForkServerCmdLineTest</span><span class="p">(</span><span class="n">MultiProcessingCmdLineMixin</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">start_method</span> <span class="o">=</span> <span class="s">&#39;forkserver&#39;</span>
+    <span class="n">main_in_children_source</span> <span class="o">=</span> <span class="n">test_source_main_skipped_in_children</span>
+</div>
+<div class="viewcode-block" id="tearDownModule"><a class="viewcode-back" href="../../test.html#test.test_multiprocessing_main_handling.tearDownModule">[docs]</a><span class="k">def</span> <span class="nf">tearDownModule</span><span class="p">():</span>
+    <span class="n">support</span><span class="o">.</span><span class="n">reap_children</span><span class="p">()</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">unittest</span><span class="o">.</span><span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

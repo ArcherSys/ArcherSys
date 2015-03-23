@@ -1,0 +1,294 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>distutils.command.upload &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for distutils.command.upload</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.command.upload</span>
+
+<span class="sd">Implements the Distutils &#39;upload&#39; subcommand (upload package to PyPI).&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">platform</span>
+<span class="kn">from</span> <span class="nn">base64</span> <span class="kn">import</span> <span class="n">standard_b64encode</span>
+<span class="kn">from</span> <span class="nn">urllib.request</span> <span class="kn">import</span> <span class="n">urlopen</span><span class="p">,</span> <span class="n">Request</span><span class="p">,</span> <span class="n">HTTPError</span>
+<span class="kn">from</span> <span class="nn">urllib.parse</span> <span class="kn">import</span> <span class="n">urlparse</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="n">DistutilsError</span><span class="p">,</span> <span class="n">DistutilsOptionError</span>
+<span class="kn">from</span> <span class="nn">distutils.core</span> <span class="kn">import</span> <span class="n">PyPIRCCommand</span>
+<span class="kn">from</span> <span class="nn">distutils.spawn</span> <span class="kn">import</span> <span class="n">spawn</span>
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">log</span>
+
+<span class="c"># this keeps compatibility for 2.3 and 2.4</span>
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">version</span> <span class="o">&lt;</span> <span class="s">&quot;2.5&quot;</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">md5</span> <span class="kn">import</span> <span class="n">md5</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">hashlib</span> <span class="kn">import</span> <span class="n">md5</span>
+
+<div class="viewcode-block" id="upload"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.upload.upload">[docs]</a><span class="k">class</span> <span class="nc">upload</span><span class="p">(</span><span class="n">PyPIRCCommand</span><span class="p">):</span>
+
+    <span class="n">description</span> <span class="o">=</span> <span class="s">&quot;upload binary package to PyPI&quot;</span>
+
+    <span class="n">user_options</span> <span class="o">=</span> <span class="n">PyPIRCCommand</span><span class="o">.</span><span class="n">user_options</span> <span class="o">+</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s">&#39;sign&#39;</span><span class="p">,</span> <span class="s">&#39;s&#39;</span><span class="p">,</span>
+         <span class="s">&#39;sign files to upload using gpg&#39;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;identity=&#39;</span><span class="p">,</span> <span class="s">&#39;i&#39;</span><span class="p">,</span> <span class="s">&#39;GPG identity used to sign files&#39;</span><span class="p">),</span>
+        <span class="p">]</span>
+
+    <span class="n">boolean_options</span> <span class="o">=</span> <span class="n">PyPIRCCommand</span><span class="o">.</span><span class="n">boolean_options</span> <span class="o">+</span> <span class="p">[</span><span class="s">&#39;sign&#39;</span><span class="p">]</span>
+
+<div class="viewcode-block" id="upload.initialize_options"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.upload.upload.initialize_options">[docs]</a>    <span class="k">def</span> <span class="nf">initialize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">PyPIRCCommand</span><span class="o">.</span><span class="n">initialize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">username</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">password</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">show_response</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sign</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">identity</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="upload.finalize_options"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.upload.upload.finalize_options">[docs]</a>    <span class="k">def</span> <span class="nf">finalize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">PyPIRCCommand</span><span class="o">.</span><span class="n">finalize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">identity</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">sign</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span>
+                <span class="s">&quot;Must use --sign for --identity to have meaning&quot;</span>
+            <span class="p">)</span>
+        <span class="n">config</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_pypirc</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">config</span> <span class="o">!=</span> <span class="p">{}:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">username</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">password</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s">&#39;password&#39;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">repository</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s">&#39;repository&#39;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">realm</span> <span class="o">=</span> <span class="n">config</span><span class="p">[</span><span class="s">&#39;realm&#39;</span><span class="p">]</span>
+
+        <span class="c"># getting the password from the distribution</span>
+        <span class="c"># if previously set by the register command</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">password</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">password</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">password</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">password</span>
+</div>
+<div class="viewcode-block" id="upload.run"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.upload.upload.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">dist_files</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span><span class="s">&quot;No dist file created in earlier command&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">command</span><span class="p">,</span> <span class="n">pyversion</span><span class="p">,</span> <span class="n">filename</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">dist_files</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">upload_file</span><span class="p">(</span><span class="n">command</span><span class="p">,</span> <span class="n">pyversion</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="upload.upload_file"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.upload.upload.upload_file">[docs]</a>    <span class="k">def</span> <span class="nf">upload_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">pyversion</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="c"># Makes sure the repository URL is compliant</span>
+        <span class="n">schema</span><span class="p">,</span> <span class="n">netloc</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">fragments</span> <span class="o">=</span> \
+            <span class="n">urlparse</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">params</span> <span class="ow">or</span> <span class="n">query</span> <span class="ow">or</span> <span class="n">fragments</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&quot;Incompatible url </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">schema</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;http&#39;</span><span class="p">,</span> <span class="s">&#39;https&#39;</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&quot;unsupported schema &quot;</span> <span class="o">+</span> <span class="n">schema</span><span class="p">)</span>
+
+        <span class="c"># Sign if requested</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sign</span><span class="p">:</span>
+            <span class="n">gpg_args</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;gpg&quot;</span><span class="p">,</span> <span class="s">&quot;--detach-sign&quot;</span><span class="p">,</span> <span class="s">&quot;-a&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">]</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">identity</span><span class="p">:</span>
+                <span class="n">gpg_args</span><span class="p">[</span><span class="mi">2</span><span class="p">:</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;--local-user&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">identity</span><span class="p">]</span>
+            <span class="n">spawn</span><span class="p">(</span><span class="n">gpg_args</span><span class="p">,</span>
+                  <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+
+        <span class="c"># Fill in the data - send all the meta-data in case we need to</span>
+        <span class="c"># register a new release</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span><span class="s">&#39;rb&#39;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">content</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">meta</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">metadata</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="c"># action</span>
+            <span class="s">&#39;:action&#39;</span><span class="p">:</span> <span class="s">&#39;file_upload&#39;</span><span class="p">,</span>
+            <span class="s">&#39;protcol_version&#39;</span><span class="p">:</span> <span class="s">&#39;1&#39;</span><span class="p">,</span>
+
+            <span class="c"># identify release</span>
+            <span class="s">&#39;name&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_name</span><span class="p">(),</span>
+            <span class="s">&#39;version&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_version</span><span class="p">(),</span>
+
+            <span class="c"># file content</span>
+            <span class="s">&#39;content&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">filename</span><span class="p">),</span><span class="n">content</span><span class="p">),</span>
+            <span class="s">&#39;filetype&#39;</span><span class="p">:</span> <span class="n">command</span><span class="p">,</span>
+            <span class="s">&#39;pyversion&#39;</span><span class="p">:</span> <span class="n">pyversion</span><span class="p">,</span>
+            <span class="s">&#39;md5_digest&#39;</span><span class="p">:</span> <span class="n">md5</span><span class="p">(</span><span class="n">content</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">(),</span>
+
+            <span class="c"># additional meta-data</span>
+            <span class="s">&#39;metadata_version&#39;</span> <span class="p">:</span> <span class="s">&#39;1.0&#39;</span><span class="p">,</span>
+            <span class="s">&#39;summary&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_description</span><span class="p">(),</span>
+            <span class="s">&#39;home_page&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_url</span><span class="p">(),</span>
+            <span class="s">&#39;author&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_contact</span><span class="p">(),</span>
+            <span class="s">&#39;author_email&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_contact_email</span><span class="p">(),</span>
+            <span class="s">&#39;license&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_licence</span><span class="p">(),</span>
+            <span class="s">&#39;description&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_long_description</span><span class="p">(),</span>
+            <span class="s">&#39;keywords&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_keywords</span><span class="p">(),</span>
+            <span class="s">&#39;platform&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_platforms</span><span class="p">(),</span>
+            <span class="s">&#39;classifiers&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_classifiers</span><span class="p">(),</span>
+            <span class="s">&#39;download_url&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_download_url</span><span class="p">(),</span>
+            <span class="c"># PEP 314</span>
+            <span class="s">&#39;provides&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_provides</span><span class="p">(),</span>
+            <span class="s">&#39;requires&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_requires</span><span class="p">(),</span>
+            <span class="s">&#39;obsoletes&#39;</span><span class="p">:</span> <span class="n">meta</span><span class="o">.</span><span class="n">get_obsoletes</span><span class="p">(),</span>
+            <span class="p">}</span>
+        <span class="n">comment</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">command</span> <span class="o">==</span> <span class="s">&#39;bdist_rpm&#39;</span><span class="p">:</span>
+            <span class="n">dist</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="nb">id</span> <span class="o">=</span> <span class="n">platform</span><span class="o">.</span><span class="n">dist</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">dist</span><span class="p">:</span>
+                <span class="n">comment</span> <span class="o">=</span> <span class="s">&#39;built for </span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">dist</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">command</span> <span class="o">==</span> <span class="s">&#39;bdist_dumb&#39;</span><span class="p">:</span>
+            <span class="n">comment</span> <span class="o">=</span> <span class="s">&#39;built for </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">platform</span><span class="o">.</span><span class="n">platform</span><span class="p">(</span><span class="n">terse</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">data</span><span class="p">[</span><span class="s">&#39;comment&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">comment</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sign</span><span class="p">:</span>
+            <span class="n">data</span><span class="p">[</span><span class="s">&#39;gpg_signature&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span> <span class="o">+</span> <span class="s">&quot;.asc&quot;</span><span class="p">,</span>
+                                     <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="o">+</span><span class="s">&quot;.asc&quot;</span><span class="p">,</span> <span class="s">&quot;rb&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
+
+        <span class="c"># set up the authentication</span>
+        <span class="n">user_pass</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">username</span> <span class="o">+</span> <span class="s">&quot;:&quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">password</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+        <span class="c"># The exact encoding of the authentication string is debated.</span>
+        <span class="c"># Anyway PyPI only accepts ascii for both username or password.</span>
+        <span class="n">auth</span> <span class="o">=</span> <span class="s">&quot;Basic &quot;</span> <span class="o">+</span> <span class="n">standard_b64encode</span><span class="p">(</span><span class="n">user_pass</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+
+        <span class="c"># Build up the MIME payload for the POST data</span>
+        <span class="n">boundary</span> <span class="o">=</span> <span class="s">&#39;--------------GHSKFJDLGDS7543FJKLFHRE75642756743254&#39;</span>
+        <span class="n">sep_boundary</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">--&#39;</span> <span class="o">+</span> <span class="n">boundary</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+        <span class="n">end_boundary</span> <span class="o">=</span> <span class="n">sep_boundary</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;--&#39;</span>
+        <span class="n">body</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">title</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">Content-Disposition: form-data; name=&quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="n">key</span>
+            <span class="c"># handle multiple entries for the same name</span>
+            <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">type</span><span class="p">([]):</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="p">[</span><span class="n">value</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+                <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">tuple</span><span class="p">:</span>
+                    <span class="n">title</span> <span class="o">+=</span> <span class="s">&#39;; filename=&quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                    <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">value</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+                <span class="n">body</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">sep_boundary</span><span class="p">)</span>
+                <span class="n">body</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">title</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">))</span>
+                <span class="n">body</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;</span><span class="se">\n\n</span><span class="s">&quot;</span><span class="p">)</span>
+                <span class="n">body</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">value</span> <span class="ow">and</span> <span class="n">value</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span><span class="p">:</span>
+                    <span class="n">body</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>  <span class="c"># write an extra newline (lurve Macs)</span>
+        <span class="n">body</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">end_boundary</span><span class="p">)</span>
+        <span class="n">body</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+        <span class="n">body</span> <span class="o">=</span> <span class="n">body</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">announce</span><span class="p">(</span><span class="s">&quot;Submitting </span><span class="si">%s</span><span class="s"> to </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="p">),</span> <span class="n">log</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+
+        <span class="c"># build the Request</span>
+        <span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;Content-type&#39;</span><span class="p">:</span>
+                        <span class="s">&#39;multipart/form-data; boundary=</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">boundary</span><span class="p">,</span>
+                   <span class="s">&#39;Content-length&#39;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">body</span><span class="p">)),</span>
+                   <span class="s">&#39;Authorization&#39;</span><span class="p">:</span> <span class="n">auth</span><span class="p">}</span>
+
+        <span class="n">request</span> <span class="o">=</span> <span class="n">Request</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">repository</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">body</span><span class="p">,</span>
+                          <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">)</span>
+        <span class="c"># send the data</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">urlopen</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">getcode</span><span class="p">()</span>
+            <span class="n">reason</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">msg</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">announce</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">),</span> <span class="n">log</span><span class="o">.</span><span class="n">ERROR</span><span class="p">)</span>
+            <span class="k">raise</span>
+        <span class="k">except</span> <span class="n">HTTPError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="n">e</span><span class="o">.</span><span class="n">code</span>
+            <span class="n">reason</span> <span class="o">=</span> <span class="n">e</span><span class="o">.</span><span class="n">msg</span>
+
+        <span class="k">if</span> <span class="n">status</span> <span class="o">==</span> <span class="mi">200</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">announce</span><span class="p">(</span><span class="s">&#39;Server response (</span><span class="si">%s</span><span class="s">): </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">status</span><span class="p">,</span> <span class="n">reason</span><span class="p">),</span>
+                          <span class="n">log</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&#39;Upload failed (</span><span class="si">%s</span><span class="s">): </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">status</span><span class="p">,</span> <span class="n">reason</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">announce</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="n">log</span><span class="o">.</span><span class="n">ERROR</span><span class="p">)</span>
+            <span class="k">raise</span> <span class="n">DistutilsError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">show_response</span><span class="p">:</span>
+            <span class="n">text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_pypi_response</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">((</span><span class="s">&#39;-&#39;</span> <span class="o">*</span> <span class="mi">75</span><span class="p">,</span> <span class="n">text</span><span class="p">,</span> <span class="s">&#39;-&#39;</span> <span class="o">*</span> <span class="mi">75</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">announce</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="n">log</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

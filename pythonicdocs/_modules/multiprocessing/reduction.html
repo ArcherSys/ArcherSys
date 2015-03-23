@@ -1,0 +1,332 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>multiprocessing.reduction &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for multiprocessing.reduction</h1><div class="highlight"><pre>
+<span class="c">#</span>
+<span class="c"># Module which deals with pickling of objects.</span>
+<span class="c">#</span>
+<span class="c"># multiprocessing/reduction.py</span>
+<span class="c">#</span>
+<span class="c"># Copyright (c) 2006-2008, R Oudkerk</span>
+<span class="c"># Licensed to PSF under a Contributor Agreement.</span>
+<span class="c">#</span>
+
+<span class="kn">import</span> <span class="nn">copyreg</span>
+<span class="kn">import</span> <span class="nn">functools</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">context</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;send_handle&#39;</span><span class="p">,</span> <span class="s">&#39;recv_handle&#39;</span><span class="p">,</span> <span class="s">&#39;ForkingPickler&#39;</span><span class="p">,</span> <span class="s">&#39;register&#39;</span><span class="p">,</span> <span class="s">&#39;dump&#39;</span><span class="p">]</span>
+
+
+<span class="n">HAVE_SEND_HANDLE</span> <span class="o">=</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span> <span class="ow">or</span>
+                    <span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="s">&#39;CMSG_LEN&#39;</span><span class="p">)</span> <span class="ow">and</span>
+                     <span class="nb">hasattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="s">&#39;SCM_RIGHTS&#39;</span><span class="p">)</span> <span class="ow">and</span>
+                     <span class="nb">hasattr</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">,</span> <span class="s">&#39;sendmsg&#39;</span><span class="p">)))</span>
+
+<span class="c">#</span>
+<span class="c"># Pickler subclass</span>
+<span class="c">#</span>
+
+<div class="viewcode-block" id="ForkingPickler"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.ForkingPickler">[docs]</a><span class="k">class</span> <span class="nc">ForkingPickler</span><span class="p">(</span><span class="n">pickle</span><span class="o">.</span><span class="n">Pickler</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Pickler subclass used by multiprocessing.&#39;&#39;&#39;</span>
+    <span class="n">_extra_reducers</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">_copyreg_dispatch_table</span> <span class="o">=</span> <span class="n">copyreg</span><span class="o">.</span><span class="n">dispatch_table</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dispatch_table</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_copyreg_dispatch_table</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dispatch_table</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_extra_reducers</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="ForkingPickler.register"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.ForkingPickler.register">[docs]</a>    <span class="k">def</span> <span class="nf">register</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="nb">reduce</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Register a reduce function for a type.&#39;&#39;&#39;</span>
+        <span class="n">cls</span><span class="o">.</span><span class="n">_extra_reducers</span><span class="p">[</span><span class="nb">type</span><span class="p">]</span> <span class="o">=</span> <span class="nb">reduce</span>
+</div>
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="ForkingPickler.dumps"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.ForkingPickler.dumps">[docs]</a>    <span class="k">def</span> <span class="nf">dumps</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">protocol</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">buf</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+        <span class="n">cls</span><span class="p">(</span><span class="n">buf</span><span class="p">,</span> <span class="n">protocol</span><span class="p">)</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">buf</span><span class="o">.</span><span class="n">getbuffer</span><span class="p">()</span>
+</div>
+    <span class="n">loads</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">loads</span>
+</div>
+<span class="n">register</span> <span class="o">=</span> <span class="n">ForkingPickler</span><span class="o">.</span><span class="n">register</span>
+
+<div class="viewcode-block" id="dump"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.dump">[docs]</a><span class="k">def</span> <span class="nf">dump</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="nb">file</span><span class="p">,</span> <span class="n">protocol</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Replacement for pickle.dump() using ForkingPickler.&#39;&#39;&#39;</span>
+    <span class="n">ForkingPickler</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">protocol</span><span class="p">)</span><span class="o">.</span><span class="n">dump</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Platform specific definitions</span>
+<span class="c">#</span>
+</div>
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+    <span class="c"># Windows</span>
+    <span class="n">__all__</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&#39;DupHandle&#39;</span><span class="p">,</span> <span class="s">&#39;duplicate&#39;</span><span class="p">,</span> <span class="s">&#39;steal_handle&#39;</span><span class="p">]</span>
+    <span class="kn">import</span> <span class="nn">_winapi</span>
+
+<div class="viewcode-block" id="duplicate"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.duplicate">[docs]</a>    <span class="k">def</span> <span class="nf">duplicate</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">target_process</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">inheritable</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Duplicate a handle.  (target_process is a handle not a pid!)&#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">target_process</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">target_process</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GetCurrentProcess</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">DuplicateHandle</span><span class="p">(</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">GetCurrentProcess</span><span class="p">(),</span> <span class="n">handle</span><span class="p">,</span> <span class="n">target_process</span><span class="p">,</span>
+            <span class="mi">0</span><span class="p">,</span> <span class="n">inheritable</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">DUPLICATE_SAME_ACCESS</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="steal_handle"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.steal_handle">[docs]</a>    <span class="k">def</span> <span class="nf">steal_handle</span><span class="p">(</span><span class="n">source_pid</span><span class="p">,</span> <span class="n">handle</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Steal a handle from process identified by source_pid.&#39;&#39;&#39;</span>
+        <span class="n">source_process_handle</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">OpenProcess</span><span class="p">(</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">PROCESS_DUP_HANDLE</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">source_pid</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">DuplicateHandle</span><span class="p">(</span>
+                <span class="n">source_process_handle</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">GetCurrentProcess</span><span class="p">(),</span> <span class="mi">0</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">DUPLICATE_SAME_ACCESS</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">DUPLICATE_CLOSE_SOURCE</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="n">source_process_handle</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">send_handle</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">destination_pid</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Send a handle over a local connection.&#39;&#39;&#39;</span>
+        <span class="n">dh</span> <span class="o">=</span> <span class="n">DupHandle</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">DUPLICATE_SAME_ACCESS</span><span class="p">,</span> <span class="n">destination_pid</span><span class="p">)</span>
+        <span class="n">conn</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">dh</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">recv_handle</span><span class="p">(</span><span class="n">conn</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Receive a handle over a local connection.&#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="n">conn</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+
+<div class="viewcode-block" id="DupHandle"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.DupHandle">[docs]</a>    <span class="k">class</span> <span class="nc">DupHandle</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Picklable wrapper for a handle.&#39;&#39;&#39;</span>
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">access</span><span class="p">,</span> <span class="n">pid</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">pid</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="c"># We just duplicate the handle in the current process and</span>
+                <span class="c"># let the receiving process steal the handle.</span>
+                <span class="n">pid</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span>
+            <span class="n">proc</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">OpenProcess</span><span class="p">(</span><span class="n">_winapi</span><span class="o">.</span><span class="n">PROCESS_DUP_HANDLE</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">pid</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">DuplicateHandle</span><span class="p">(</span>
+                    <span class="n">_winapi</span><span class="o">.</span><span class="n">GetCurrentProcess</span><span class="p">(),</span>
+                    <span class="n">handle</span><span class="p">,</span> <span class="n">proc</span><span class="p">,</span> <span class="n">access</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="n">proc</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_access</span> <span class="o">=</span> <span class="n">access</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pid</span> <span class="o">=</span> <span class="n">pid</span>
+
+<div class="viewcode-block" id="DupHandle.detach"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.DupHandle.detach">[docs]</a>        <span class="k">def</span> <span class="nf">detach</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="sd">&#39;&#39;&#39;Get the handle.  This should only be called once.&#39;&#39;&#39;</span>
+            <span class="c"># retrieve handle from process which currently owns it</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pid</span> <span class="o">==</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">():</span>
+                <span class="c"># The handle has already been duplicated for this process.</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span>
+            <span class="c"># We must steal the handle from the process whose pid is self._pid.</span>
+            <span class="n">proc</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">OpenProcess</span><span class="p">(</span><span class="n">_winapi</span><span class="o">.</span><span class="n">PROCESS_DUP_HANDLE</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span>
+                                       <span class="bp">self</span><span class="o">.</span><span class="n">_pid</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">DuplicateHandle</span><span class="p">(</span>
+                    <span class="n">proc</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GetCurrentProcess</span><span class="p">(),</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_access</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">DUPLICATE_CLOSE_SOURCE</span><span class="p">)</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="n">proc</span><span class="p">)</span>
+</div></div>
+<span class="k">else</span><span class="p">:</span>
+    <span class="c"># Unix</span>
+    <span class="n">__all__</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&#39;DupFd&#39;</span><span class="p">,</span> <span class="s">&#39;sendfds&#39;</span><span class="p">,</span> <span class="s">&#39;recvfds&#39;</span><span class="p">]</span>
+    <span class="kn">import</span> <span class="nn">array</span>
+
+    <span class="c"># On MacOSX we should acknowledge receipt of fds -- see Issue14669</span>
+    <span class="n">ACKNOWLEDGE</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span>
+
+    <span class="k">def</span> <span class="nf">sendfds</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="n">fds</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Send an array of fds over an AF_UNIX socket.&#39;&#39;&#39;</span>
+        <span class="n">fds</span> <span class="o">=</span> <span class="n">array</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="s">&#39;i&#39;</span><span class="p">,</span> <span class="n">fds</span><span class="p">)</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">([</span><span class="nb">len</span><span class="p">(</span><span class="n">fds</span><span class="p">)</span> <span class="o">%</span> <span class="mi">256</span><span class="p">])</span>
+        <span class="n">sock</span><span class="o">.</span><span class="n">sendmsg</span><span class="p">([</span><span class="n">msg</span><span class="p">],</span> <span class="p">[(</span><span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SCM_RIGHTS</span><span class="p">,</span> <span class="n">fds</span><span class="p">)])</span>
+        <span class="k">if</span> <span class="n">ACKNOWLEDGE</span> <span class="ow">and</span> <span class="n">sock</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="o">!=</span> <span class="n">b</span><span class="s">&#39;A&#39;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;did not receive acknowledgement of fd&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">recvfds</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Receive an array of fds over an AF_UNIX socket.&#39;&#39;&#39;</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">array</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="s">&#39;i&#39;</span><span class="p">)</span>
+        <span class="n">bytes_size</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">itemsize</span> <span class="o">*</span> <span class="n">size</span>
+        <span class="n">msg</span><span class="p">,</span> <span class="n">ancdata</span><span class="p">,</span> <span class="n">flags</span><span class="p">,</span> <span class="n">addr</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">recvmsg</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">CMSG_LEN</span><span class="p">(</span><span class="n">bytes_size</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">msg</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">ancdata</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">EOFError</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">ACKNOWLEDGE</span><span class="p">:</span>
+                <span class="n">sock</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;A&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">ancdata</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;received </span><span class="si">%d</span><span class="s"> items of ancdata&#39;</span> <span class="o">%</span>
+                                   <span class="nb">len</span><span class="p">(</span><span class="n">ancdata</span><span class="p">))</span>
+            <span class="n">cmsg_level</span><span class="p">,</span> <span class="n">cmsg_type</span><span class="p">,</span> <span class="n">cmsg_data</span> <span class="o">=</span> <span class="n">ancdata</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">cmsg_level</span> <span class="o">==</span> <span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span> <span class="ow">and</span>
+                <span class="n">cmsg_type</span> <span class="o">==</span> <span class="n">socket</span><span class="o">.</span><span class="n">SCM_RIGHTS</span><span class="p">):</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">cmsg_data</span><span class="p">)</span> <span class="o">%</span> <span class="n">a</span><span class="o">.</span><span class="n">itemsize</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span>
+                <span class="n">a</span><span class="o">.</span><span class="n">frombytes</span><span class="p">(</span><span class="n">cmsg_data</span><span class="p">)</span>
+                <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">a</span><span class="p">)</span> <span class="o">%</span> <span class="mi">256</span> <span class="o">==</span> <span class="n">msg</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">IndexError</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Invalid data received&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="send_handle"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.send_handle">[docs]</a>    <span class="k">def</span> <span class="nf">send_handle</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">destination_pid</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Send a handle over a local connection.&#39;&#39;&#39;</span>
+        <span class="k">with</span> <span class="n">socket</span><span class="o">.</span><span class="n">fromfd</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">socket</span><span class="o">.</span><span class="n">AF_UNIX</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SOCK_STREAM</span><span class="p">)</span> <span class="k">as</span> <span class="n">s</span><span class="p">:</span>
+            <span class="n">sendfds</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="p">[</span><span class="n">handle</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="recv_handle"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.reduction.recv_handle">[docs]</a>    <span class="k">def</span> <span class="nf">recv_handle</span><span class="p">(</span><span class="n">conn</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Receive a handle over a local connection.&#39;&#39;&#39;</span>
+        <span class="k">with</span> <span class="n">socket</span><span class="o">.</span><span class="n">fromfd</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">socket</span><span class="o">.</span><span class="n">AF_UNIX</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SOCK_STREAM</span><span class="p">)</span> <span class="k">as</span> <span class="n">s</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">recvfds</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+</div>
+    <span class="k">def</span> <span class="nf">DupFd</span><span class="p">(</span><span class="n">fd</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Return a wrapper for an fd.&#39;&#39;&#39;</span>
+        <span class="n">popen_obj</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">get_spawning_popen</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">popen_obj</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">popen_obj</span><span class="o">.</span><span class="n">DupFd</span><span class="p">(</span><span class="n">popen_obj</span><span class="o">.</span><span class="n">duplicate_for_child</span><span class="p">(</span><span class="n">fd</span><span class="p">))</span>
+        <span class="k">elif</span> <span class="n">HAVE_SEND_HANDLE</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">resource_sharer</span>
+            <span class="k">return</span> <span class="n">resource_sharer</span><span class="o">.</span><span class="n">DupFd</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;SCM_RIGHTS appears not to be available&#39;</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Try making some callable types picklable</span>
+<span class="c">#</span>
+
+<span class="k">def</span> <span class="nf">_reduce_method</span><span class="p">(</span><span class="n">m</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">m</span><span class="o">.</span><span class="n">__self__</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">,</span> <span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">__func__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">,</span> <span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">__self__</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">__func__</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+<span class="k">class</span> <span class="nc">_C</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">f</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+<span class="n">register</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">_C</span><span class="p">()</span><span class="o">.</span><span class="n">f</span><span class="p">),</span> <span class="n">_reduce_method</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_reduce_method_descriptor</span><span class="p">(</span><span class="n">m</span><span class="p">):</span>
+    <span class="k">return</span> <span class="nb">getattr</span><span class="p">,</span> <span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">__objclass__</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+<span class="n">register</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="nb">list</span><span class="o">.</span><span class="n">append</span><span class="p">),</span> <span class="n">_reduce_method_descriptor</span><span class="p">)</span>
+<span class="n">register</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="nb">int</span><span class="o">.</span><span class="n">__add__</span><span class="p">),</span> <span class="n">_reduce_method_descriptor</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_reduce_partial</span><span class="p">(</span><span class="n">p</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">_rebuild_partial</span><span class="p">,</span> <span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">func</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">args</span><span class="p">,</span> <span class="n">p</span><span class="o">.</span><span class="n">keywords</span> <span class="ow">or</span> <span class="p">{})</span>
+<span class="k">def</span> <span class="nf">_rebuild_partial</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">keywords</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">keywords</span><span class="p">)</span>
+<span class="n">register</span><span class="p">(</span><span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">,</span> <span class="n">_reduce_partial</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Make sockets picklable</span>
+<span class="c">#</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">_reduce_socket</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+        <span class="kn">from</span> <span class="nn">.resource_sharer</span> <span class="kn">import</span> <span class="n">DupSocket</span>
+        <span class="k">return</span> <span class="n">_rebuild_socket</span><span class="p">,</span> <span class="p">(</span><span class="n">DupSocket</span><span class="p">(</span><span class="n">s</span><span class="p">),)</span>
+    <span class="k">def</span> <span class="nf">_rebuild_socket</span><span class="p">(</span><span class="n">ds</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ds</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+    <span class="n">register</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">,</span> <span class="n">_reduce_socket</span><span class="p">)</span>
+
+<span class="k">else</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">_reduce_socket</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">DupFd</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">_rebuild_socket</span><span class="p">,</span> <span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">family</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">type</span><span class="p">,</span> <span class="n">s</span><span class="o">.</span><span class="n">proto</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">_rebuild_socket</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">family</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="n">proto</span><span class="p">):</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">(</span><span class="n">family</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="n">proto</span><span class="p">,</span> <span class="n">fileno</span><span class="o">=</span><span class="n">fd</span><span class="p">)</span>
+    <span class="n">register</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">,</span> <span class="n">_reduce_socket</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

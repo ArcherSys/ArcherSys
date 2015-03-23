@@ -1,0 +1,742 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>distutils.command.install &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for distutils.command.install</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.command.install</span>
+
+<span class="sd">Implements the Distutils &#39;install&#39; command.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">os</span>
+
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">log</span>
+<span class="kn">from</span> <span class="nn">distutils.core</span> <span class="kn">import</span> <span class="n">Command</span>
+<span class="kn">from</span> <span class="nn">distutils.debug</span> <span class="kn">import</span> <span class="n">DEBUG</span>
+<span class="kn">from</span> <span class="nn">distutils.sysconfig</span> <span class="kn">import</span> <span class="n">get_config_vars</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="n">DistutilsPlatformError</span>
+<span class="kn">from</span> <span class="nn">distutils.file_util</span> <span class="kn">import</span> <span class="n">write_file</span>
+<span class="kn">from</span> <span class="nn">distutils.util</span> <span class="kn">import</span> <span class="n">convert_path</span><span class="p">,</span> <span class="n">subst_vars</span><span class="p">,</span> <span class="n">change_root</span>
+<span class="kn">from</span> <span class="nn">distutils.util</span> <span class="kn">import</span> <span class="n">get_platform</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="n">DistutilsOptionError</span>
+
+<span class="kn">from</span> <span class="nn">site</span> <span class="kn">import</span> <span class="n">USER_BASE</span>
+<span class="kn">from</span> <span class="nn">site</span> <span class="kn">import</span> <span class="n">USER_SITE</span>
+<span class="n">HAS_USER_SITE</span> <span class="o">=</span> <span class="bp">True</span>
+
+<span class="n">WINDOWS_SCHEME</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&#39;purelib&#39;</span><span class="p">:</span> <span class="s">&#39;$base/Lib/site-packages&#39;</span><span class="p">,</span>
+    <span class="s">&#39;platlib&#39;</span><span class="p">:</span> <span class="s">&#39;$base/Lib/site-packages&#39;</span><span class="p">,</span>
+    <span class="s">&#39;headers&#39;</span><span class="p">:</span> <span class="s">&#39;$base/Include/$dist_name&#39;</span><span class="p">,</span>
+    <span class="s">&#39;scripts&#39;</span><span class="p">:</span> <span class="s">&#39;$base/Scripts&#39;</span><span class="p">,</span>
+    <span class="s">&#39;data&#39;</span>   <span class="p">:</span> <span class="s">&#39;$base&#39;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="n">INSTALL_SCHEMES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&#39;unix_prefix&#39;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s">&#39;purelib&#39;</span><span class="p">:</span> <span class="s">&#39;$base/lib/python$py_version_short/site-packages&#39;</span><span class="p">,</span>
+        <span class="s">&#39;platlib&#39;</span><span class="p">:</span> <span class="s">&#39;$platbase/lib/python$py_version_short/site-packages&#39;</span><span class="p">,</span>
+        <span class="s">&#39;headers&#39;</span><span class="p">:</span> <span class="s">&#39;$base/include/python$py_version_short$abiflags/$dist_name&#39;</span><span class="p">,</span>
+        <span class="s">&#39;scripts&#39;</span><span class="p">:</span> <span class="s">&#39;$base/bin&#39;</span><span class="p">,</span>
+        <span class="s">&#39;data&#39;</span>   <span class="p">:</span> <span class="s">&#39;$base&#39;</span><span class="p">,</span>
+        <span class="p">},</span>
+    <span class="s">&#39;unix_home&#39;</span><span class="p">:</span> <span class="p">{</span>
+        <span class="s">&#39;purelib&#39;</span><span class="p">:</span> <span class="s">&#39;$base/lib/python&#39;</span><span class="p">,</span>
+        <span class="s">&#39;platlib&#39;</span><span class="p">:</span> <span class="s">&#39;$base/lib/python&#39;</span><span class="p">,</span>
+        <span class="s">&#39;headers&#39;</span><span class="p">:</span> <span class="s">&#39;$base/include/python/$dist_name&#39;</span><span class="p">,</span>
+        <span class="s">&#39;scripts&#39;</span><span class="p">:</span> <span class="s">&#39;$base/bin&#39;</span><span class="p">,</span>
+        <span class="s">&#39;data&#39;</span>   <span class="p">:</span> <span class="s">&#39;$base&#39;</span><span class="p">,</span>
+        <span class="p">},</span>
+    <span class="s">&#39;nt&#39;</span><span class="p">:</span> <span class="n">WINDOWS_SCHEME</span><span class="p">,</span>
+    <span class="p">}</span>
+
+<span class="c"># user site schemes</span>
+<span class="k">if</span> <span class="n">HAS_USER_SITE</span><span class="p">:</span>
+    <span class="n">INSTALL_SCHEMES</span><span class="p">[</span><span class="s">&#39;nt_user&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s">&#39;purelib&#39;</span><span class="p">:</span> <span class="s">&#39;$usersite&#39;</span><span class="p">,</span>
+        <span class="s">&#39;platlib&#39;</span><span class="p">:</span> <span class="s">&#39;$usersite&#39;</span><span class="p">,</span>
+        <span class="s">&#39;headers&#39;</span><span class="p">:</span> <span class="s">&#39;$userbase/Python$py_version_nodot/Include/$dist_name&#39;</span><span class="p">,</span>
+        <span class="s">&#39;scripts&#39;</span><span class="p">:</span> <span class="s">&#39;$userbase/Scripts&#39;</span><span class="p">,</span>
+        <span class="s">&#39;data&#39;</span>   <span class="p">:</span> <span class="s">&#39;$userbase&#39;</span><span class="p">,</span>
+        <span class="p">}</span>
+
+    <span class="n">INSTALL_SCHEMES</span><span class="p">[</span><span class="s">&#39;unix_user&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s">&#39;purelib&#39;</span><span class="p">:</span> <span class="s">&#39;$usersite&#39;</span><span class="p">,</span>
+        <span class="s">&#39;platlib&#39;</span><span class="p">:</span> <span class="s">&#39;$usersite&#39;</span><span class="p">,</span>
+        <span class="s">&#39;headers&#39;</span><span class="p">:</span>
+            <span class="s">&#39;$userbase/include/python$py_version_short$abiflags/$dist_name&#39;</span><span class="p">,</span>
+        <span class="s">&#39;scripts&#39;</span><span class="p">:</span> <span class="s">&#39;$userbase/bin&#39;</span><span class="p">,</span>
+        <span class="s">&#39;data&#39;</span>   <span class="p">:</span> <span class="s">&#39;$userbase&#39;</span><span class="p">,</span>
+        <span class="p">}</span>
+
+<span class="c"># The keys to an installation scheme; if any new types of files are to be</span>
+<span class="c"># installed, be sure to add an entry to every installation scheme above,</span>
+<span class="c"># and to SCHEME_KEYS here.</span>
+<span class="n">SCHEME_KEYS</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;purelib&#39;</span><span class="p">,</span> <span class="s">&#39;platlib&#39;</span><span class="p">,</span> <span class="s">&#39;headers&#39;</span><span class="p">,</span> <span class="s">&#39;scripts&#39;</span><span class="p">,</span> <span class="s">&#39;data&#39;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="install"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install">[docs]</a><span class="k">class</span> <span class="nc">install</span><span class="p">(</span><span class="n">Command</span><span class="p">):</span>
+
+    <span class="n">description</span> <span class="o">=</span> <span class="s">&quot;install everything from build directory&quot;</span>
+
+    <span class="n">user_options</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="c"># Select installation scheme and set base director(y|ies)</span>
+        <span class="p">(</span><span class="s">&#39;prefix=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;installation prefix&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;exec-prefix=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;(Unix only) prefix for platform-specific files&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;home=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;(Unix only) home directory to install under&quot;</span><span class="p">),</span>
+
+        <span class="c"># Or, just set the base director(y|ies)</span>
+        <span class="p">(</span><span class="s">&#39;install-base=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;base installation directory (instead of --prefix or --home)&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;install-platbase=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;base installation directory for platform-specific files &quot;</span> <span class="o">+</span>
+         <span class="s">&quot;(instead of --exec-prefix or --home)&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;root=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;install everything relative to this alternate root directory&quot;</span><span class="p">),</span>
+
+        <span class="c"># Or, explicitly set the installation scheme</span>
+        <span class="p">(</span><span class="s">&#39;install-purelib=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;installation directory for pure Python module distributions&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;install-platlib=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;installation directory for non-pure module distributions&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;install-lib=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;installation directory for all module distributions &quot;</span> <span class="o">+</span>
+         <span class="s">&quot;(overrides --install-purelib and --install-platlib)&quot;</span><span class="p">),</span>
+
+        <span class="p">(</span><span class="s">&#39;install-headers=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;installation directory for C/C++ headers&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;install-scripts=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;installation directory for Python scripts&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;install-data=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;installation directory for data files&quot;</span><span class="p">),</span>
+
+        <span class="c"># Byte-compilation options -- see install_lib.py for details, as</span>
+        <span class="c"># these are duplicated from there (but only install_lib does</span>
+        <span class="c"># anything with them).</span>
+        <span class="p">(</span><span class="s">&#39;compile&#39;</span><span class="p">,</span> <span class="s">&#39;c&#39;</span><span class="p">,</span> <span class="s">&quot;compile .py to .pyc [default]&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;no-compile&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&quot;don&#39;t compile .py files&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;optimize=&#39;</span><span class="p">,</span> <span class="s">&#39;O&#39;</span><span class="p">,</span>
+         <span class="s">&quot;also compile with optimization: -O1 for </span><span class="se">\&quot;</span><span class="s">python -O</span><span class="se">\&quot;</span><span class="s">, &quot;</span>
+         <span class="s">&quot;-O2 for </span><span class="se">\&quot;</span><span class="s">python -OO</span><span class="se">\&quot;</span><span class="s">, and -O0 to disable [default: -O0]&quot;</span><span class="p">),</span>
+
+        <span class="c"># Miscellaneous control options</span>
+        <span class="p">(</span><span class="s">&#39;force&#39;</span><span class="p">,</span> <span class="s">&#39;f&#39;</span><span class="p">,</span>
+         <span class="s">&quot;force installation (overwrite any existing files)&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;skip-build&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;skip rebuilding everything (for testing/debugging)&quot;</span><span class="p">),</span>
+
+        <span class="c"># Where to install documentation (eventually!)</span>
+        <span class="c">#(&#39;doc-format=&#39;, None, &quot;format of documentation to generate&quot;),</span>
+        <span class="c">#(&#39;install-man=&#39;, None, &quot;directory for Unix man pages&quot;),</span>
+        <span class="c">#(&#39;install-html=&#39;, None, &quot;directory for HTML documentation&quot;),</span>
+        <span class="c">#(&#39;install-info=&#39;, None, &quot;directory for GNU info files&quot;),</span>
+
+        <span class="p">(</span><span class="s">&#39;record=&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;filename in which to record list of installed files&quot;</span><span class="p">),</span>
+        <span class="p">]</span>
+
+    <span class="n">boolean_options</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;compile&#39;</span><span class="p">,</span> <span class="s">&#39;force&#39;</span><span class="p">,</span> <span class="s">&#39;skip-build&#39;</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">HAS_USER_SITE</span><span class="p">:</span>
+        <span class="n">user_options</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s">&#39;user&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+                             <span class="s">&quot;install in user site-package &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="n">USER_SITE</span><span class="p">))</span>
+        <span class="n">boolean_options</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;user&#39;</span><span class="p">)</span>
+
+    <span class="n">negative_opt</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;no-compile&#39;</span> <span class="p">:</span> <span class="s">&#39;compile&#39;</span><span class="p">}</span>
+
+
+<div class="viewcode-block" id="install.initialize_options"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.initialize_options">[docs]</a>    <span class="k">def</span> <span class="nf">initialize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Initializes options.&quot;&quot;&quot;</span>
+        <span class="c"># High-level options: these select both an installation base</span>
+        <span class="c"># and scheme.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prefix</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">home</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">user</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="c"># These select only the installation base; it&#39;s up to the user to</span>
+        <span class="c"># specify the installation scheme (currently, that means supplying</span>
+        <span class="c"># the --install-{platlib,purelib,scripts,data} options).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">root</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># These options are the actual installation directories; if not</span>
+        <span class="c"># supplied by the user, they are filled in using the installation</span>
+        <span class="c"># scheme implied by prefix/exec-prefix/home and the contents of</span>
+        <span class="c"># that installation scheme.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_purelib</span> <span class="o">=</span> <span class="bp">None</span>     <span class="c"># for pure module distributions</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_platlib</span> <span class="o">=</span> <span class="bp">None</span>     <span class="c"># non-pure (dists w/ extensions)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_headers</span> <span class="o">=</span> <span class="bp">None</span>     <span class="c"># for C/C++ headers</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span> <span class="o">=</span> <span class="bp">None</span>         <span class="c"># set to either purelib or platlib</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_scripts</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_data</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_userbase</span> <span class="o">=</span> <span class="n">USER_BASE</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_usersite</span> <span class="o">=</span> <span class="n">USER_SITE</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">compile</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">optimize</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># These two are for putting non-packagized distributions into their</span>
+        <span class="c"># own directory and creating a .pth file if it makes sense.</span>
+        <span class="c"># &#39;extra_path&#39; comes from the setup file; &#39;install_path_file&#39; can</span>
+        <span class="c"># be turned off if it makes no sense to install a .pth file.  (But</span>
+        <span class="c"># better to install it uselessly than to guess wrong and not</span>
+        <span class="c"># install it when it&#39;s necessary and would be used!)  Currently,</span>
+        <span class="c"># &#39;install_path_file&#39; is always true unless some outsider meddles</span>
+        <span class="c"># with it.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_path_file</span> <span class="o">=</span> <span class="mi">1</span>
+
+        <span class="c"># &#39;force&#39; forces installation, even if target files are not</span>
+        <span class="c"># out-of-date.  &#39;skip_build&#39; skips running the &quot;build&quot; command,</span>
+        <span class="c"># handy if you know it&#39;s not necessary.  &#39;warn_dir&#39; (which is *not*</span>
+        <span class="c"># a user option, it&#39;s just there so the bdist_* commands can turn</span>
+        <span class="c"># it off) determines whether we warn about installing to a</span>
+        <span class="c"># directory not in sys.path.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">skip_build</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">warn_dir</span> <span class="o">=</span> <span class="mi">1</span>
+
+        <span class="c"># These are only here as a conduit from the &#39;build&#39; command to the</span>
+        <span class="c"># &#39;install_*&#39; commands that do the real work.  (&#39;build_base&#39; isn&#39;t</span>
+        <span class="c"># actually used anywhere, but it might be useful in future.)  They</span>
+        <span class="c"># are not user options, because if the user told the install</span>
+        <span class="c"># command where the build directory is, that wouldn&#39;t affect the</span>
+        <span class="c"># build command.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">build_base</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">build_lib</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># Not defined yet because we don&#39;t know anything about</span>
+        <span class="c"># documentation yet.</span>
+        <span class="c">#self.install_man = None</span>
+        <span class="c">#self.install_html = None</span>
+        <span class="c">#self.install_info = None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">record</span> <span class="o">=</span> <span class="bp">None</span>
+
+
+    <span class="c"># -- Option finalizing methods -------------------------------------</span>
+    <span class="c"># (This is rather more involved than for most commands,</span>
+    <span class="c"># because this is where the policy for installing third-</span>
+    <span class="c"># party Python modules on various platforms given a wide</span>
+    <span class="c"># array of user input is decided.  Yes, it&#39;s quite complex!)</span>
+</div>
+<div class="viewcode-block" id="install.finalize_options"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.finalize_options">[docs]</a>    <span class="k">def</span> <span class="nf">finalize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Finalizes options.&quot;&quot;&quot;</span>
+        <span class="c"># This method (and its pliant slaves, like &#39;finalize_unix()&#39;,</span>
+        <span class="c"># &#39;finalize_other()&#39;, and &#39;select_scheme()&#39;) is where the default</span>
+        <span class="c"># installation directories for modules, extension modules, and</span>
+        <span class="c"># anything else we care to install from a Python module</span>
+        <span class="c"># distribution.  Thus, this code makes a pretty important policy</span>
+        <span class="c"># statement about how third-party stuff is added to a Python</span>
+        <span class="c"># installation!  Note that the actual work of installation is done</span>
+        <span class="c"># by the relatively simple &#39;install_*&#39; commands; they just take</span>
+        <span class="c"># their orders from the installation directory options determined</span>
+        <span class="c"># here.</span>
+
+        <span class="c"># Check for errors/inconsistencies in the options; first, stuff</span>
+        <span class="c"># that&#39;s wrong on any platform.</span>
+
+        <span class="k">if</span> <span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">prefix</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">home</span><span class="p">)</span> <span class="ow">and</span>
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span>
+                   <span class="s">&quot;must supply either prefix/exec-prefix/home or &quot;</span> <span class="o">+</span>
+                   <span class="s">&quot;install-base/install-platbase -- not both&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">home</span> <span class="ow">and</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">prefix</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span>
+                  <span class="s">&quot;must supply either home or prefix/exec-prefix -- not both&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">user</span> <span class="ow">and</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">prefix</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">home</span> <span class="ow">or</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span><span class="s">&quot;can&#39;t combine user with prefix, &quot;</span>
+                                       <span class="s">&quot;exec_prefix/home, or install_(plat)base&quot;</span><span class="p">)</span>
+
+        <span class="c"># Next, stuff that&#39;s wrong (or dubious) only on certain platforms.</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="s">&quot;posix&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;exec-prefix option ignored on this platform&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># Now the interesting logic -- so interesting that we farm it out</span>
+        <span class="c"># to other methods.  The goal of these methods is to set the final</span>
+        <span class="c"># values for the install_{lib,scripts,data,...}  options, using as</span>
+        <span class="c"># input a heady brew of prefix, exec_prefix, home, install_base,</span>
+        <span class="c"># install_platbase, user-supplied versions of</span>
+        <span class="c"># install_{purelib,platlib,lib,scripts,data,...}, and the</span>
+        <span class="c"># INSTALL_SCHEME dictionary above.  Phew!</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dump_dirs</span><span class="p">(</span><span class="s">&quot;pre-finalize_{unix,other}&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;posix&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finalize_unix</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finalize_other</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dump_dirs</span><span class="p">(</span><span class="s">&quot;post-finalize_{unix,other}()&quot;</span><span class="p">)</span>
+
+        <span class="c"># Expand configuration variables, tilde, etc. in self.install_base</span>
+        <span class="c"># and self.install_platbase -- that way, we can use $base or</span>
+        <span class="c"># $platbase in the other installation directories and not worry</span>
+        <span class="c"># about needing recursive variable expansion (shudder).</span>
+
+        <span class="n">py_version</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">version</span><span class="o">.</span><span class="n">split</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">exec_prefix</span><span class="p">)</span> <span class="o">=</span> <span class="n">get_config_vars</span><span class="p">(</span><span class="s">&#39;prefix&#39;</span><span class="p">,</span> <span class="s">&#39;exec_prefix&#39;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">abiflags</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">abiflags</span>
+        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+            <span class="c"># sys.abiflags may not be defined on all platforms.</span>
+            <span class="n">abiflags</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config_vars</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;dist_name&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">get_name</span><span class="p">(),</span>
+                            <span class="s">&#39;dist_version&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">get_version</span><span class="p">(),</span>
+                            <span class="s">&#39;dist_fullname&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">get_fullname</span><span class="p">(),</span>
+                            <span class="s">&#39;py_version&#39;</span><span class="p">:</span> <span class="n">py_version</span><span class="p">,</span>
+                            <span class="s">&#39;py_version_short&#39;</span><span class="p">:</span> <span class="n">py_version</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="mi">3</span><span class="p">],</span>
+                            <span class="s">&#39;py_version_nodot&#39;</span><span class="p">:</span> <span class="n">py_version</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="n">py_version</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+                            <span class="s">&#39;sys_prefix&#39;</span><span class="p">:</span> <span class="n">prefix</span><span class="p">,</span>
+                            <span class="s">&#39;prefix&#39;</span><span class="p">:</span> <span class="n">prefix</span><span class="p">,</span>
+                            <span class="s">&#39;sys_exec_prefix&#39;</span><span class="p">:</span> <span class="n">exec_prefix</span><span class="p">,</span>
+                            <span class="s">&#39;exec_prefix&#39;</span><span class="p">:</span> <span class="n">exec_prefix</span><span class="p">,</span>
+                            <span class="s">&#39;abiflags&#39;</span><span class="p">:</span> <span class="n">abiflags</span><span class="p">,</span>
+                           <span class="p">}</span>
+
+        <span class="k">if</span> <span class="n">HAS_USER_SITE</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">config_vars</span><span class="p">[</span><span class="s">&#39;userbase&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_userbase</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">config_vars</span><span class="p">[</span><span class="s">&#39;usersite&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_usersite</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">expand_basedirs</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dump_dirs</span><span class="p">(</span><span class="s">&quot;post-expand_basedirs()&quot;</span><span class="p">)</span>
+
+        <span class="c"># Now define config vars for the base directories so we can expand</span>
+        <span class="c"># everything else.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config_vars</span><span class="p">[</span><span class="s">&#39;base&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">config_vars</span><span class="p">[</span><span class="s">&#39;platbase&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span>
+
+        <span class="k">if</span> <span class="n">DEBUG</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">pprint</span> <span class="kn">import</span> <span class="n">pprint</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;config vars:&quot;</span><span class="p">)</span>
+            <span class="n">pprint</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">config_vars</span><span class="p">)</span>
+
+        <span class="c"># Expand &quot;~&quot; and configuration variables in the installation</span>
+        <span class="c"># directories.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expand_dirs</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dump_dirs</span><span class="p">(</span><span class="s">&quot;post-expand_dirs()&quot;</span><span class="p">)</span>
+
+        <span class="c"># Create directories in the home dir:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">user</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">create_home_path</span><span class="p">()</span>
+
+        <span class="c"># Pick the actual directory to install all modules to: either</span>
+        <span class="c"># install_purelib or install_platlib, depending on whether this</span>
+        <span class="c"># module distribution is pure or not.  Of course, if the user</span>
+        <span class="c"># already specified install_lib, use their selection.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">ext_modules</span><span class="p">:</span> <span class="c"># has extensions: non-pure</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platlib</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_purelib</span>
+
+
+        <span class="c"># Convert directories from Unix /-separated syntax to the local</span>
+        <span class="c"># convention.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">convert_paths</span><span class="p">(</span><span class="s">&#39;lib&#39;</span><span class="p">,</span> <span class="s">&#39;purelib&#39;</span><span class="p">,</span> <span class="s">&#39;platlib&#39;</span><span class="p">,</span>
+                           <span class="s">&#39;scripts&#39;</span><span class="p">,</span> <span class="s">&#39;data&#39;</span><span class="p">,</span> <span class="s">&#39;headers&#39;</span><span class="p">,</span>
+                           <span class="s">&#39;userbase&#39;</span><span class="p">,</span> <span class="s">&#39;usersite&#39;</span><span class="p">)</span>
+
+        <span class="c"># Well, we&#39;re not actually fully completely finalized yet: we still</span>
+        <span class="c"># have to deal with &#39;extra_path&#39;, which is the hack for allowing</span>
+        <span class="c"># non-packagized module distributions (hello, Numerical Python!) to</span>
+        <span class="c"># get their own directories.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle_extra_path</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_libbase</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span> <span class="c"># needed for .pth file</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra_dirs</span><span class="p">)</span>
+
+        <span class="c"># If a new root directory was supplied, make all the installation</span>
+        <span class="c"># dirs relative to it.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">root</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">change_roots</span><span class="p">(</span><span class="s">&#39;libbase&#39;</span><span class="p">,</span> <span class="s">&#39;lib&#39;</span><span class="p">,</span> <span class="s">&#39;purelib&#39;</span><span class="p">,</span> <span class="s">&#39;platlib&#39;</span><span class="p">,</span>
+                              <span class="s">&#39;scripts&#39;</span><span class="p">,</span> <span class="s">&#39;data&#39;</span><span class="p">,</span> <span class="s">&#39;headers&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">dump_dirs</span><span class="p">(</span><span class="s">&quot;after prepending root&quot;</span><span class="p">)</span>
+
+        <span class="c"># Find out the build directories, ie. where to install from.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_undefined_options</span><span class="p">(</span><span class="s">&#39;build&#39;</span><span class="p">,</span>
+                                   <span class="p">(</span><span class="s">&#39;build_base&#39;</span><span class="p">,</span> <span class="s">&#39;build_base&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;build_lib&#39;</span><span class="p">,</span> <span class="s">&#39;build_lib&#39;</span><span class="p">))</span>
+
+        <span class="c"># Punt on doc directories for now -- after all, we&#39;re punting on</span>
+        <span class="c"># documentation completely!</span>
+</div>
+<div class="viewcode-block" id="install.dump_dirs"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.dump_dirs">[docs]</a>    <span class="k">def</span> <span class="nf">dump_dirs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Dumps the list of user options.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">DEBUG</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="kn">from</span> <span class="nn">distutils.fancy_getopt</span> <span class="kn">import</span> <span class="n">longopt_xlate</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">msg</span> <span class="o">+</span> <span class="s">&quot;:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">opt</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">user_options</span><span class="p">:</span>
+            <span class="n">opt_name</span> <span class="o">=</span> <span class="n">opt</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">opt_name</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;=&quot;</span><span class="p">:</span>
+                <span class="n">opt_name</span> <span class="o">=</span> <span class="n">opt_name</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">opt_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">negative_opt</span><span class="p">:</span>
+                <span class="n">opt_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">negative_opt</span><span class="p">[</span><span class="n">opt_name</span><span class="p">]</span>
+                <span class="n">opt_name</span> <span class="o">=</span> <span class="n">opt_name</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">longopt_xlate</span><span class="p">)</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="ow">not</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">opt_name</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">opt_name</span> <span class="o">=</span> <span class="n">opt_name</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">longopt_xlate</span><span class="p">)</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">opt_name</span><span class="p">)</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;  </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">opt_name</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="install.finalize_unix"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.finalize_unix">[docs]</a>    <span class="k">def</span> <span class="nf">finalize_unix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Finalizes options for posix platforms.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">and</span>
+                 <span class="bp">self</span><span class="o">.</span><span class="n">install_purelib</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">and</span>
+                 <span class="bp">self</span><span class="o">.</span><span class="n">install_platlib</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">)</span> <span class="ow">or</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">install_headers</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">install_scripts</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">install_data</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span>
+                      <span class="s">&quot;install-base or install-platbase supplied, but &quot;</span>
+                      <span class="s">&quot;installation scheme is incomplete&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">user</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_userbase</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsPlatformError</span><span class="p">(</span>
+                    <span class="s">&quot;User base directory is not specified&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_userbase</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">select_scheme</span><span class="p">(</span><span class="s">&quot;unix_user&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">home</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">home</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">select_scheme</span><span class="p">(</span><span class="s">&quot;unix_home&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefix</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span>
+                          <span class="s">&quot;must not supply exec-prefix without prefix&quot;</span><span class="p">)</span>
+
+                <span class="bp">self</span><span class="o">.</span><span class="n">prefix</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">prefix</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">)</span>
+
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefix</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefix</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">exec_prefix</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">select_scheme</span><span class="p">(</span><span class="s">&quot;unix_prefix&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="install.finalize_other"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.finalize_other">[docs]</a>    <span class="k">def</span> <span class="nf">finalize_other</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Finalizes options for non-posix platforms&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">user</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_userbase</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsPlatformError</span><span class="p">(</span>
+                    <span class="s">&quot;User base directory is not specified&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_userbase</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">select_scheme</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s">&quot;_user&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">home</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">home</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">select_scheme</span><span class="p">(</span><span class="s">&quot;unix_home&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefix</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">prefix</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">prefix</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">install_base</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_platbase</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefix</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">select_scheme</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsPlatformError</span><span class="p">(</span>
+                      <span class="s">&quot;I don&#39;t know how to install stuff on &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="install.select_scheme"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.select_scheme">[docs]</a>    <span class="k">def</span> <span class="nf">select_scheme</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Sets the install directories by applying the install schemes.&quot;&quot;&quot;</span>
+        <span class="c"># it&#39;s the caller&#39;s problem if they supply a bad name!</span>
+        <span class="n">scheme</span> <span class="o">=</span> <span class="n">INSTALL_SCHEMES</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">SCHEME_KEYS</span><span class="p">:</span>
+            <span class="n">attrname</span> <span class="o">=</span> <span class="s">&#39;install_&#39;</span> <span class="o">+</span> <span class="n">key</span>
+            <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attrname</span><span class="p">)</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attrname</span><span class="p">,</span> <span class="n">scheme</span><span class="p">[</span><span class="n">key</span><span class="p">])</span>
+</div>
+    <span class="k">def</span> <span class="nf">_expand_attrs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attrs</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="n">attrs</span><span class="p">:</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;posix&#39;</span> <span class="ow">or</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;nt&#39;</span><span class="p">:</span>
+                    <span class="n">val</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">expanduser</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="n">subst_vars</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">config_vars</span><span class="p">)</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+
+<div class="viewcode-block" id="install.expand_basedirs"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.expand_basedirs">[docs]</a>    <span class="k">def</span> <span class="nf">expand_basedirs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Calls `os.path.expanduser` on install_base, install_platbase and</span>
+<span class="sd">        root.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_expand_attrs</span><span class="p">([</span><span class="s">&#39;install_base&#39;</span><span class="p">,</span> <span class="s">&#39;install_platbase&#39;</span><span class="p">,</span> <span class="s">&#39;root&#39;</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="install.expand_dirs"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.expand_dirs">[docs]</a>    <span class="k">def</span> <span class="nf">expand_dirs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Calls `os.path.expanduser` on install dirs.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_expand_attrs</span><span class="p">([</span><span class="s">&#39;install_purelib&#39;</span><span class="p">,</span> <span class="s">&#39;install_platlib&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;install_lib&#39;</span><span class="p">,</span> <span class="s">&#39;install_headers&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;install_scripts&#39;</span><span class="p">,</span> <span class="s">&#39;install_data&#39;</span><span class="p">,])</span>
+</div>
+<div class="viewcode-block" id="install.convert_paths"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.convert_paths">[docs]</a>    <span class="k">def</span> <span class="nf">convert_paths</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">names</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Call `convert_path` over `names`.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+            <span class="n">attr</span> <span class="o">=</span> <span class="s">&quot;install_&quot;</span> <span class="o">+</span> <span class="n">name</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="n">convert_path</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)))</span>
+</div>
+<div class="viewcode-block" id="install.handle_extra_path"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.handle_extra_path">[docs]</a>    <span class="k">def</span> <span class="nf">handle_extra_path</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set `path_file` and `extra_dirs` using `extra_path`.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">extra_path</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">path_file</span> <span class="o">=</span> <span class="n">extra_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="n">path_file</span><span class="p">,</span> <span class="n">extra_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra_path</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span>
+                      <span class="s">&quot;&#39;extra_path&#39; option must be a list, tuple, or &quot;</span>
+                      <span class="s">&quot;comma-separated string with 1 or 2 elements&quot;</span><span class="p">)</span>
+
+            <span class="c"># convert to local form in case Unix notation used (as it</span>
+            <span class="c"># should be in setup scripts)</span>
+            <span class="n">extra_dirs</span> <span class="o">=</span> <span class="n">convert_path</span><span class="p">(</span><span class="n">extra_dirs</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">path_file</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="n">extra_dirs</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+
+        <span class="c"># XXX should we warn if path_file and not extra_dirs? (in which</span>
+        <span class="c"># case the path file would be harmless but pointless)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">path_file</span> <span class="o">=</span> <span class="n">path_file</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">extra_dirs</span> <span class="o">=</span> <span class="n">extra_dirs</span>
+</div>
+<div class="viewcode-block" id="install.change_roots"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.change_roots">[docs]</a>    <span class="k">def</span> <span class="nf">change_roots</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">names</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Change the install directories pointed by name using root.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+            <span class="n">attr</span> <span class="o">=</span> <span class="s">&quot;install_&quot;</span> <span class="o">+</span> <span class="n">name</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="n">change_root</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">root</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">)))</span>
+</div>
+<div class="viewcode-block" id="install.create_home_path"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.create_home_path">[docs]</a>    <span class="k">def</span> <span class="nf">create_home_path</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Create directories under ~.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">user</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">home</span> <span class="o">=</span> <span class="n">convert_path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">expanduser</span><span class="p">(</span><span class="s">&quot;~&quot;</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">path</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">config_vars</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">home</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">path</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">debug_print</span><span class="p">(</span><span class="s">&quot;os.makedirs(&#39;</span><span class="si">%s</span><span class="s">&#39;, 0o700)&quot;</span> <span class="o">%</span> <span class="n">path</span><span class="p">)</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="mi">0</span><span class="n">o700</span><span class="p">)</span>
+
+    <span class="c"># -- Command execution methods -------------------------------------</span>
+</div>
+<div class="viewcode-block" id="install.run"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Runs the command.&quot;&quot;&quot;</span>
+        <span class="c"># Obviously have to build before we can install</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">skip_build</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">run_command</span><span class="p">(</span><span class="s">&#39;build&#39;</span><span class="p">)</span>
+            <span class="c"># If we built for any other platform, we can&#39;t install.</span>
+            <span class="n">build_plat</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">get_command_obj</span><span class="p">(</span><span class="s">&#39;build&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">plat_name</span>
+            <span class="c"># check warn_dir - it is a clue that the &#39;install&#39; is happening</span>
+            <span class="c"># internally, and not to sys.path, so we don&#39;t check the platform</span>
+            <span class="c"># matches what we are running.</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">warn_dir</span> <span class="ow">and</span> <span class="n">build_plat</span> <span class="o">!=</span> <span class="n">get_platform</span><span class="p">():</span>
+                <span class="k">raise</span> <span class="n">DistutilsPlatformError</span><span class="p">(</span><span class="s">&quot;Can&#39;t install when &quot;</span>
+                                             <span class="s">&quot;cross-compiling&quot;</span><span class="p">)</span>
+
+        <span class="c"># Run all sub-commands (at least those that need to be run)</span>
+        <span class="k">for</span> <span class="n">cmd_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_sub_commands</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">run_command</span><span class="p">(</span><span class="n">cmd_name</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">path_file</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">create_path_file</span><span class="p">()</span>
+
+        <span class="c"># write list of installed files, if requested.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">record</span><span class="p">:</span>
+            <span class="n">outputs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_outputs</span><span class="p">()</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">root</span><span class="p">:</span>               <span class="c"># strip any package prefix</span>
+                <span class="n">root_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">root</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">counter</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">outputs</span><span class="p">)):</span>
+                    <span class="n">outputs</span><span class="p">[</span><span class="n">counter</span><span class="p">]</span> <span class="o">=</span> <span class="n">outputs</span><span class="p">[</span><span class="n">counter</span><span class="p">][</span><span class="n">root_len</span><span class="p">:]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">write_file</span><span class="p">,</span>
+                         <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">record</span><span class="p">,</span> <span class="n">outputs</span><span class="p">),</span>
+                         <span class="s">&quot;writing list of installed files to &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span>
+                         <span class="bp">self</span><span class="o">.</span><span class="n">record</span><span class="p">)</span>
+
+        <span class="n">sys_path</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">)</span>
+        <span class="n">sys_path</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">,</span> <span class="n">sys_path</span><span class="p">)</span>
+        <span class="n">install_lib</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span><span class="p">))</span>
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">warn_dir</span> <span class="ow">and</span>
+            <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path_file</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_path_file</span><span class="p">)</span> <span class="ow">and</span>
+            <span class="n">install_lib</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sys_path</span><span class="p">):</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">((</span><span class="s">&quot;modules installed to &#39;</span><span class="si">%s</span><span class="s">&#39;, which is not in &quot;</span>
+                       <span class="s">&quot;Python&#39;s module search path (sys.path) -- &quot;</span>
+                       <span class="s">&quot;you&#39;ll have to change the search path yourself&quot;</span><span class="p">),</span>
+                       <span class="bp">self</span><span class="o">.</span><span class="n">install_lib</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="install.create_path_file"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.create_path_file">[docs]</a>    <span class="k">def</span> <span class="nf">create_path_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Creates the .pth file&quot;&quot;&quot;</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">install_libbase</span><span class="p">,</span>
+                                <span class="bp">self</span><span class="o">.</span><span class="n">path_file</span> <span class="o">+</span> <span class="s">&quot;.pth&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_path_file</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">write_file</span><span class="p">,</span>
+                         <span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">extra_dirs</span><span class="p">]),</span>
+                         <span class="s">&quot;creating </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;path file &#39;</span><span class="si">%s</span><span class="s">&#39; not created&quot;</span> <span class="o">%</span> <span class="n">filename</span><span class="p">)</span>
+
+
+    <span class="c"># -- Reporting methods ---------------------------------------------</span>
+</div>
+<div class="viewcode-block" id="install.get_outputs"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.get_outputs">[docs]</a>    <span class="k">def</span> <span class="nf">get_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Assembles the outputs of all the sub-commands.&quot;&quot;&quot;</span>
+        <span class="n">outputs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">cmd_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_sub_commands</span><span class="p">():</span>
+            <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_finalized_command</span><span class="p">(</span><span class="n">cmd_name</span><span class="p">)</span>
+            <span class="c"># Add the contents of cmd.get_outputs(), ensuring</span>
+            <span class="c"># that outputs doesn&#39;t contain duplicate entries</span>
+            <span class="k">for</span> <span class="n">filename</span> <span class="ow">in</span> <span class="n">cmd</span><span class="o">.</span><span class="n">get_outputs</span><span class="p">():</span>
+                <span class="k">if</span> <span class="n">filename</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">outputs</span><span class="p">:</span>
+                    <span class="n">outputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">path_file</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_path_file</span><span class="p">:</span>
+            <span class="n">outputs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">install_libbase</span><span class="p">,</span>
+                                        <span class="bp">self</span><span class="o">.</span><span class="n">path_file</span> <span class="o">+</span> <span class="s">&quot;.pth&quot;</span><span class="p">))</span>
+
+        <span class="k">return</span> <span class="n">outputs</span>
+</div>
+<div class="viewcode-block" id="install.get_inputs"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.get_inputs">[docs]</a>    <span class="k">def</span> <span class="nf">get_inputs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the inputs of all the sub-commands&quot;&quot;&quot;</span>
+        <span class="c"># XXX gee, this looks familiar ;-(</span>
+        <span class="n">inputs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">cmd_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_sub_commands</span><span class="p">():</span>
+            <span class="n">cmd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_finalized_command</span><span class="p">(</span><span class="n">cmd_name</span><span class="p">)</span>
+            <span class="n">inputs</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">cmd</span><span class="o">.</span><span class="n">get_inputs</span><span class="p">())</span>
+
+        <span class="k">return</span> <span class="n">inputs</span>
+
+    <span class="c"># -- Predicates for sub-command list -------------------------------</span>
+</div>
+<div class="viewcode-block" id="install.has_lib"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.has_lib">[docs]</a>    <span class="k">def</span> <span class="nf">has_lib</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns true if the current distribution has any Python</span>
+<span class="sd">        modules to install.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">has_pure_modules</span><span class="p">()</span> <span class="ow">or</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">has_ext_modules</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="install.has_headers"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.has_headers">[docs]</a>    <span class="k">def</span> <span class="nf">has_headers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns true if the current distribution has any headers to</span>
+<span class="sd">        install.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">has_headers</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="install.has_scripts"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.has_scripts">[docs]</a>    <span class="k">def</span> <span class="nf">has_scripts</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns true if the current distribution has any scripts to.</span>
+<span class="sd">        install.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">has_scripts</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="install.has_data"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.install.install.has_data">[docs]</a>    <span class="k">def</span> <span class="nf">has_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns true if the current distribution has any data to.</span>
+<span class="sd">        install.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">has_data_files</span><span class="p">()</span>
+
+    <span class="c"># &#39;sub_commands&#39;: a list of commands this command might have to run to</span>
+    <span class="c"># get its work done.  See cmd.py for more info.</span></div>
+    <span class="n">sub_commands</span> <span class="o">=</span> <span class="p">[(</span><span class="s">&#39;install_lib&#39;</span><span class="p">,</span>     <span class="n">has_lib</span><span class="p">),</span>
+                    <span class="p">(</span><span class="s">&#39;install_headers&#39;</span><span class="p">,</span> <span class="n">has_headers</span><span class="p">),</span>
+                    <span class="p">(</span><span class="s">&#39;install_scripts&#39;</span><span class="p">,</span> <span class="n">has_scripts</span><span class="p">),</span>
+                    <span class="p">(</span><span class="s">&#39;install_data&#39;</span><span class="p">,</span>    <span class="n">has_data</span><span class="p">),</span>
+                    <span class="p">(</span><span class="s">&#39;install_egg_info&#39;</span><span class="p">,</span> <span class="k">lambda</span> <span class="bp">self</span><span class="p">:</span><span class="bp">True</span><span class="p">),</span>
+                   <span class="p">]</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

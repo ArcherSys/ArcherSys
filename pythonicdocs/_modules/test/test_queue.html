@@ -1,0 +1,455 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_queue &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_queue</h1><div class="highlight"><pre>
+<span class="c"># Some simple queue module tests, plus some failure conditions</span>
+<span class="c"># to ensure the Queue locks remain stable.</span>
+<span class="kn">import</span> <span class="nn">queue</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">support</span>
+<span class="n">threading</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s">&#39;threading&#39;</span><span class="p">)</span>
+
+<span class="n">QUEUE_SIZE</span> <span class="o">=</span> <span class="mi">5</span>
+
+<div class="viewcode-block" id="qfull"><a class="viewcode-back" href="../../test.html#test.test_queue.qfull">[docs]</a><span class="k">def</span> <span class="nf">qfull</span><span class="p">(</span><span class="n">q</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">q</span><span class="o">.</span><span class="n">maxsize</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">()</span> <span class="o">==</span> <span class="n">q</span><span class="o">.</span><span class="n">maxsize</span>
+
+<span class="c"># A thread to run a function that unclogs a blocked Queue.</span></div>
+<span class="k">class</span> <span class="nc">_TriggerThread</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fn</span> <span class="o">=</span> <span class="n">fn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="n">args</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">startedEvent</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># The sleep isn&#39;t necessary, but is intended to give the blocking</span>
+        <span class="c"># function in the main thread a chance at actually blocking before</span>
+        <span class="c"># we unclog it.  But if the sleep is longer than the timeout-based</span>
+        <span class="c"># tests wait in their blocking functions, those tests will fail.</span>
+        <span class="c"># So we give them much longer timeout values compared to the</span>
+        <span class="c"># sleep here (I aimed at 10 seconds for blocking functions --</span>
+        <span class="c"># they should never actually wait that long - they should make</span>
+        <span class="c"># progress as soon as we call self.fn()).</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">startedEvent</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fn</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+
+
+<span class="c"># Execute a function that blocks, and in a separate thread, a function that</span>
+<span class="c"># triggers the release.  Returns the result of the blocking function.  Caution:</span>
+<span class="c"># block_func must guarantee to block until trigger_func is called, and</span>
+<span class="c"># trigger_func must guarantee to change queue state so that block_func can make</span>
+<span class="c"># enough progress to return.  In particular, a block_func that just raises an</span>
+<span class="c"># exception regardless of whether trigger_func is called will lead to</span>
+<span class="c"># timing-dependent sporadic failures, and one of those went rarely seen but</span>
+<span class="c"># undiagnosed for years.  Now block_func must be unexceptional.  If block_func</span>
+<span class="c"># is supposed to raise an exception, call do_exceptional_blocking_test()</span>
+<span class="c"># instead.</span>
+
+<div class="viewcode-block" id="BlockingTestMixin"><a class="viewcode-back" href="../../test.html#test.test_queue.BlockingTestMixin">[docs]</a><span class="k">class</span> <span class="nc">BlockingTestMixin</span><span class="p">:</span>
+
+<div class="viewcode-block" id="BlockingTestMixin.tearDown"><a class="viewcode-back" href="../../test.html#test.test_queue.BlockingTestMixin.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="BlockingTestMixin.do_blocking_test"><a class="viewcode-back" href="../../test.html#test.test_queue.BlockingTestMixin.do_blocking_test">[docs]</a>    <span class="k">def</span> <span class="nf">do_blocking_test</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block_func</span><span class="p">,</span> <span class="n">block_args</span><span class="p">,</span> <span class="n">trigger_func</span><span class="p">,</span> <span class="n">trigger_args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t</span> <span class="o">=</span> <span class="n">_TriggerThread</span><span class="p">(</span><span class="n">trigger_func</span><span class="p">,</span> <span class="n">trigger_args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">result</span> <span class="o">=</span> <span class="n">block_func</span><span class="p">(</span><span class="o">*</span><span class="n">block_args</span><span class="p">)</span>
+        <span class="c"># If block_func returned before our thread made the call, we failed!</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">startedEvent</span><span class="o">.</span><span class="n">is_set</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;blocking function &#39;</span><span class="si">%r</span><span class="s">&#39; appeared not to block&quot;</span> <span class="o">%</span>
+                      <span class="n">block_func</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span> <span class="c"># make sure the thread terminates</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">is_alive</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;trigger function &#39;</span><span class="si">%r</span><span class="s">&#39; appeared to not return&quot;</span> <span class="o">%</span>
+                      <span class="n">trigger_func</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">result</span>
+
+    <span class="c"># Call this instead if block_func is supposed to raise an exception.</span></div>
+<div class="viewcode-block" id="BlockingTestMixin.do_exceptional_blocking_test"><a class="viewcode-back" href="../../test.html#test.test_queue.BlockingTestMixin.do_exceptional_blocking_test">[docs]</a>    <span class="k">def</span> <span class="nf">do_exceptional_blocking_test</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">block_func</span><span class="p">,</span> <span class="n">block_args</span><span class="p">,</span> <span class="n">trigger_func</span><span class="p">,</span>
+                                   <span class="n">trigger_args</span><span class="p">,</span> <span class="n">expected_exception_class</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t</span> <span class="o">=</span> <span class="n">_TriggerThread</span><span class="p">(</span><span class="n">trigger_func</span><span class="p">,</span> <span class="n">trigger_args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">block_func</span><span class="p">(</span><span class="o">*</span><span class="n">block_args</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">expected_exception_class</span><span class="p">:</span>
+                <span class="k">raise</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;expected exception of kind </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span>
+                                 <span class="n">expected_exception_class</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="mi">10</span><span class="p">)</span> <span class="c"># make sure the thread terminates</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">is_alive</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;trigger function &#39;</span><span class="si">%r</span><span class="s">&#39; appeared to not return&quot;</span> <span class="o">%</span>
+                                 <span class="n">trigger_func</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">startedEvent</span><span class="o">.</span><span class="n">is_set</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;trigger thread ended but event never set&quot;</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="BaseQueueTestMixin"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin">[docs]</a><span class="k">class</span> <span class="nc">BaseQueueTestMixin</span><span class="p">(</span><span class="n">BlockingTestMixin</span><span class="p">):</span>
+<div class="viewcode-block" id="BaseQueueTestMixin.setUp"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cum</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cumlock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.simple_queue_test"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.simple_queue_test">[docs]</a>    <span class="k">def</span> <span class="nf">simple_queue_test</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;Call this function with an empty queue&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">empty</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">full</span><span class="p">())</span>
+        <span class="c"># I guess we better check things actually queue correctly a little :)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="mi">111</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="mi">333</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="mi">222</span><span class="p">)</span>
+        <span class="n">target_order</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">Queue</span> <span class="o">=</span> <span class="p">[</span><span class="mi">111</span><span class="p">,</span> <span class="mi">333</span><span class="p">,</span> <span class="mi">222</span><span class="p">],</span>
+                            <span class="n">LifoQueue</span> <span class="o">=</span> <span class="p">[</span><span class="mi">222</span><span class="p">,</span> <span class="mi">333</span><span class="p">,</span> <span class="mi">111</span><span class="p">],</span>
+                            <span class="n">PriorityQueue</span> <span class="o">=</span> <span class="p">[</span><span class="mi">111</span><span class="p">,</span> <span class="mi">222</span><span class="p">,</span> <span class="mi">333</span><span class="p">])</span>
+        <span class="n">actual_order</span> <span class="o">=</span> <span class="p">[</span><span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">(),</span> <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">(),</span> <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">()]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">actual_order</span><span class="p">,</span> <span class="n">target_order</span><span class="p">[</span><span class="n">q</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">],</span>
+                         <span class="s">&quot;Didn&#39;t seem to queue the correct data!&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="s">&quot;Queue should not be empty&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="ow">not</span> <span class="n">qfull</span><span class="p">(</span><span class="n">q</span><span class="p">),</span> <span class="s">&quot;Queue should not be full&quot;</span><span class="p">)</span>
+        <span class="n">last</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">QUEUE_SIZE</span>
+        <span class="n">full</span> <span class="o">=</span> <span class="mi">3</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">QUEUE_SIZE</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">last</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">qfull</span><span class="p">(</span><span class="n">q</span><span class="p">),</span> <span class="s">&quot;Queue should be full&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">empty</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">full</span><span class="p">())</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">full</span><span class="p">,</span> <span class="n">block</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;Didn&#39;t appear to block with a full queue&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">queue</span><span class="o">.</span><span class="n">Full</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">full</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;Didn&#39;t appear to time-out with a full queue&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">queue</span><span class="o">.</span><span class="n">Full</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="c"># Test a blocking put</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">do_blocking_test</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">,</span> <span class="p">(</span><span class="n">full</span><span class="p">,),</span> <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">do_blocking_test</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">,</span> <span class="p">(</span><span class="n">full</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="p">())</span>
+        <span class="c"># Empty it</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="ow">not</span> <span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="s">&quot;Queue should be empty&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">block</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;Didn&#39;t appear to block with an empty queue&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">queue</span><span class="o">.</span><span class="n">Empty</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">0.01</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;Didn&#39;t appear to time-out with an empty queue&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">queue</span><span class="o">.</span><span class="n">Empty</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="c"># Test a blocking get</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">do_blocking_test</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="p">(),</span> <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;empty&#39;</span><span class="p">,))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">do_blocking_test</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="p">(</span><span class="bp">True</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;empty&#39;</span><span class="p">,))</span>
+
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.worker"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.worker">[docs]</a>    <span class="k">def</span> <span class="nf">worker</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q</span><span class="p">):</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">x</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">q</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+                <span class="k">return</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">cumlock</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">cum</span> <span class="o">+=</span> <span class="n">x</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.queue_join_test"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.queue_join_test">[docs]</a>    <span class="k">def</span> <span class="nf">queue_join_test</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cum</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">worker</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">q</span><span class="p">,))</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cum</span><span class="p">,</span> <span class="nb">sum</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">)),</span>
+                         <span class="s">&quot;q.join() did not block until all tasks were done&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>         <span class="c"># instruct the threads to close</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>                <span class="c"># verify that you can join twice</span>
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.test_queue_task_done"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.test_queue_task_done">[docs]</a>    <span class="k">def</span> <span class="nf">test_queue_task_done</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test to make sure a queue task completed successfully.</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">type2test</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;Did not detect task count going negative&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.test_queue_join"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.test_queue_join">[docs]</a>    <span class="k">def</span> <span class="nf">test_queue_join</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test that a queue join()s successfully, and before anything else</span>
+        <span class="c"># (done twice for insurance).</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">type2test</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">queue_join_test</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">queue_join_test</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;Did not detect task count going negative&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.test_simple_queue"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.test_simple_queue">[docs]</a>    <span class="k">def</span> <span class="nf">test_simple_queue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Do it a couple of times on the same queue.</span>
+        <span class="c"># Done twice to make sure works with same instance reused.</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">type2test</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">simple_queue_test</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">simple_queue_test</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.test_negative_timeout_raises_exception"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.test_negative_timeout_raises_exception">[docs]</a>    <span class="k">def</span> <span class="nf">test_negative_timeout_raises_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">type2test</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=-</span><span class="mi">1</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.test_nowait"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.test_nowait">[docs]</a>    <span class="k">def</span> <span class="nf">test_nowait</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">type2test</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put_nowait</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">queue</span><span class="o">.</span><span class="n">Full</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put_nowait</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get_nowait</span><span class="p">()</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">queue</span><span class="o">.</span><span class="n">Empty</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get_nowait</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BaseQueueTestMixin.test_shrinking_queue"><a class="viewcode-back" href="../../test.html#test.test_queue.BaseQueueTestMixin.test_shrinking_queue">[docs]</a>    <span class="k">def</span> <span class="nf">test_shrinking_queue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># issue 10110</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">type2test</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">queue</span><span class="o">.</span><span class="n">Full</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put_nowait</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="mi">3</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">maxsize</span> <span class="o">=</span> <span class="mi">2</span>                       <span class="c"># shrink the queue</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">queue</span><span class="o">.</span><span class="n">Full</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put_nowait</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="QueueTest"><a class="viewcode-back" href="../../test.html#test.test_queue.QueueTest">[docs]</a><span class="k">class</span> <span class="nc">QueueTest</span><span class="p">(</span><span class="n">BaseQueueTestMixin</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">type2test</span> <span class="o">=</span> <span class="n">queue</span><span class="o">.</span><span class="n">Queue</span>
+</div>
+<div class="viewcode-block" id="LifoQueueTest"><a class="viewcode-back" href="../../test.html#test.test_queue.LifoQueueTest">[docs]</a><span class="k">class</span> <span class="nc">LifoQueueTest</span><span class="p">(</span><span class="n">BaseQueueTestMixin</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">type2test</span> <span class="o">=</span> <span class="n">queue</span><span class="o">.</span><span class="n">LifoQueue</span>
+</div>
+<div class="viewcode-block" id="PriorityQueueTest"><a class="viewcode-back" href="../../test.html#test.test_queue.PriorityQueueTest">[docs]</a><span class="k">class</span> <span class="nc">PriorityQueueTest</span><span class="p">(</span><span class="n">BaseQueueTestMixin</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">type2test</span> <span class="o">=</span> <span class="n">queue</span><span class="o">.</span><span class="n">PriorityQueue</span>
+
+
+
+<span class="c"># A Queue subclass that can provoke failure at a moment&#39;s notice :)</span></div>
+<div class="viewcode-block" id="FailingQueueException"><a class="viewcode-back" href="../../test.html#test.test_queue.FailingQueueException">[docs]</a><span class="k">class</span> <span class="nc">FailingQueueException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="FailingQueue"><a class="viewcode-back" href="../../test.html#test.test_queue.FailingQueue">[docs]</a><span class="k">class</span> <span class="nc">FailingQueue</span><span class="p">(</span><span class="n">queue</span><span class="o">.</span><span class="n">Queue</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fail_next_put</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fail_next_get</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="n">queue</span><span class="o">.</span><span class="n">Queue</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">_put</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fail_next_put</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail_next_put</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">raise</span> <span class="n">FailingQueueException</span><span class="p">(</span><span class="s">&quot;You Lose&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">queue</span><span class="o">.</span><span class="n">Queue</span><span class="o">.</span><span class="n">_put</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">item</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">_get</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fail_next_get</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail_next_get</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">raise</span> <span class="n">FailingQueueException</span><span class="p">(</span><span class="s">&quot;You Lose&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">queue</span><span class="o">.</span><span class="n">Queue</span><span class="o">.</span><span class="n">_get</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FailingQueueTest"><a class="viewcode-back" href="../../test.html#test.test_queue.FailingQueueTest">[docs]</a><span class="k">class</span> <span class="nc">FailingQueueTest</span><span class="p">(</span><span class="n">BlockingTestMixin</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="FailingQueueTest.failing_queue_test"><a class="viewcode-back" href="../../test.html#test.test_queue.FailingQueueTest.failing_queue_test">[docs]</a>    <span class="k">def</span> <span class="nf">failing_queue_test</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">q</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">():</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;Call this function with an empty queue&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+        <span class="c"># Test a failing non-blocking put.</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">fail_next_put</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="s">&quot;oops&quot;</span><span class="p">,</span> <span class="n">block</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;The queue didn&#39;t fail when it should have&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">FailingQueueException</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">fail_next_put</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="s">&quot;oops&quot;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;The queue didn&#39;t fail when it should have&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">FailingQueueException</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="s">&quot;last&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">qfull</span><span class="p">(</span><span class="n">q</span><span class="p">),</span> <span class="s">&quot;Queue should be full&quot;</span><span class="p">)</span>
+        <span class="c"># Test a failing blocking put</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">fail_next_put</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">do_blocking_test</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">,</span> <span class="p">(</span><span class="s">&quot;full&quot;</span><span class="p">,),</span> <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="p">())</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;The queue didn&#39;t fail when it should have&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">FailingQueueException</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="c"># Check the Queue isn&#39;t damaged.</span>
+        <span class="c"># put failed, but get succeeded - re-add</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="s">&quot;last&quot;</span><span class="p">)</span>
+        <span class="c"># Test a failing timeout put</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">fail_next_put</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">do_exceptional_blocking_test</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">,</span> <span class="p">(</span><span class="s">&quot;full&quot;</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span> <span class="mi">10</span><span class="p">),</span> <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="p">(),</span>
+                                              <span class="n">FailingQueueException</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;The queue didn&#39;t fail when it should have&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">FailingQueueException</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="c"># Check the Queue isn&#39;t damaged.</span>
+        <span class="c"># put failed, but get succeeded - re-add</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="s">&quot;last&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">qfull</span><span class="p">(</span><span class="n">q</span><span class="p">),</span> <span class="s">&quot;Queue should be full&quot;</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="ow">not</span> <span class="n">qfull</span><span class="p">(</span><span class="n">q</span><span class="p">),</span> <span class="s">&quot;Queue should not be full&quot;</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="s">&quot;last&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">qfull</span><span class="p">(</span><span class="n">q</span><span class="p">),</span> <span class="s">&quot;Queue should be full&quot;</span><span class="p">)</span>
+        <span class="c"># Test a blocking put</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">do_blocking_test</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">,</span> <span class="p">(</span><span class="s">&quot;full&quot;</span><span class="p">,),</span> <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="p">())</span>
+        <span class="c"># Empty it</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="p">):</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="ow">not</span> <span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="s">&quot;Queue should be empty&quot;</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="s">&quot;first&quot;</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">fail_next_get</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;The queue didn&#39;t fail when it should have&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">FailingQueueException</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="s">&quot;Queue should not be empty&quot;</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">fail_next_get</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">0.1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;The queue didn&#39;t fail when it should have&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">FailingQueueException</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="s">&quot;Queue should not be empty&quot;</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="ow">not</span> <span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="s">&quot;Queue should be empty&quot;</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">fail_next_get</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">do_exceptional_blocking_test</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">,</span> <span class="p">(),</span> <span class="n">q</span><span class="o">.</span><span class="n">put</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;empty&#39;</span><span class="p">,),</span>
+                                              <span class="n">FailingQueueException</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;The queue didn&#39;t fail when it should have&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">FailingQueueException</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="c"># put succeeded, but get failed.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="s">&quot;Queue should not be empty&quot;</span><span class="p">)</span>
+        <span class="n">q</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="ow">not</span> <span class="n">q</span><span class="o">.</span><span class="n">qsize</span><span class="p">(),</span> <span class="s">&quot;Queue should be empty&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FailingQueueTest.test_failing_queue"><a class="viewcode-back" href="../../test.html#test.test_queue.FailingQueueTest.test_failing_queue">[docs]</a>    <span class="k">def</span> <span class="nf">test_failing_queue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test to make sure a queue is functioning correctly.</span>
+        <span class="c"># Done twice to the same instance.</span>
+        <span class="n">q</span> <span class="o">=</span> <span class="n">FailingQueue</span><span class="p">(</span><span class="n">QUEUE_SIZE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">failing_queue_test</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">failing_queue_test</span><span class="p">(</span><span class="n">q</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_queue.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">():</span>
+    <span class="n">support</span><span class="o">.</span><span class="n">run_unittest</span><span class="p">(</span><span class="n">QueueTest</span><span class="p">,</span> <span class="n">LifoQueueTest</span><span class="p">,</span> <span class="n">PriorityQueueTest</span><span class="p">,</span>
+                              <span class="n">FailingQueueTest</span><span class="p">)</span>
+
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

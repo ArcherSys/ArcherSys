@@ -1,0 +1,425 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>asynchat &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for asynchat</h1><div class="highlight"><pre>
+<span class="c"># -*- Mode: Python; tab-width: 4 -*-</span>
+<span class="c">#       Id: asynchat.py,v 2.26 2000/09/07 22:29:26 rushing Exp</span>
+<span class="c">#       Author: Sam Rushing &lt;rushing@nightmare.com&gt;</span>
+
+<span class="c"># ======================================================================</span>
+<span class="c"># Copyright 1996 by Sam Rushing</span>
+<span class="c">#</span>
+<span class="c">#                         All Rights Reserved</span>
+<span class="c">#</span>
+<span class="c"># Permission to use, copy, modify, and distribute this software and</span>
+<span class="c"># its documentation for any purpose and without fee is hereby</span>
+<span class="c"># granted, provided that the above copyright notice appear in all</span>
+<span class="c"># copies and that both that copyright notice and this permission</span>
+<span class="c"># notice appear in supporting documentation, and that the name of Sam</span>
+<span class="c"># Rushing not be used in advertising or publicity pertaining to</span>
+<span class="c"># distribution of the software without specific, written prior</span>
+<span class="c"># permission.</span>
+<span class="c">#</span>
+<span class="c"># SAM RUSHING DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,</span>
+<span class="c"># INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN</span>
+<span class="c"># NO EVENT SHALL SAM RUSHING BE LIABLE FOR ANY SPECIAL, INDIRECT OR</span>
+<span class="c"># CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS</span>
+<span class="c"># OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,</span>
+<span class="c"># NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN</span>
+<span class="c"># CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+<span class="c"># ======================================================================</span>
+
+<span class="sd">r&quot;&quot;&quot;A class supporting chat-style (command/response) protocols.</span>
+
+<span class="sd">This class adds support for &#39;chat&#39; style protocols - where one side</span>
+<span class="sd">sends a &#39;command&#39;, and the other sends a response (examples would be</span>
+<span class="sd">the common internet protocols - smtp, nntp, ftp, etc..).</span>
+
+<span class="sd">The handle_read() method looks at the input stream for the current</span>
+<span class="sd">&#39;terminator&#39; (usually &#39;\r\n&#39; for single-line responses, &#39;\r\n.\r\n&#39;</span>
+<span class="sd">for multi-line output), calling self.found_terminator() on its</span>
+<span class="sd">receipt.</span>
+
+<span class="sd">for example:</span>
+<span class="sd">Say you build an async nntp client using this class.  At the start</span>
+<span class="sd">of the connection, you&#39;ll have self.terminator set to &#39;\r\n&#39;, in</span>
+<span class="sd">order to process the single-line greeting.  Just before issuing a</span>
+<span class="sd">&#39;LIST&#39; command you&#39;ll set it to &#39;\r\n.\r\n&#39;.  The output of the LIST</span>
+<span class="sd">command will be accumulated (using your own &#39;collect_incoming_data&#39;</span>
+<span class="sd">method) up to the terminator, and then control will be returned to</span>
+<span class="sd">you - by calling your self.found_terminator() method.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">asyncore</span>
+<span class="kn">from</span> <span class="nn">collections</span> <span class="kn">import</span> <span class="n">deque</span>
+
+
+<div class="viewcode-block" id="async_chat"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat">[docs]</a><span class="k">class</span> <span class="nc">async_chat</span><span class="p">(</span><span class="n">asyncore</span><span class="o">.</span><span class="n">dispatcher</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;This is an abstract class.  You must derive from this class, and add</span>
+<span class="sd">    the two methods collect_incoming_data() and found_terminator()&quot;&quot;&quot;</span>
+
+    <span class="c"># these are overridable defaults</span>
+
+    <span class="n">ac_in_buffer_size</span> <span class="o">=</span> <span class="mi">65536</span>
+    <span class="n">ac_out_buffer_size</span> <span class="o">=</span> <span class="mi">65536</span>
+
+    <span class="c"># we don&#39;t want to enable the use of encoding by default, because that is a</span>
+    <span class="c"># sign of an application bug that we don&#39;t want to pass silently</span>
+
+    <span class="n">use_encoding</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">encoding</span> <span class="o">=</span> <span class="s">&#39;latin-1&#39;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="c"># for string terminator matching</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+
+        <span class="c"># we use a list here rather than io.BytesIO for a few reasons...</span>
+        <span class="c"># del lst[:] is faster than bio.truncate(0)</span>
+        <span class="c"># lst = [] is faster than bio.truncate(0)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">incoming</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c"># we toss the use of the &quot;simple producer&quot; and replace it with</span>
+        <span class="c"># a pure deque, which the original fifo was a wrapping of</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span>
+        <span class="n">asyncore</span><span class="o">.</span><span class="n">dispatcher</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="nb">map</span><span class="p">)</span>
+
+<div class="viewcode-block" id="async_chat.collect_incoming_data"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.collect_incoming_data">[docs]</a>    <span class="k">def</span> <span class="nf">collect_incoming_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s">&quot;must be implemented in subclass&quot;</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_collect_incoming_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">incoming</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_get_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">incoming</span><span class="p">)</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">incoming</span><span class="p">[:]</span>
+        <span class="k">return</span> <span class="n">d</span>
+
+<div class="viewcode-block" id="async_chat.found_terminator"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.found_terminator">[docs]</a>    <span class="k">def</span> <span class="nf">found_terminator</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s">&quot;must be implemented in subclass&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="async_chat.set_terminator"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.set_terminator">[docs]</a>    <span class="k">def</span> <span class="nf">set_terminator</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">term</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the input delimiter.</span>
+
+<span class="sd">        Can be a fixed string of any length, an integer, or None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">term</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_encoding</span><span class="p">:</span>
+            <span class="n">term</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">term</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoding</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">term</span><span class="p">,</span> <span class="nb">int</span><span class="p">)</span> <span class="ow">and</span> <span class="n">term</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;the number of received bytes must be positive&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">terminator</span> <span class="o">=</span> <span class="n">term</span>
+</div>
+<div class="viewcode-block" id="async_chat.get_terminator"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.get_terminator">[docs]</a>    <span class="k">def</span> <span class="nf">get_terminator</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">terminator</span>
+
+    <span class="c"># grab some more data from the socket,</span>
+    <span class="c"># throw it to the collector method,</span>
+    <span class="c"># check for the terminator,</span>
+    <span class="c"># if found, transition to the next state.</span>
+</div>
+<div class="viewcode-block" id="async_chat.handle_read"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.handle_read">[docs]</a>    <span class="k">def</span> <span class="nf">handle_read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer_size</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">BlockingIOError</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">why</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle_error</span><span class="p">()</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_encoding</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoding</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">+</span> <span class="n">data</span>
+
+        <span class="c"># Continue to search for self.terminator in self.ac_in_buffer,</span>
+        <span class="c"># while calling self.collect_incoming_data.  The while loop</span>
+        <span class="c"># is necessary because we might read several data+terminator</span>
+        <span class="c"># combos with a single recv(4096).</span>
+
+        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">:</span>
+            <span class="n">lb</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">)</span>
+            <span class="n">terminator</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_terminator</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">terminator</span><span class="p">:</span>
+                <span class="c"># no terminator, collect it all</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">collect_incoming_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">terminator</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+                <span class="c"># numeric terminator</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="n">terminator</span>
+                <span class="k">if</span> <span class="n">lb</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">collect_incoming_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">terminator</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">terminator</span> <span class="o">-</span> <span class="n">lb</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">collect_incoming_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">[:</span><span class="n">n</span><span class="p">])</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">[</span><span class="n">n</span><span class="p">:]</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">terminator</span> <span class="o">=</span> <span class="mi">0</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">found_terminator</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># 3 cases:</span>
+                <span class="c"># 1) end of buffer matches terminator exactly:</span>
+                <span class="c">#    collect data, transition</span>
+                <span class="c"># 2) end of buffer matches some prefix:</span>
+                <span class="c">#    collect data to the prefix</span>
+                <span class="c"># 3) end of buffer does not match any prefix:</span>
+                <span class="c">#    collect data</span>
+                <span class="n">terminator_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">terminator</span><span class="p">)</span>
+                <span class="n">index</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">terminator</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">index</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                    <span class="c"># we found the terminator</span>
+                    <span class="k">if</span> <span class="n">index</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="c"># don&#39;t bother reporting the empty string</span>
+                        <span class="c"># (source of subtle bugs)</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">collect_incoming_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">[:</span><span class="n">index</span><span class="p">])</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">[</span><span class="n">index</span><span class="o">+</span><span class="n">terminator_len</span><span class="p">:]</span>
+                    <span class="c"># This does the Right Thing if the terminator</span>
+                    <span class="c"># is changed here.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">found_terminator</span><span class="p">()</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># check for a prefix of the terminator</span>
+                    <span class="n">index</span> <span class="o">=</span> <span class="n">find_prefix_at_end</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">,</span> <span class="n">terminator</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">index</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">index</span> <span class="o">!=</span> <span class="n">lb</span><span class="p">:</span>
+                            <span class="c"># we found a prefix, collect up to the prefix</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">collect_incoming_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">[:</span><span class="o">-</span><span class="n">index</span><span class="p">])</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">[</span><span class="o">-</span><span class="n">index</span><span class="p">:]</span>
+                        <span class="k">break</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="c"># no prefix, collect it all</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">collect_incoming_data</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span><span class="p">)</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+</div>
+<div class="viewcode-block" id="async_chat.handle_write"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.handle_write">[docs]</a>    <span class="k">def</span> <span class="nf">handle_write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initiate_send</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="async_chat.handle_close"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.handle_close">[docs]</a>    <span class="k">def</span> <span class="nf">handle_close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="async_chat.push"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.push">[docs]</a>    <span class="k">def</span> <span class="nf">push</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">,</span> <span class="n">memoryview</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;data argument must be byte-ish (</span><span class="si">%r</span><span class="s">)&#39;</span><span class="p">,</span>
+                            <span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+        <span class="n">sabs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ac_out_buffer_size</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">sabs</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">),</span> <span class="n">sabs</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="n">sabs</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initiate_send</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="async_chat.push_with_producer"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.push_with_producer">[docs]</a>    <span class="k">def</span> <span class="nf">push_with_producer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">producer</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">producer</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initiate_send</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="async_chat.readable"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.readable">[docs]</a>    <span class="k">def</span> <span class="nf">readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="s">&quot;predicate for inclusion in the readable for select()&quot;</span>
+        <span class="c"># cannot use the old predicate, it violates the claim of the</span>
+        <span class="c"># set_terminator method.</span>
+
+        <span class="c"># return (len(self.ac_in_buffer) &lt;= self.ac_in_buffer_size)</span>
+        <span class="k">return</span> <span class="mi">1</span>
+</div>
+<div class="viewcode-block" id="async_chat.writable"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.writable">[docs]</a>    <span class="k">def</span> <span class="nf">writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="s">&quot;predicate for inclusion in the writable for select()&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span> <span class="ow">or</span> <span class="p">(</span><span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">connected</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="async_chat.close_when_done"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.close_when_done">[docs]</a>    <span class="k">def</span> <span class="nf">close_when_done</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="s">&quot;automatically close this channel once the outgoing queue is empty&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="async_chat.initiate_send"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.initiate_send">[docs]</a>    <span class="k">def</span> <span class="nf">initiate_send</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">connected</span><span class="p">:</span>
+            <span class="n">first</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="c"># handle empty string/buffer or None entry</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">first</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">first</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">handle_close</span><span class="p">()</span>
+                    <span class="k">return</span>
+
+            <span class="c"># handle classic producer behavior</span>
+            <span class="n">obs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ac_out_buffer_size</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">first</span><span class="p">[:</span><span class="n">obs</span><span class="p">]</span>
+            <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">first</span><span class="o">.</span><span class="n">more</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">data</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="o">.</span><span class="n">appendleft</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="k">continue</span>
+
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">use_encoding</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">encoding</span><span class="p">)</span>
+
+            <span class="c"># send the data</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">num_sent</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handle_error</span><span class="p">()</span>
+                <span class="k">return</span>
+
+            <span class="k">if</span> <span class="n">num_sent</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">num_sent</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="ow">or</span> <span class="n">obs</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">first</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">first</span><span class="p">[</span><span class="n">num_sent</span><span class="p">:]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="c"># we tried to send some actual data</span>
+            <span class="k">return</span>
+</div>
+<div class="viewcode-block" id="async_chat.discard_buffers"><a class="viewcode-back" href="../asynchat.html#asynchat.async_chat.discard_buffers">[docs]</a>    <span class="k">def</span> <span class="nf">discard_buffers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Emergencies only!</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ac_in_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">incoming</span><span class="p">[:]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">producer_fifo</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="simple_producer"><a class="viewcode-back" href="../asynchat.html#asynchat.simple_producer">[docs]</a><span class="k">class</span> <span class="nc">simple_producer</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">buffer_size</span><span class="o">=</span><span class="mi">512</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">buffer_size</span> <span class="o">=</span> <span class="n">buffer_size</span>
+
+<div class="viewcode-block" id="simple_producer.more"><a class="viewcode-back" href="../asynchat.html#asynchat.simple_producer.more">[docs]</a>    <span class="k">def</span> <span class="nf">more</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">buffer_size</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[:</span><span class="bp">self</span><span class="o">.</span><span class="n">buffer_size</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">buffer_size</span><span class="p">:]</span>
+            <span class="k">return</span> <span class="n">result</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+            <span class="k">return</span> <span class="n">result</span>
+
+</div></div>
+<div class="viewcode-block" id="fifo"><a class="viewcode-back" href="../asynchat.html#asynchat.fifo">[docs]</a><span class="k">class</span> <span class="nc">fifo</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">list</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">list</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">list</span> <span class="o">=</span> <span class="n">deque</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">list</span> <span class="o">=</span> <span class="n">deque</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">list</span><span class="p">)</span>
+
+<div class="viewcode-block" id="fifo.is_empty"><a class="viewcode-back" href="../asynchat.html#asynchat.fifo.is_empty">[docs]</a>    <span class="k">def</span> <span class="nf">is_empty</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">list</span>
+</div>
+<div class="viewcode-block" id="fifo.first"><a class="viewcode-back" href="../asynchat.html#asynchat.fifo.first">[docs]</a>    <span class="k">def</span> <span class="nf">first</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">list</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="fifo.push"><a class="viewcode-back" href="../asynchat.html#asynchat.fifo.push">[docs]</a>    <span class="k">def</span> <span class="nf">push</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="fifo.pop"><a class="viewcode-back" href="../asynchat.html#asynchat.fifo.pop">[docs]</a>    <span class="k">def</span> <span class="nf">pop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">list</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">list</span><span class="o">.</span><span class="n">popleft</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+
+<span class="c"># Given &#39;haystack&#39;, see if any prefix of &#39;needle&#39; is at its end.  This</span>
+<span class="c"># assumes an exact match has already been checked.  Return the number of</span>
+<span class="c"># characters matched.</span>
+<span class="c"># for example:</span>
+<span class="c"># f_p_a_e(&quot;qwerty\r&quot;, &quot;\r\n&quot;) =&gt; 1</span>
+<span class="c"># f_p_a_e(&quot;qwertydkjf&quot;, &quot;\r\n&quot;) =&gt; 0</span>
+<span class="c"># f_p_a_e(&quot;qwerty\r\n&quot;, &quot;\r\n&quot;) =&gt; &lt;undefined&gt;</span>
+
+<span class="c"># this could maybe be made faster with a computed regex?</span>
+<span class="c"># [answer: no; circa Python-2.0, Jan 2001]</span>
+<span class="c"># new python:   28961/s</span>
+<span class="c"># old python:   18307/s</span>
+<span class="c"># re:        12820/s</span>
+<span class="c"># regex:     14035/s</span>
+</div></div>
+<div class="viewcode-block" id="find_prefix_at_end"><a class="viewcode-back" href="../asynchat.html#asynchat.find_prefix_at_end">[docs]</a><span class="k">def</span> <span class="nf">find_prefix_at_end</span><span class="p">(</span><span class="n">haystack</span><span class="p">,</span> <span class="n">needle</span><span class="p">):</span>
+    <span class="n">l</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">needle</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+    <span class="k">while</span> <span class="n">l</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">haystack</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="n">needle</span><span class="p">[:</span><span class="n">l</span><span class="p">]):</span>
+        <span class="n">l</span> <span class="o">-=</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">l</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

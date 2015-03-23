@@ -1,0 +1,183 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>lib2to3.fixes.fix_map &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for lib2to3.fixes.fix_map</h1><div class="highlight"><pre>
+<span class="c"># Copyright 2007 Google, Inc. All Rights Reserved.</span>
+<span class="c"># Licensed to PSF under a Contributor Agreement.</span>
+
+<span class="sd">&quot;&quot;&quot;Fixer that changes map(F, ...) into list(map(F, ...)) unless there</span>
+<span class="sd">exists a &#39;from future_builtins import map&#39; statement in the top-level</span>
+<span class="sd">namespace.</span>
+
+<span class="sd">As a special case, map(None, X) is changed into list(X).  (This is</span>
+<span class="sd">necessary because the semantics are changed in this case -- the new</span>
+<span class="sd">map(None, X) is equivalent to [(x,) for x in X].)</span>
+
+<span class="sd">We avoid the transformation (except for the special case mentioned</span>
+<span class="sd">above) if the map() call is directly contained in iter(&lt;&gt;), list(&lt;&gt;),</span>
+<span class="sd">tuple(&lt;&gt;), sorted(&lt;&gt;), ...join(&lt;&gt;), or for V in &lt;&gt;:.</span>
+
+<span class="sd">NOTE: This is still not correct if the original code was depending on</span>
+<span class="sd">map(F, X, Y, ...) to go on until the longest argument is exhausted,</span>
+<span class="sd">substituting None for missing values -- like zip(), it now stops as</span>
+<span class="sd">soon as the shortest argument is exhausted.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c"># Local imports</span>
+<span class="kn">from</span> <span class="nn">..pgen2</span> <span class="kn">import</span> <span class="n">token</span>
+<span class="kn">from</span> <span class="nn">..</span> <span class="kn">import</span> <span class="n">fixer_base</span>
+<span class="kn">from</span> <span class="nn">..fixer_util</span> <span class="kn">import</span> <span class="n">Name</span><span class="p">,</span> <span class="n">Call</span><span class="p">,</span> <span class="n">ListComp</span><span class="p">,</span> <span class="n">in_special_context</span>
+<span class="kn">from</span> <span class="nn">..pygram</span> <span class="kn">import</span> <span class="n">python_symbols</span> <span class="k">as</span> <span class="n">syms</span>
+
+<div class="viewcode-block" id="FixMap"><a class="viewcode-back" href="../../../lib2to3.fixes.html#lib2to3.fixes.fix_map.FixMap">[docs]</a><span class="k">class</span> <span class="nc">FixMap</span><span class="p">(</span><span class="n">fixer_base</span><span class="o">.</span><span class="n">ConditionalFix</span><span class="p">):</span>
+    <span class="n">BM_compatible</span> <span class="o">=</span> <span class="bp">True</span>
+
+    <span class="n">PATTERN</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span>
+<span class="s">    map_none=power&lt;</span>
+<span class="s">        &#39;map&#39;</span>
+<span class="s">        trailer&lt; &#39;(&#39; arglist&lt; &#39;None&#39; &#39;,&#39; arg=any [&#39;,&#39;] &gt; &#39;)&#39; &gt;</span>
+<span class="s">    &gt;</span>
+<span class="s">    |</span>
+<span class="s">    map_lambda=power&lt;</span>
+<span class="s">        &#39;map&#39;</span>
+<span class="s">        trailer&lt;</span>
+<span class="s">            &#39;(&#39;</span>
+<span class="s">            arglist&lt;</span>
+<span class="s">                lambdef&lt; &#39;lambda&#39;</span>
+<span class="s">                         (fp=NAME | vfpdef&lt; &#39;(&#39; fp=NAME &#39;)&#39;&gt; ) &#39;:&#39; xp=any</span>
+<span class="s">                &gt;</span>
+<span class="s">                &#39;,&#39;</span>
+<span class="s">                it=any</span>
+<span class="s">            &gt;</span>
+<span class="s">            &#39;)&#39;</span>
+<span class="s">        &gt;</span>
+<span class="s">    &gt;</span>
+<span class="s">    |</span>
+<span class="s">    power&lt;</span>
+<span class="s">        &#39;map&#39; trailer&lt; &#39;(&#39; [arglist=any] &#39;)&#39; &gt;</span>
+<span class="s">    &gt;</span>
+<span class="s">    &quot;&quot;&quot;</span>
+
+    <span class="n">skip_on</span> <span class="o">=</span> <span class="s">&#39;future_builtins.map&#39;</span>
+
+<div class="viewcode-block" id="FixMap.transform"><a class="viewcode-back" href="../../../lib2to3.fixes.html#lib2to3.fixes.fix_map.FixMap.transform">[docs]</a>    <span class="k">def</span> <span class="nf">transform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">,</span> <span class="n">results</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">should_skip</span><span class="p">(</span><span class="n">node</span><span class="p">):</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="n">syms</span><span class="o">.</span><span class="n">simple_stmt</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="s">&quot;You should use a for loop here&quot;</span><span class="p">)</span>
+            <span class="n">new</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+            <span class="n">new</span><span class="o">.</span><span class="n">prefix</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+            <span class="n">new</span> <span class="o">=</span> <span class="n">Call</span><span class="p">(</span><span class="n">Name</span><span class="p">(</span><span class="s">&quot;list&quot;</span><span class="p">),</span> <span class="p">[</span><span class="n">new</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="s">&quot;map_lambda&quot;</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+            <span class="n">new</span> <span class="o">=</span> <span class="n">ListComp</span><span class="p">(</span><span class="n">results</span><span class="p">[</span><span class="s">&quot;xp&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">clone</span><span class="p">(),</span>
+                           <span class="n">results</span><span class="p">[</span><span class="s">&quot;fp&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">clone</span><span class="p">(),</span>
+                           <span class="n">results</span><span class="p">[</span><span class="s">&quot;it&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">clone</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s">&quot;map_none&quot;</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+                <span class="n">new</span> <span class="o">=</span> <span class="n">results</span><span class="p">[</span><span class="s">&quot;arg&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="s">&quot;arglist&quot;</span> <span class="ow">in</span> <span class="n">results</span><span class="p">:</span>
+                    <span class="n">args</span> <span class="o">=</span> <span class="n">results</span><span class="p">[</span><span class="s">&quot;arglist&quot;</span><span class="p">]</span>
+                    <span class="k">if</span> <span class="n">args</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="n">syms</span><span class="o">.</span><span class="n">arglist</span> <span class="ow">and</span> \
+                       <span class="n">args</span><span class="o">.</span><span class="n">children</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="n">token</span><span class="o">.</span><span class="n">NAME</span> <span class="ow">and</span> \
+                       <span class="n">args</span><span class="o">.</span><span class="n">children</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">value</span> <span class="o">==</span> <span class="s">&quot;None&quot;</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="s">&quot;cannot convert map(None, ...) &quot;</span>
+                                     <span class="s">&quot;with multiple arguments because map() &quot;</span>
+                                     <span class="s">&quot;now truncates to the shortest sequence&quot;</span><span class="p">)</span>
+                        <span class="k">return</span>
+                <span class="k">if</span> <span class="n">in_special_context</span><span class="p">(</span><span class="n">node</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="bp">None</span>
+                <span class="n">new</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">clone</span><span class="p">()</span>
+            <span class="n">new</span><span class="o">.</span><span class="n">prefix</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+            <span class="n">new</span> <span class="o">=</span> <span class="n">Call</span><span class="p">(</span><span class="n">Name</span><span class="p">(</span><span class="s">&quot;list&quot;</span><span class="p">),</span> <span class="p">[</span><span class="n">new</span><span class="p">])</span>
+        <span class="n">new</span><span class="o">.</span><span class="n">prefix</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">prefix</span>
+        <span class="k">return</span> <span class="n">new</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

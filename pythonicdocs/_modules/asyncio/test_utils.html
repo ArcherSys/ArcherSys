@@ -1,0 +1,517 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>asyncio.test_utils &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for asyncio.test_utils</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Utilities shared by tests.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">collections</span>
+<span class="kn">import</span> <span class="nn">contextlib</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">socketserver</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">from</span> <span class="nn">unittest</span> <span class="kn">import</span> <span class="n">mock</span>
+
+<span class="kn">from</span> <span class="nn">http.server</span> <span class="kn">import</span> <span class="n">HTTPServer</span>
+<span class="kn">from</span> <span class="nn">wsgiref.simple_server</span> <span class="kn">import</span> <span class="n">WSGIRequestHandler</span><span class="p">,</span> <span class="n">WSGIServer</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">ssl</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>  <span class="c"># pragma: no cover</span>
+    <span class="n">ssl</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">base_events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">selectors</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">tasks</span>
+<span class="kn">from</span> <span class="nn">.coroutines</span> <span class="kn">import</span> <span class="n">coroutine</span>
+<span class="kn">from</span> <span class="nn">.log</span> <span class="kn">import</span> <span class="n">logger</span>
+
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>  <span class="c"># pragma: no cover</span>
+    <span class="kn">from</span> <span class="nn">.windows_utils</span> <span class="kn">import</span> <span class="n">socketpair</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">socket</span> <span class="kn">import</span> <span class="n">socketpair</span>  <span class="c"># pragma: no cover</span>
+
+
+<div class="viewcode-block" id="dummy_ssl_context"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.dummy_ssl_context">[docs]</a><span class="k">def</span> <span class="nf">dummy_ssl_context</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">ssl</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">None</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLContext</span><span class="p">(</span><span class="n">ssl</span><span class="o">.</span><span class="n">PROTOCOL_SSLv23</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="run_briefly"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.run_briefly">[docs]</a><span class="k">def</span> <span class="nf">run_briefly</span><span class="p">(</span><span class="n">loop</span><span class="p">):</span>
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">once</span><span class="p">():</span>
+        <span class="k">pass</span>
+    <span class="n">gen</span> <span class="o">=</span> <span class="n">once</span><span class="p">()</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span>
+    <span class="c"># Don&#39;t log a warning if the task is not done after run_until_complete().</span>
+    <span class="c"># It occurs if the loop is stopped or if a task raises a BaseException.</span>
+    <span class="n">t</span><span class="o">.</span><span class="n">_log_destroy_pending</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">loop</span><span class="o">.</span><span class="n">run_until_complete</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">gen</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="run_until"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.run_until">[docs]</a><span class="k">def</span> <span class="nf">run_until</span><span class="p">(</span><span class="n">loop</span><span class="p">,</span> <span class="n">pred</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">):</span>
+    <span class="n">deadline</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">+</span> <span class="n">timeout</span>
+    <span class="k">while</span> <span class="ow">not</span> <span class="n">pred</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">timeout</span> <span class="o">=</span> <span class="n">deadline</span> <span class="o">-</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">timeout</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">()</span>
+        <span class="n">loop</span><span class="o">.</span><span class="n">run_until_complete</span><span class="p">(</span><span class="n">tasks</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.001</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">))</span>
+
+</div>
+<div class="viewcode-block" id="run_once"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.run_once">[docs]</a><span class="k">def</span> <span class="nf">run_once</span><span class="p">(</span><span class="n">loop</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;loop.stop() schedules _raise_stop_error()</span>
+<span class="sd">    and run_forever() runs until _raise_stop_error() callback.</span>
+<span class="sd">    this wont work if test waits for some IO events, because</span>
+<span class="sd">    _raise_stop_error() runs before any of io events callbacks.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">loop</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+    <span class="n">loop</span><span class="o">.</span><span class="n">run_forever</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="SilentWSGIRequestHandler"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.SilentWSGIRequestHandler">[docs]</a><span class="k">class</span> <span class="nc">SilentWSGIRequestHandler</span><span class="p">(</span><span class="n">WSGIRequestHandler</span><span class="p">):</span>
+
+<div class="viewcode-block" id="SilentWSGIRequestHandler.get_stderr"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.SilentWSGIRequestHandler.get_stderr">[docs]</a>    <span class="k">def</span> <span class="nf">get_stderr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SilentWSGIRequestHandler.log_message"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.SilentWSGIRequestHandler.log_message">[docs]</a>    <span class="k">def</span> <span class="nf">log_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">format</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+</div></div>
+<div class="viewcode-block" id="SilentWSGIServer"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.SilentWSGIServer">[docs]</a><span class="k">class</span> <span class="nc">SilentWSGIServer</span><span class="p">(</span><span class="n">WSGIServer</span><span class="p">):</span>
+
+<div class="viewcode-block" id="SilentWSGIServer.handle_error"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.SilentWSGIServer.handle_error">[docs]</a>    <span class="k">def</span> <span class="nf">handle_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">client_address</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+</div></div>
+<div class="viewcode-block" id="SSLWSGIServerMixin"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.SSLWSGIServerMixin">[docs]</a><span class="k">class</span> <span class="nc">SSLWSGIServerMixin</span><span class="p">:</span>
+
+<div class="viewcode-block" id="SSLWSGIServerMixin.finish_request"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.SSLWSGIServerMixin.finish_request">[docs]</a>    <span class="k">def</span> <span class="nf">finish_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">client_address</span><span class="p">):</span>
+        <span class="c"># The relative location of our test directory (which</span>
+        <span class="c"># contains the ssl key and certificate files) differs</span>
+        <span class="c"># between the stdlib and stand-alone asyncio.</span>
+        <span class="c"># Prefer our own if we can find it.</span>
+        <span class="n">here</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">__file__</span><span class="p">),</span> <span class="s">&#39;..&#39;</span><span class="p">,</span> <span class="s">&#39;tests&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">here</span><span class="p">):</span>
+            <span class="n">here</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">__file__</span><span class="p">),</span>
+                                <span class="s">&#39;test&#39;</span><span class="p">,</span> <span class="s">&#39;test_asyncio&#39;</span><span class="p">)</span>
+        <span class="n">keyfile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">here</span><span class="p">,</span> <span class="s">&#39;ssl_key.pem&#39;</span><span class="p">)</span>
+        <span class="n">certfile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">here</span><span class="p">,</span> <span class="s">&#39;ssl_cert.pem&#39;</span><span class="p">)</span>
+        <span class="n">ssock</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">wrap_socket</span><span class="p">(</span><span class="n">request</span><span class="p">,</span>
+                                <span class="n">keyfile</span><span class="o">=</span><span class="n">keyfile</span><span class="p">,</span>
+                                <span class="n">certfile</span><span class="o">=</span><span class="n">certfile</span><span class="p">,</span>
+                                <span class="n">server_side</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">RequestHandlerClass</span><span class="p">(</span><span class="n">ssock</span><span class="p">,</span> <span class="n">client_address</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+            <span class="n">ssock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="c"># maybe socket has been closed by peer</span>
+            <span class="k">pass</span>
+
+</div></div>
+<div class="viewcode-block" id="SSLWSGIServer"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.SSLWSGIServer">[docs]</a><span class="k">class</span> <span class="nc">SSLWSGIServer</span><span class="p">(</span><span class="n">SSLWSGIServerMixin</span><span class="p">,</span> <span class="n">SilentWSGIServer</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+</div>
+<span class="k">def</span> <span class="nf">_run_test_server</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">use_ssl</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">server_cls</span><span class="p">,</span> <span class="n">server_ssl_cls</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">app</span><span class="p">(</span><span class="n">environ</span><span class="p">,</span> <span class="n">start_response</span><span class="p">):</span>
+        <span class="n">status</span> <span class="o">=</span> <span class="s">&#39;200 OK&#39;</span>
+        <span class="n">headers</span> <span class="o">=</span> <span class="p">[(</span><span class="s">&#39;Content-type&#39;</span><span class="p">,</span> <span class="s">&#39;text/plain&#39;</span><span class="p">)]</span>
+        <span class="n">start_response</span><span class="p">(</span><span class="n">status</span><span class="p">,</span> <span class="n">headers</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">b</span><span class="s">&#39;Test message&#39;</span><span class="p">]</span>
+
+    <span class="c"># Run the test WSGI server in a separate thread in order not to</span>
+    <span class="c"># interfere with event handling in the main thread</span>
+    <span class="n">server_class</span> <span class="o">=</span> <span class="n">server_ssl_cls</span> <span class="k">if</span> <span class="n">use_ssl</span> <span class="k">else</span> <span class="n">server_cls</span>
+    <span class="n">httpd</span> <span class="o">=</span> <span class="n">server_class</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">SilentWSGIRequestHandler</span><span class="p">)</span>
+    <span class="n">httpd</span><span class="o">.</span><span class="n">set_app</span><span class="p">(</span><span class="n">app</span><span class="p">)</span>
+    <span class="n">httpd</span><span class="o">.</span><span class="n">address</span> <span class="o">=</span> <span class="n">httpd</span><span class="o">.</span><span class="n">server_address</span>
+    <span class="n">server_thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">httpd</span><span class="o">.</span><span class="n">serve_forever</span><span class="p">)</span>
+    <span class="n">server_thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="n">httpd</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">httpd</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
+        <span class="n">httpd</span><span class="o">.</span><span class="n">server_close</span><span class="p">()</span>
+        <span class="n">server_thread</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+
+<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="s">&#39;AF_UNIX&#39;</span><span class="p">):</span>
+
+    <span class="k">class</span> <span class="nc">UnixHTTPServer</span><span class="p">(</span><span class="n">socketserver</span><span class="o">.</span><span class="n">UnixStreamServer</span><span class="p">,</span> <span class="n">HTTPServer</span><span class="p">):</span>
+
+        <span class="k">def</span> <span class="nf">server_bind</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="n">socketserver</span><span class="o">.</span><span class="n">UnixStreamServer</span><span class="o">.</span><span class="n">server_bind</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">server_name</span> <span class="o">=</span> <span class="s">&#39;127.0.0.1&#39;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">server_port</span> <span class="o">=</span> <span class="mi">80</span>
+
+
+    <span class="k">class</span> <span class="nc">UnixWSGIServer</span><span class="p">(</span><span class="n">UnixHTTPServer</span><span class="p">,</span> <span class="n">WSGIServer</span><span class="p">):</span>
+
+        <span class="k">def</span> <span class="nf">server_bind</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="n">UnixHTTPServer</span><span class="o">.</span><span class="n">server_bind</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">setup_environ</span><span class="p">()</span>
+
+        <span class="k">def</span> <span class="nf">get_request</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="n">request</span><span class="p">,</span> <span class="n">client_addr</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">get_request</span><span class="p">()</span>
+            <span class="c"># Code in the stdlib expects that get_request</span>
+            <span class="c"># will return a socket and a tuple (host, port).</span>
+            <span class="c"># However, this isn&#39;t true for UNIX sockets,</span>
+            <span class="c"># as the second return value will be a path;</span>
+            <span class="c"># hence we return some fake data sufficient</span>
+            <span class="c"># to get the tests going</span>
+            <span class="k">return</span> <span class="n">request</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;127.0.0.1&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+
+
+    <span class="k">class</span> <span class="nc">SilentUnixWSGIServer</span><span class="p">(</span><span class="n">UnixWSGIServer</span><span class="p">):</span>
+
+        <span class="k">def</span> <span class="nf">handle_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">client_address</span><span class="p">):</span>
+            <span class="k">pass</span>
+
+
+    <span class="k">class</span> <span class="nc">UnixSSLWSGIServer</span><span class="p">(</span><span class="n">SSLWSGIServerMixin</span><span class="p">,</span> <span class="n">SilentUnixWSGIServer</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+
+    <span class="k">def</span> <span class="nf">gen_unix_socket_path</span><span class="p">():</span>
+        <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">NamedTemporaryFile</span><span class="p">()</span> <span class="k">as</span> <span class="nb">file</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">file</span><span class="o">.</span><span class="n">name</span>
+
+
+    <span class="nd">@contextlib.contextmanager</span>
+    <span class="k">def</span> <span class="nf">unix_socket_path</span><span class="p">():</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">gen_unix_socket_path</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="n">path</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">pass</span>
+
+
+    <span class="nd">@contextlib.contextmanager</span>
+    <span class="k">def</span> <span class="nf">run_test_unix_server</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">use_ssl</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">unix_socket_path</span><span class="p">()</span> <span class="k">as</span> <span class="n">path</span><span class="p">:</span>
+            <span class="k">yield from</span> <span class="n">_run_test_server</span><span class="p">(</span><span class="n">address</span><span class="o">=</span><span class="n">path</span><span class="p">,</span> <span class="n">use_ssl</span><span class="o">=</span><span class="n">use_ssl</span><span class="p">,</span>
+                                        <span class="n">server_cls</span><span class="o">=</span><span class="n">SilentUnixWSGIServer</span><span class="p">,</span>
+                                        <span class="n">server_ssl_cls</span><span class="o">=</span><span class="n">UnixSSLWSGIServer</span><span class="p">)</span>
+
+
+<span class="nd">@contextlib.contextmanager</span>
+<div class="viewcode-block" id="run_test_server"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.run_test_server">[docs]</a><span class="k">def</span> <span class="nf">run_test_server</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s">&#39;127.0.0.1&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">use_ssl</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="k">yield from</span> <span class="n">_run_test_server</span><span class="p">(</span><span class="n">address</span><span class="o">=</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">),</span> <span class="n">use_ssl</span><span class="o">=</span><span class="n">use_ssl</span><span class="p">,</span>
+                                <span class="n">server_cls</span><span class="o">=</span><span class="n">SilentWSGIServer</span><span class="p">,</span>
+                                <span class="n">server_ssl_cls</span><span class="o">=</span><span class="n">SSLWSGIServer</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="make_test_protocol"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.make_test_protocol">[docs]</a><span class="k">def</span> <span class="nf">make_test_protocol</span><span class="p">(</span><span class="n">base</span><span class="p">):</span>
+    <span class="n">dct</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">dir</span><span class="p">(</span><span class="n">base</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;__&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;__&#39;</span><span class="p">):</span>
+            <span class="c"># skip magic names</span>
+            <span class="k">continue</span>
+        <span class="n">dct</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">MockCallback</span><span class="p">(</span><span class="n">return_value</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">type</span><span class="p">(</span><span class="s">&#39;TestProtocol&#39;</span><span class="p">,</span> <span class="p">(</span><span class="n">base</span><span class="p">,)</span> <span class="o">+</span> <span class="n">base</span><span class="o">.</span><span class="n">__bases__</span><span class="p">,</span> <span class="n">dct</span><span class="p">)()</span>
+
+</div>
+<div class="viewcode-block" id="TestSelector"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestSelector">[docs]</a><span class="k">class</span> <span class="nc">TestSelector</span><span class="p">(</span><span class="n">selectors</span><span class="o">.</span><span class="n">BaseSelector</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">keys</span> <span class="o">=</span> <span class="p">{}</span>
+
+<div class="viewcode-block" id="TestSelector.register"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestSelector.register">[docs]</a>    <span class="k">def</span> <span class="nf">register</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fileobj</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="n">selectors</span><span class="o">.</span><span class="n">SelectorKey</span><span class="p">(</span><span class="n">fileobj</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">events</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">keys</span><span class="p">[</span><span class="n">fileobj</span><span class="p">]</span> <span class="o">=</span> <span class="n">key</span>
+        <span class="k">return</span> <span class="n">key</span>
+</div>
+<div class="viewcode-block" id="TestSelector.unregister"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestSelector.unregister">[docs]</a>    <span class="k">def</span> <span class="nf">unregister</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fileobj</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">keys</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">fileobj</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestSelector.select"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestSelector.select">[docs]</a>    <span class="k">def</span> <span class="nf">select</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">[]</span>
+</div>
+<div class="viewcode-block" id="TestSelector.get_map"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestSelector.get_map">[docs]</a>    <span class="k">def</span> <span class="nf">get_map</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">keys</span>
+
+</div></div>
+<div class="viewcode-block" id="TestLoop"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop">[docs]</a><span class="k">class</span> <span class="nc">TestLoop</span><span class="p">(</span><span class="n">base_events</span><span class="o">.</span><span class="n">BaseEventLoop</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Loop for unittests.</span>
+
+<span class="sd">    It manages self time directly.</span>
+<span class="sd">    If something scheduled to be executed later then</span>
+<span class="sd">    on next loop iteration after all ready handlers done</span>
+<span class="sd">    generator passed to __init__ is calling.</span>
+
+<span class="sd">    Generator should be like this:</span>
+
+<span class="sd">        def gen():</span>
+<span class="sd">            ...</span>
+<span class="sd">            when = yield ...</span>
+<span class="sd">            ... = yield time_advance</span>
+
+<span class="sd">    Value returned by yield is absolute time of next scheduled handler.</span>
+<span class="sd">    Value passed to yield is time advance to move loop&#39;s time forward.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gen</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">gen</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">gen</span><span class="p">():</span>
+                <span class="k">yield</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_on_close</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_on_close</span> <span class="o">=</span> <span class="bp">True</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_gen</span> <span class="o">=</span> <span class="n">gen</span><span class="p">()</span>
+        <span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_gen</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_time</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_clock_resolution</span> <span class="o">=</span> <span class="mf">1e-9</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_timers</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selector</span> <span class="o">=</span> <span class="n">TestSelector</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">readers</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">writers</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset_counters</span><span class="p">()</span>
+
+<div class="viewcode-block" id="TestLoop.time"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.time">[docs]</a>    <span class="k">def</span> <span class="nf">time</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_time</span>
+</div>
+<div class="viewcode-block" id="TestLoop.advance_time"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.advance_time">[docs]</a>    <span class="k">def</span> <span class="nf">advance_time</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">advance</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Move test time forward.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">advance</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_time</span> <span class="o">+=</span> <span class="n">advance</span>
+</div>
+<div class="viewcode-block" id="TestLoop.close"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_check_on_close</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_gen</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">else</span><span class="p">:</span>  <span class="c"># pragma: no cover</span>
+                <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&quot;Time generator is not finished&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLoop.add_reader"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.add_reader">[docs]</a>    <span class="k">def</span> <span class="nf">add_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">readers</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">Handle</span><span class="p">(</span><span class="n">callback</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLoop.remove_reader"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.remove_reader">[docs]</a>    <span class="k">def</span> <span class="nf">remove_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">remove_reader_count</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">fd</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">readers</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">readers</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span>
+            <span class="k">return</span> <span class="bp">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="TestLoop.assert_reader"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.assert_reader">[docs]</a>    <span class="k">def</span> <span class="nf">assert_reader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">fd</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">readers</span><span class="p">,</span> <span class="s">&#39;fd {} is not registered&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="n">handle</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">readers</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span>
+        <span class="k">assert</span> <span class="n">handle</span><span class="o">.</span><span class="n">_callback</span> <span class="o">==</span> <span class="n">callback</span><span class="p">,</span> <span class="s">&#39;{!r} != {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">handle</span><span class="o">.</span><span class="n">_callback</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">handle</span><span class="o">.</span><span class="n">_args</span> <span class="o">==</span> <span class="n">args</span><span class="p">,</span> <span class="s">&#39;{!r} != {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">handle</span><span class="o">.</span><span class="n">_args</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLoop.add_writer"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.add_writer">[docs]</a>    <span class="k">def</span> <span class="nf">add_writer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">writers</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">Handle</span><span class="p">(</span><span class="n">callback</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLoop.remove_writer"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.remove_writer">[docs]</a>    <span class="k">def</span> <span class="nf">remove_writer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">remove_writer_count</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">fd</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">writers</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">writers</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span>
+            <span class="k">return</span> <span class="bp">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="TestLoop.assert_writer"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.assert_writer">[docs]</a>    <span class="k">def</span> <span class="nf">assert_writer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">fd</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">writers</span><span class="p">,</span> <span class="s">&#39;fd {} is not registered&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="n">handle</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">writers</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span>
+        <span class="k">assert</span> <span class="n">handle</span><span class="o">.</span><span class="n">_callback</span> <span class="o">==</span> <span class="n">callback</span><span class="p">,</span> <span class="s">&#39;{!r} != {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">handle</span><span class="o">.</span><span class="n">_callback</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">handle</span><span class="o">.</span><span class="n">_args</span> <span class="o">==</span> <span class="n">args</span><span class="p">,</span> <span class="s">&#39;{!r} != {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+            <span class="n">handle</span><span class="o">.</span><span class="n">_args</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestLoop.reset_counters"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.reset_counters">[docs]</a>    <span class="k">def</span> <span class="nf">reset_counters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">remove_reader_count</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">defaultdict</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">remove_writer_count</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">defaultdict</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_run_once</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_run_once</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">when</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_timers</span><span class="p">:</span>
+            <span class="n">advance</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_gen</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">when</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">advance_time</span><span class="p">(</span><span class="n">advance</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_timers</span> <span class="o">=</span> <span class="p">[]</span>
+
+<div class="viewcode-block" id="TestLoop.call_at"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestLoop.call_at">[docs]</a>    <span class="k">def</span> <span class="nf">call_at</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">when</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_timers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">when</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">call_at</span><span class="p">(</span><span class="n">when</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_process_events</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event_list</span><span class="p">):</span>
+        <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">_write_to_self</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+</div>
+<div class="viewcode-block" id="MockCallback"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.MockCallback">[docs]</a><span class="k">def</span> <span class="nf">MockCallback</span><span class="p">(</span><span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">mock</span><span class="o">.</span><span class="n">Mock</span><span class="p">(</span><span class="n">spec</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;__call__&#39;</span><span class="p">],</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="MockPattern"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.MockPattern">[docs]</a><span class="k">class</span> <span class="nc">MockPattern</span><span class="p">(</span><span class="nb">str</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A regex based str with a fuzzy __eq__.</span>
+
+<span class="sd">    Use this helper with &#39;mock.assert_called_with&#39;, or anywhere</span>
+<span class="sd">    where a regex comparison between strings is needed.</span>
+
+<span class="sd">    For instance:</span>
+<span class="sd">       mock_call.assert_called_with(MockPattern(&#39;spam.*ham&#39;))</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__eq__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="p">),</span> <span class="n">other</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">S</span><span class="p">))</span>
+
+</div>
+<div class="viewcode-block" id="get_function_source"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.get_function_source">[docs]</a><span class="k">def</span> <span class="nf">get_function_source</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+    <span class="n">source</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">_get_function_source</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">source</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;unable to get the source of </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">func</span><span class="p">,))</span>
+    <span class="k">return</span> <span class="n">source</span>
+
+</div>
+<div class="viewcode-block" id="TestCase"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestCase">[docs]</a><span class="k">class</span> <span class="nc">TestCase</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="TestCase.set_event_loop"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestCase.set_event_loop">[docs]</a>    <span class="k">def</span> <span class="nf">set_event_loop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">cleanup</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">loop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+        <span class="c"># ensure that the event loop is passed explicitly in asyncio</span>
+        <span class="n">events</span><span class="o">.</span><span class="n">set_event_loop</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">cleanup</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">loop</span><span class="o">.</span><span class="n">close</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestCase.new_test_loop"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestCase.new_test_loop">[docs]</a>    <span class="k">def</span> <span class="nf">new_test_loop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gen</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">TestLoop</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_event_loop</span><span class="p">(</span><span class="n">loop</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">loop</span>
+</div>
+<div class="viewcode-block" id="TestCase.tearDown"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.TestCase.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">events</span><span class="o">.</span><span class="n">set_event_loop</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+</div></div>
+<span class="nd">@contextlib.contextmanager</span>
+<div class="viewcode-block" id="disable_logger"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.disable_logger">[docs]</a><span class="k">def</span> <span class="nf">disable_logger</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Context manager to disable asyncio logger.</span>
+
+<span class="sd">    For example, it can be used to ignore warnings in debug mode.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">old_level</span> <span class="o">=</span> <span class="n">logger</span><span class="o">.</span><span class="n">level</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">CRITICAL</span><span class="o">+</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">yield</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">old_level</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="mock_nonblocking_socket"><a class="viewcode-back" href="../../asyncio.html#asyncio.test_utils.mock_nonblocking_socket">[docs]</a><span class="k">def</span> <span class="nf">mock_nonblocking_socket</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Create a mock of a non-blocking socket.&quot;&quot;&quot;</span>
+    <span class="n">sock</span> <span class="o">=</span> <span class="n">mock</span><span class="o">.</span><span class="n">Mock</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">)</span>
+    <span class="n">sock</span><span class="o">.</span><span class="n">gettimeout</span><span class="o">.</span><span class="n">return_value</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="k">return</span> <span class="n">sock</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

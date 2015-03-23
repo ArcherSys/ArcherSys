@@ -1,0 +1,1180 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>ftplib &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for ftplib</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;An FTP client class and some helper functions.</span>
+
+<span class="sd">Based on RFC 959: File Transfer Protocol (FTP), by J. Postel and J. Reynolds</span>
+
+<span class="sd">Example:</span>
+
+<span class="sd">&gt;&gt;&gt; from ftplib import FTP</span>
+<span class="sd">&gt;&gt;&gt; ftp = FTP(&#39;ftp.python.org&#39;) # connect to host, default port</span>
+<span class="sd">&gt;&gt;&gt; ftp.login() # default, i.e.: user anonymous, passwd anonymous@</span>
+<span class="sd">&#39;230 Guest login ok, access restrictions apply.&#39;</span>
+<span class="sd">&gt;&gt;&gt; ftp.retrlines(&#39;LIST&#39;) # list directory contents</span>
+<span class="sd">total 9</span>
+<span class="sd">drwxr-xr-x   8 root     wheel        1024 Jan  3  1994 .</span>
+<span class="sd">drwxr-xr-x   8 root     wheel        1024 Jan  3  1994 ..</span>
+<span class="sd">drwxr-xr-x   2 root     wheel        1024 Jan  3  1994 bin</span>
+<span class="sd">drwxr-xr-x   2 root     wheel        1024 Jan  3  1994 etc</span>
+<span class="sd">d-wxrwxr-x   2 ftp      wheel        1024 Sep  5 13:43 incoming</span>
+<span class="sd">drwxr-xr-x   2 root     wheel        1024 Nov 17  1993 lib</span>
+<span class="sd">drwxr-xr-x   6 1094     wheel        1024 Sep 13 19:07 pub</span>
+<span class="sd">drwxr-xr-x   3 root     wheel        1024 Jan  3  1994 usr</span>
+<span class="sd">-rw-r--r--   1 root     root          312 Aug  1  1994 welcome.msg</span>
+<span class="sd">&#39;226 Transfer complete.&#39;</span>
+<span class="sd">&gt;&gt;&gt; ftp.quit()</span>
+<span class="sd">&#39;221 Goodbye.&#39;</span>
+<span class="sd">&gt;&gt;&gt;</span>
+
+<span class="sd">A nice test that reveals some of the network dialogue would be:</span>
+<span class="sd">python ftplib.py -d localhost -l -p -l</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c">#</span>
+<span class="c"># Changes and improvements suggested by Steve Majewski.</span>
+<span class="c"># Modified by Jack to work on the mac.</span>
+<span class="c"># Modified by Siebren to support docstrings and PASV.</span>
+<span class="c"># Modified by Phil Schwartz to add storbinary and storlines callbacks.</span>
+<span class="c"># Modified by Giampaolo Rodola&#39; to add TLS support.</span>
+<span class="c">#</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="kn">from</span> <span class="nn">socket</span> <span class="kn">import</span> <span class="n">_GLOBAL_DEFAULT_TIMEOUT</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;FTP&quot;</span><span class="p">,</span> <span class="s">&quot;Netrc&quot;</span><span class="p">]</span>
+
+<span class="c"># Magic number from &lt;socket.h&gt;</span>
+<span class="n">MSG_OOB</span> <span class="o">=</span> <span class="mh">0x1</span>                           <span class="c"># Process data out of band</span>
+
+
+<span class="c"># The standard FTP server control port</span>
+<span class="n">FTP_PORT</span> <span class="o">=</span> <span class="mi">21</span>
+<span class="c"># The sizehint parameter passed to readline() calls</span>
+<span class="n">MAXLINE</span> <span class="o">=</span> <span class="mi">8192</span>
+
+
+<span class="c"># Exception raised when an error or invalid response is received</span>
+<span class="k">class</span> <span class="nc">Error</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span> <span class="k">pass</span>
+<span class="k">class</span> <span class="nc">error_reply</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span> <span class="k">pass</span>          <span class="c"># unexpected [123]xx reply</span>
+<span class="k">class</span> <span class="nc">error_temp</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span> <span class="k">pass</span>           <span class="c"># 4xx errors</span>
+<span class="k">class</span> <span class="nc">error_perm</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span> <span class="k">pass</span>           <span class="c"># 5xx errors</span>
+<span class="k">class</span> <span class="nc">error_proto</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span> <span class="k">pass</span>          <span class="c"># response does not begin with [1-5]</span>
+
+
+<span class="c"># All exceptions (hopefully) that may be raised here and that aren&#39;t</span>
+<span class="c"># (always) programming errors on our side</span>
+<span class="n">all_errors</span> <span class="o">=</span> <span class="p">(</span><span class="n">Error</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">,</span> <span class="ne">EOFError</span><span class="p">)</span>
+
+
+<span class="c"># Line terminators (we always output CRLF, but accept any of CRLF, CR, LF)</span>
+<span class="n">CRLF</span> <span class="o">=</span> <span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span>
+<span class="n">B_CRLF</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span>
+
+<span class="c"># The class itself</span>
+<div class="viewcode-block" id="FTP"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP">[docs]</a><span class="k">class</span> <span class="nc">FTP</span><span class="p">:</span>
+
+    <span class="sd">&#39;&#39;&#39;An FTP client class.</span>
+
+<span class="sd">    To create a connection, call the class using these arguments:</span>
+<span class="sd">            host, user, passwd, acct, timeout</span>
+
+<span class="sd">    The first four arguments are all strings, and have default value &#39;&#39;.</span>
+<span class="sd">    timeout must be numeric and defaults to None if not passed,</span>
+<span class="sd">    meaning that no timeout will be set on any ftp socket(s)</span>
+<span class="sd">    If a timeout is passed, then this is now the default timeout for all ftp</span>
+<span class="sd">    socket operations for this instance.</span>
+
+<span class="sd">    Then use self.connect() with optional host and port argument.</span>
+
+<span class="sd">    To download a file, use ftp.retrlines(&#39;RETR &#39; + filename),</span>
+<span class="sd">    or ftp.retrbinary() with slightly different arguments.</span>
+<span class="sd">    To upload a file, use ftp.storlines() or ftp.storbinary(),</span>
+<span class="sd">    which have an open file as argument (see their definitions</span>
+<span class="sd">    below for details).</span>
+<span class="sd">    The download/upload functions first issue appropriate TYPE</span>
+<span class="sd">    and PORT or PASV commands.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="n">debugging</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">host</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+    <span class="n">port</span> <span class="o">=</span> <span class="n">FTP_PORT</span>
+    <span class="n">maxline</span> <span class="o">=</span> <span class="n">MAXLINE</span>
+    <span class="n">sock</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="nb">file</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">welcome</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">passiveserver</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">encoding</span> <span class="o">=</span> <span class="s">&quot;latin-1&quot;</span>
+
+    <span class="c"># Initialization method (called by class instantiation).</span>
+    <span class="c"># Initialize host to localhost, port to standard ftp port</span>
+    <span class="c"># Optional arguments are host (for connect()),</span>
+    <span class="c"># and user, passwd, acct (for login())</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">passwd</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">acct</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span>
+                 <span class="n">timeout</span><span class="o">=</span><span class="n">_GLOBAL_DEFAULT_TIMEOUT</span><span class="p">,</span> <span class="n">source_address</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">source_address</span> <span class="o">=</span> <span class="n">source_address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span> <span class="o">=</span> <span class="n">timeout</span>
+        <span class="k">if</span> <span class="n">host</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">host</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">user</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="n">user</span><span class="p">,</span> <span class="n">passwd</span><span class="p">,</span> <span class="n">acct</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="c"># Context management protocol: try to quit() if active</span>
+    <span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">EOFError</span><span class="p">):</span>
+                <span class="k">pass</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="FTP.connect"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.connect">[docs]</a>    <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=-</span><span class="mi">999</span><span class="p">,</span> <span class="n">source_address</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Connect to host.  Arguments are:</span>
+<span class="sd">         - host: hostname to connect to (string, default previous host)</span>
+<span class="sd">         - port: port to connect to (integer, default previous port)</span>
+<span class="sd">         - timeout: the timeout to set against the ftp socket(s)</span>
+<span class="sd">         - source_address: a 2-tuple (host, port) for the socket to bind</span>
+<span class="sd">           to as its source address before connecting.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">host</span> <span class="o">!=</span> <span class="s">&#39;&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">host</span> <span class="o">=</span> <span class="n">host</span>
+        <span class="k">if</span> <span class="n">port</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">port</span>
+        <span class="k">if</span> <span class="n">timeout</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">999</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span> <span class="o">=</span> <span class="n">timeout</span>
+        <span class="k">if</span> <span class="n">source_address</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">source_address</span> <span class="o">=</span> <span class="n">source_address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">create_connection</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span><span class="p">,</span>
+                                             <span class="n">source_address</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">source_address</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">af</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">family</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">makefile</span><span class="p">(</span><span class="s">&#39;r&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">encoding</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">welcome</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getresp</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">welcome</span>
+</div>
+<div class="viewcode-block" id="FTP.getwelcome"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.getwelcome">[docs]</a>    <span class="k">def</span> <span class="nf">getwelcome</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Get the welcome message from the server.</span>
+<span class="sd">        (this is read and squirreled away by connect())&#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debugging</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;*welcome*&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sanitize</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">welcome</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">welcome</span>
+</div>
+<div class="viewcode-block" id="FTP.set_debuglevel"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.set_debuglevel">[docs]</a>    <span class="k">def</span> <span class="nf">set_debuglevel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">level</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Set the debugging level.</span>
+<span class="sd">        The required argument level means:</span>
+<span class="sd">        0: no debugging output (default)</span>
+<span class="sd">        1: print commands and responses but not body text etc.</span>
+<span class="sd">        2: also print raw lines read and sent before stripping CR/LF&#39;&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debugging</span> <span class="o">=</span> <span class="n">level</span></div>
+    <span class="n">debug</span> <span class="o">=</span> <span class="n">set_debuglevel</span>
+
+<div class="viewcode-block" id="FTP.set_pasv"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.set_pasv">[docs]</a>    <span class="k">def</span> <span class="nf">set_pasv</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Use passive or active mode for data transfers.</span>
+<span class="sd">        With a false argument, use the normal PORT mode,</span>
+<span class="sd">        With a true argument, use the PASV command.&#39;&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">passiveserver</span> <span class="o">=</span> <span class="n">val</span>
+
+    <span class="c"># Internal: &quot;sanitize&quot; a string for printing</span></div>
+<div class="viewcode-block" id="FTP.sanitize"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.sanitize">[docs]</a>    <span class="k">def</span> <span class="nf">sanitize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">s</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">s</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span> <span class="ow">in</span> <span class="p">{</span><span class="s">&#39;pass &#39;</span><span class="p">,</span> <span class="s">&#39;PASS &#39;</span><span class="p">}:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">))</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span> <span class="o">+</span> <span class="s">&#39;*&#39;</span><span class="o">*</span><span class="p">(</span><span class="n">i</span><span class="o">-</span><span class="mi">5</span><span class="p">)</span> <span class="o">+</span> <span class="n">s</span><span class="p">[</span><span class="n">i</span><span class="p">:]</span>
+        <span class="k">return</span> <span class="nb">repr</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+    <span class="c"># Internal: send one line to the server, appending CRLF</span></div>
+<div class="viewcode-block" id="FTP.putline"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.putline">[docs]</a>    <span class="k">def</span> <span class="nf">putline</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">line</span><span class="p">):</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">line</span> <span class="o">+</span> <span class="n">CRLF</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debugging</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;*put*&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sanitize</span><span class="p">(</span><span class="n">line</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">encoding</span><span class="p">))</span>
+
+    <span class="c"># Internal: send one command to the server (through putline())</span></div>
+<div class="viewcode-block" id="FTP.putcmd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.putcmd">[docs]</a>    <span class="k">def</span> <span class="nf">putcmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">line</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debugging</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&#39;*cmd*&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sanitize</span><span class="p">(</span><span class="n">line</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">putline</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+
+    <span class="c"># Internal: return one line from the server, stripping CRLF.</span>
+    <span class="c"># Raise EOFError if the connection is closed</span></div>
+<div class="viewcode-block" id="FTP.getline"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.getline">[docs]</a>    <span class="k">def</span> <span class="nf">getline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">maxline</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">maxline</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&quot;got more than </span><span class="si">%d</span><span class="s"> bytes&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">maxline</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debugging</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;*get*&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sanitize</span><span class="p">(</span><span class="n">line</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">EOFError</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:]</span> <span class="o">==</span> <span class="n">CRLF</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">line</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="ow">in</span> <span class="n">CRLF</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">line</span>
+
+    <span class="c"># Internal: get a response from the server, which may possibly</span>
+    <span class="c"># consist of multiple lines.  Return a single string with no</span>
+    <span class="c"># trailing CRLF.  If the response consists of multiple lines,</span>
+    <span class="c"># these are separated by &#39;\n&#39; characters in the string</span></div>
+<div class="viewcode-block" id="FTP.getmultiline"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.getmultiline">[docs]</a>    <span class="k">def</span> <span class="nf">getmultiline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getline</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">[</span><span class="mi">3</span><span class="p">:</span><span class="mi">4</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;-&#39;</span><span class="p">:</span>
+            <span class="n">code</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">nextline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getline</span><span class="p">()</span>
+                <span class="n">line</span> <span class="o">=</span> <span class="n">line</span> <span class="o">+</span> <span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span> <span class="o">+</span> <span class="n">nextline</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">nextline</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="n">code</span> <span class="ow">and</span> \
+                        <span class="n">nextline</span><span class="p">[</span><span class="mi">3</span><span class="p">:</span><span class="mi">4</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;-&#39;</span><span class="p">:</span>
+                    <span class="k">break</span>
+        <span class="k">return</span> <span class="n">line</span>
+
+    <span class="c"># Internal: get a response from the server.</span>
+    <span class="c"># Raise various errors if the response indicates an error</span></div>
+<div class="viewcode-block" id="FTP.getresp"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.getresp">[docs]</a>    <span class="k">def</span> <span class="nf">getresp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getmultiline</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debugging</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;*resp*&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sanitize</span><span class="p">(</span><span class="n">resp</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lastresp</span> <span class="o">=</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="p">{</span><span class="s">&#39;1&#39;</span><span class="p">,</span> <span class="s">&#39;2&#39;</span><span class="p">,</span> <span class="s">&#39;3&#39;</span><span class="p">}:</span>
+            <span class="k">return</span> <span class="n">resp</span>
+        <span class="k">if</span> <span class="n">c</span> <span class="o">==</span> <span class="s">&#39;4&#39;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error_temp</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">c</span> <span class="o">==</span> <span class="s">&#39;5&#39;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error_perm</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.voidresp"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.voidresp">[docs]</a>    <span class="k">def</span> <span class="nf">voidresp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Expect a response beginning with &#39;2&#39;.&quot;&quot;&quot;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getresp</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;2&#39;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">resp</span>
+</div>
+<div class="viewcode-block" id="FTP.abort"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.abort">[docs]</a>    <span class="k">def</span> <span class="nf">abort</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Abort a file transfer.  Uses out-of-band data.</span>
+<span class="sd">        This does not follow the procedure from the RFC to send Telnet</span>
+<span class="sd">        IP and Synch; that doesn&#39;t seem to work with the servers I&#39;ve</span>
+<span class="sd">        tried.  Instead, just send the ABOR command as OOB data.&#39;&#39;&#39;</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;ABOR&#39;</span> <span class="o">+</span> <span class="n">B_CRLF</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debugging</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;*put urgent*&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sanitize</span><span class="p">(</span><span class="n">line</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">line</span><span class="p">,</span> <span class="n">MSG_OOB</span><span class="p">)</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getmultiline</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s">&#39;426&#39;</span><span class="p">,</span> <span class="s">&#39;225&#39;</span><span class="p">,</span> <span class="s">&#39;226&#39;</span><span class="p">}:</span>
+            <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">resp</span>
+</div>
+<div class="viewcode-block" id="FTP.sendcmd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.sendcmd">[docs]</a>    <span class="k">def</span> <span class="nf">sendcmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Send a command and return the response.&#39;&#39;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">putcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">getresp</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FTP.voidcmd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.voidcmd">[docs]</a>    <span class="k">def</span> <span class="nf">voidcmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send a command and expect a response beginning with &#39;2&#39;.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">putcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidresp</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FTP.sendport"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.sendport">[docs]</a>    <span class="k">def</span> <span class="nf">sendport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Send a PORT command with the current host and the given</span>
+<span class="sd">        port number.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="n">hbytes</span> <span class="o">=</span> <span class="n">host</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)</span>
+        <span class="n">pbytes</span> <span class="o">=</span> <span class="p">[</span><span class="nb">repr</span><span class="p">(</span><span class="n">port</span><span class="o">//</span><span class="mi">256</span><span class="p">),</span> <span class="nb">repr</span><span class="p">(</span><span class="n">port</span><span class="o">%</span><span class="mi">256</span><span class="p">)]</span>
+        <span class="nb">bytes</span> <span class="o">=</span> <span class="n">hbytes</span> <span class="o">+</span> <span class="n">pbytes</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="s">&#39;PORT &#39;</span> <span class="o">+</span> <span class="s">&#39;,&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">bytes</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.sendeprt"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.sendeprt">[docs]</a>    <span class="k">def</span> <span class="nf">sendeprt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Send a EPRT command with the current host and the given port number.&#39;&#39;&#39;</span>
+        <span class="n">af</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">af</span> <span class="o">==</span> <span class="n">socket</span><span class="o">.</span><span class="n">AF_INET</span><span class="p">:</span>
+            <span class="n">af</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">af</span> <span class="o">==</span> <span class="n">socket</span><span class="o">.</span><span class="n">AF_INET6</span><span class="p">:</span>
+            <span class="n">af</span> <span class="o">=</span> <span class="mi">2</span>
+        <span class="k">if</span> <span class="n">af</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="s">&#39;unsupported address family&#39;</span><span class="p">)</span>
+        <span class="n">fields</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">af</span><span class="p">),</span> <span class="n">host</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">port</span><span class="p">),</span> <span class="s">&#39;&#39;</span><span class="p">]</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="s">&#39;EPRT &#39;</span> <span class="o">+</span> <span class="s">&#39;|&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">fields</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.makeport"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.makeport">[docs]</a>    <span class="k">def</span> <span class="nf">makeport</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Create a new socket and send a PORT command for it.&#39;&#39;&#39;</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">sock</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">for</span> <span class="n">res</span> <span class="ow">in</span> <span class="n">socket</span><span class="o">.</span><span class="n">getaddrinfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">af</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SOCK_STREAM</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">AI_PASSIVE</span><span class="p">):</span>
+            <span class="n">af</span><span class="p">,</span> <span class="n">socktype</span><span class="p">,</span> <span class="n">proto</span><span class="p">,</span> <span class="n">canonname</span><span class="p">,</span> <span class="n">sa</span> <span class="o">=</span> <span class="n">res</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">sock</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">(</span><span class="n">af</span><span class="p">,</span> <span class="n">socktype</span><span class="p">,</span> <span class="n">proto</span><span class="p">)</span>
+                <span class="n">sock</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">sa</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">_</span><span class="p">:</span>
+                <span class="n">err</span> <span class="o">=</span> <span class="n">_</span>
+                <span class="k">if</span> <span class="n">sock</span><span class="p">:</span>
+                    <span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="n">sock</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">continue</span>
+            <span class="k">break</span>
+        <span class="k">if</span> <span class="n">sock</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">err</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">err</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&quot;getaddrinfo returns an empty list&quot;</span><span class="p">)</span>
+        <span class="n">sock</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">port</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">getsockname</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span> <span class="c"># Get proper port</span>
+        <span class="n">host</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">getsockname</span><span class="p">()[</span><span class="mi">0</span><span class="p">]</span> <span class="c"># Get proper host</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">af</span> <span class="o">==</span> <span class="n">socket</span><span class="o">.</span><span class="n">AF_INET</span><span class="p">:</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendport</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendeprt</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_GLOBAL_DEFAULT_TIMEOUT</span><span class="p">:</span>
+            <span class="n">sock</span><span class="o">.</span><span class="n">settimeout</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timeout</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">sock</span>
+</div>
+<div class="viewcode-block" id="FTP.makepasv"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.makepasv">[docs]</a>    <span class="k">def</span> <span class="nf">makepasv</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">af</span> <span class="o">==</span> <span class="n">socket</span><span class="o">.</span><span class="n">AF_INET</span><span class="p">:</span>
+            <span class="n">host</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="n">parse227</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;PASV&#39;</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">host</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="n">parse229</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;EPSV&#39;</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">getpeername</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span>
+</div>
+<div class="viewcode-block" id="FTP.ntransfercmd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.ntransfercmd">[docs]</a>    <span class="k">def</span> <span class="nf">ntransfercmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">rest</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Initiate a transfer over the data connection.</span>
+
+<span class="sd">        If the transfer is active, send a port command and the</span>
+<span class="sd">        transfer command, and accept the connection.  If the server is</span>
+<span class="sd">        passive, send a pasv command, connect to it, and start the</span>
+<span class="sd">        transfer command.  Either way, return the socket for the</span>
+<span class="sd">        connection and the expected size of the transfer.  The</span>
+<span class="sd">        expected size may be None if it could not be determined.</span>
+
+<span class="sd">        Optional `rest&#39; argument can be a string that is sent as the</span>
+<span class="sd">        argument to a REST command.  This is essentially a server</span>
+<span class="sd">        marker used to tell the server to skip over any data up to the</span>
+<span class="sd">        given marker.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">passiveserver</span><span class="p">:</span>
+            <span class="n">host</span><span class="p">,</span> <span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">makepasv</span><span class="p">()</span>
+            <span class="n">conn</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">create_connection</span><span class="p">((</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span><span class="p">,</span>
+                                            <span class="n">source_address</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">source_address</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">rest</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&quot;REST </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">rest</span><span class="p">)</span>
+                <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+                <span class="c"># Some servers apparently send a 200 reply to</span>
+                <span class="c"># a LIST or STOR command, before the 150 reply</span>
+                <span class="c"># (and way before the 226 reply). This seems to</span>
+                <span class="c"># be in violation of the protocol (which only allows</span>
+                <span class="c"># 1xx or error messages for LIST), so we just discard</span>
+                <span class="c"># this response.</span>
+                <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;2&#39;</span><span class="p">:</span>
+                    <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getresp</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;1&#39;</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">raise</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">makeport</span><span class="p">()</span> <span class="k">as</span> <span class="n">sock</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">rest</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&quot;REST </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">rest</span><span class="p">)</span>
+                <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+                <span class="c"># See above.</span>
+                <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;2&#39;</span><span class="p">:</span>
+                    <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getresp</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;1&#39;</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+                <span class="n">conn</span><span class="p">,</span> <span class="n">sockaddr</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">_GLOBAL_DEFAULT_TIMEOUT</span><span class="p">:</span>
+                    <span class="n">conn</span><span class="o">.</span><span class="n">settimeout</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">timeout</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;150&#39;</span><span class="p">:</span>
+            <span class="c"># this is conditional in case we received a 125</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">parse150</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">conn</span><span class="p">,</span> <span class="n">size</span>
+</div>
+<div class="viewcode-block" id="FTP.transfercmd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.transfercmd">[docs]</a>    <span class="k">def</span> <span class="nf">transfercmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">rest</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Like ntransfercmd() but returns only the socket.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">ntransfercmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">rest</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="FTP.login"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.login">[docs]</a>    <span class="k">def</span> <span class="nf">login</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">passwd</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">acct</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Login, default anonymous.&#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">user</span><span class="p">:</span>
+            <span class="n">user</span> <span class="o">=</span> <span class="s">&#39;anonymous&#39;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">passwd</span><span class="p">:</span>
+            <span class="n">passwd</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">acct</span><span class="p">:</span>
+            <span class="n">acct</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">user</span> <span class="o">==</span> <span class="s">&#39;anonymous&#39;</span> <span class="ow">and</span> <span class="n">passwd</span> <span class="ow">in</span> <span class="p">{</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="s">&#39;-&#39;</span><span class="p">}:</span>
+            <span class="c"># If there is no anonymous ftp password specified</span>
+            <span class="c"># then we&#39;ll just use anonymous@</span>
+            <span class="c"># We don&#39;t send any other thing because:</span>
+            <span class="c"># - We want to remain anonymous</span>
+            <span class="c"># - We want to stop SPAM</span>
+            <span class="c"># - We don&#39;t want to let ftp sites to discriminate by the user,</span>
+            <span class="c">#   host or country.</span>
+            <span class="n">passwd</span> <span class="o">=</span> <span class="n">passwd</span> <span class="o">+</span> <span class="s">&#39;anonymous@&#39;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;USER &#39;</span> <span class="o">+</span> <span class="n">user</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;3&#39;</span><span class="p">:</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;PASS &#39;</span> <span class="o">+</span> <span class="n">passwd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;3&#39;</span><span class="p">:</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;ACCT &#39;</span> <span class="o">+</span> <span class="n">acct</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;2&#39;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">resp</span>
+</div>
+<div class="viewcode-block" id="FTP.retrbinary"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.retrbinary">[docs]</a>    <span class="k">def</span> <span class="nf">retrbinary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">blocksize</span><span class="o">=</span><span class="mi">8192</span><span class="p">,</span> <span class="n">rest</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Retrieve data in binary mode.  A new port is created for you.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">          cmd: A RETR command.</span>
+<span class="sd">          callback: A single parameter callable to be called on each</span>
+<span class="sd">                    block of data read.</span>
+<span class="sd">          blocksize: The maximum number of bytes to read from the</span>
+<span class="sd">                     socket at one time.  [default: 8192]</span>
+<span class="sd">          rest: Passed to transfercmd().  [default: None]</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">          The response code.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;TYPE I&#39;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">transfercmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">rest</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">data</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">blocksize</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="n">callback</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="c"># shutdown ssl layer</span>
+            <span class="k">if</span> <span class="n">_SSLSocket</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">_SSLSocket</span><span class="p">):</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">unwrap</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidresp</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FTP.retrlines"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.retrlines">[docs]</a>    <span class="k">def</span> <span class="nf">retrlines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">callback</span> <span class="o">=</span> <span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Retrieve data in line mode.  A new port is created for you.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">          cmd: A RETR, LIST, or NLST command.</span>
+<span class="sd">          callback: An optional single parameter callable that is called</span>
+<span class="sd">                    for each line with the trailing CRLF stripped.</span>
+<span class="sd">                    [default: print_line()]</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">          The response code.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">callback</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">callback</span> <span class="o">=</span> <span class="n">print_line</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;TYPE A&#39;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">transfercmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">,</span> \
+                 <span class="n">conn</span><span class="o">.</span><span class="n">makefile</span><span class="p">(</span><span class="s">&#39;r&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">encoding</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">line</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">maxline</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">maxline</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&quot;got more than </span><span class="si">%d</span><span class="s"> bytes&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">maxline</span><span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debugging</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="s">&#39;*retr*&#39;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">line</span><span class="p">))</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="k">if</span> <span class="n">line</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:]</span> <span class="o">==</span> <span class="n">CRLF</span><span class="p">:</span>
+                    <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+                <span class="k">elif</span> <span class="n">line</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="o">==</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">:</span>
+                    <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">callback</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+            <span class="c"># shutdown ssl layer</span>
+            <span class="k">if</span> <span class="n">_SSLSocket</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">_SSLSocket</span><span class="p">):</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">unwrap</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidresp</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FTP.storbinary"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.storbinary">[docs]</a>    <span class="k">def</span> <span class="nf">storbinary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">fp</span><span class="p">,</span> <span class="n">blocksize</span><span class="o">=</span><span class="mi">8192</span><span class="p">,</span> <span class="n">callback</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">rest</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Store a file in binary mode.  A new port is created for you.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">          cmd: A STOR command.</span>
+<span class="sd">          fp: A file-like object with a read(num_bytes) method.</span>
+<span class="sd">          blocksize: The maximum data size to read from fp and send over</span>
+<span class="sd">                     the connection at once.  [default: 8192]</span>
+<span class="sd">          callback: An optional single parameter callable that is called on</span>
+<span class="sd">                    each block of data after it is sent.  [default: None]</span>
+<span class="sd">          rest: Passed to transfercmd().  [default: None]</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">          The response code.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;TYPE I&#39;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">transfercmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">rest</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">buf</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">blocksize</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">buf</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">callback</span><span class="p">:</span>
+                    <span class="n">callback</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+            <span class="c"># shutdown ssl layer</span>
+            <span class="k">if</span> <span class="n">_SSLSocket</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">_SSLSocket</span><span class="p">):</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">unwrap</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidresp</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FTP.storlines"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.storlines">[docs]</a>    <span class="k">def</span> <span class="nf">storlines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">fp</span><span class="p">,</span> <span class="n">callback</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Store a file in line mode.  A new port is created for you.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">          cmd: A STOR command.</span>
+<span class="sd">          fp: A file-like object with a readline() method.</span>
+<span class="sd">          callback: An optional single parameter callable that is called on</span>
+<span class="sd">                    each line after it is sent.  [default: None]</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">          The response code.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;TYPE A&#39;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">transfercmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">buf</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">maxline</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">maxline</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">Error</span><span class="p">(</span><span class="s">&quot;got more than </span><span class="si">%d</span><span class="s"> bytes&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">maxline</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">buf</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="k">if</span> <span class="n">buf</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">:]</span> <span class="o">!=</span> <span class="n">B_CRLF</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">buf</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="ow">in</span> <span class="n">B_CRLF</span><span class="p">:</span> <span class="n">buf</span> <span class="o">=</span> <span class="n">buf</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                    <span class="n">buf</span> <span class="o">=</span> <span class="n">buf</span> <span class="o">+</span> <span class="n">B_CRLF</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">callback</span><span class="p">:</span>
+                    <span class="n">callback</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+            <span class="c"># shutdown ssl layer</span>
+            <span class="k">if</span> <span class="n">_SSLSocket</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">_SSLSocket</span><span class="p">):</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">unwrap</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidresp</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FTP.acct"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.acct">[docs]</a>    <span class="k">def</span> <span class="nf">acct</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">password</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Send new account name.&#39;&#39;&#39;</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="s">&#39;ACCT &#39;</span> <span class="o">+</span> <span class="n">password</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.nlst"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.nlst">[docs]</a>    <span class="k">def</span> <span class="nf">nlst</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Return a list of files in a given directory (default the current).&#39;&#39;&#39;</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="s">&#39;NLST&#39;</span>
+        <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">args</span><span class="p">:</span>
+            <span class="n">cmd</span> <span class="o">=</span> <span class="n">cmd</span> <span class="o">+</span> <span class="p">(</span><span class="s">&#39; &#39;</span> <span class="o">+</span> <span class="n">arg</span><span class="p">)</span>
+        <span class="n">files</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">retrlines</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">files</span><span class="o">.</span><span class="n">append</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">files</span>
+</div>
+<div class="viewcode-block" id="FTP.dir"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.dir">[docs]</a>    <span class="k">def</span> <span class="nf">dir</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;List a directory in long form.</span>
+<span class="sd">        By default list current directory to stdout.</span>
+<span class="sd">        Optional last argument is callback function; all</span>
+<span class="sd">        non-empty arguments before it are concatenated to the</span>
+<span class="sd">        LIST command.  (This *should* only be used for a pathname.)&#39;&#39;&#39;</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="s">&#39;LIST&#39;</span>
+        <span class="n">func</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">args</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="ow">and</span> <span class="nb">type</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">!=</span> <span class="nb">type</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+            <span class="n">args</span><span class="p">,</span> <span class="n">func</span> <span class="o">=</span> <span class="n">args</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">args</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">args</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">arg</span><span class="p">:</span>
+                <span class="n">cmd</span> <span class="o">=</span> <span class="n">cmd</span> <span class="o">+</span> <span class="p">(</span><span class="s">&#39; &#39;</span> <span class="o">+</span> <span class="n">arg</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">retrlines</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">func</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.mlsd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.mlsd">[docs]</a>    <span class="k">def</span> <span class="nf">mlsd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="s">&quot;&quot;</span><span class="p">,</span> <span class="n">facts</span><span class="o">=</span><span class="p">[]):</span>
+        <span class="sd">&#39;&#39;&#39;List a directory in a standardized format by using MLSD</span>
+<span class="sd">        command (RFC-3659). If path is omitted the current directory</span>
+<span class="sd">        is assumed. &quot;facts&quot; is a list of strings representing the type</span>
+<span class="sd">        of information desired (e.g. [&quot;type&quot;, &quot;size&quot;, &quot;perm&quot;]).</span>
+
+<span class="sd">        Return a generator object yielding a tuple of two elements</span>
+<span class="sd">        for every file found in path.</span>
+<span class="sd">        First element is the file name, the second one is a dictionary</span>
+<span class="sd">        including a variable number of &quot;facts&quot; depending on the server</span>
+<span class="sd">        and whether &quot;facts&quot; argument has been provided.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">facts</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&quot;OPTS MLST &quot;</span> <span class="o">+</span> <span class="s">&quot;;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">facts</span><span class="p">)</span> <span class="o">+</span> <span class="s">&quot;;&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">path</span><span class="p">:</span>
+            <span class="n">cmd</span> <span class="o">=</span> <span class="s">&quot;MLSD </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">path</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">cmd</span> <span class="o">=</span> <span class="s">&quot;MLSD&quot;</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">retrlines</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+            <span class="n">facts_found</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">name</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="n">CRLF</span><span class="p">)</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s">&#39; &#39;</span><span class="p">)</span>
+            <span class="n">entry</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">fact</span> <span class="ow">in</span> <span class="n">facts_found</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;;&quot;</span><span class="p">):</span>
+                <span class="n">key</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">fact</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s">&quot;=&quot;</span><span class="p">)</span>
+                <span class="n">entry</span><span class="p">[</span><span class="n">key</span><span class="o">.</span><span class="n">lower</span><span class="p">()]</span> <span class="o">=</span> <span class="n">value</span>
+            <span class="k">yield</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">entry</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.rename"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.rename">[docs]</a>    <span class="k">def</span> <span class="nf">rename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fromname</span><span class="p">,</span> <span class="n">toname</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Rename a file.&#39;&#39;&#39;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;RNFR &#39;</span> <span class="o">+</span> <span class="n">fromname</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;3&#39;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;RNTO &#39;</span> <span class="o">+</span> <span class="n">toname</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.delete"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.delete">[docs]</a>    <span class="k">def</span> <span class="nf">delete</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Delete a file.&#39;&#39;&#39;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;DELE &#39;</span> <span class="o">+</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="ow">in</span> <span class="p">{</span><span class="s">&#39;250&#39;</span><span class="p">,</span> <span class="s">&#39;200&#39;</span><span class="p">}:</span>
+            <span class="k">return</span> <span class="n">resp</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.cwd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.cwd">[docs]</a>    <span class="k">def</span> <span class="nf">cwd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirname</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Change to a directory.&#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">dirname</span> <span class="o">==</span> <span class="s">&#39;..&#39;</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;CDUP&#39;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">error_perm</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">msg</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">][:</span><span class="mi">3</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;500&#39;</span><span class="p">:</span>
+                    <span class="k">raise</span>
+        <span class="k">elif</span> <span class="n">dirname</span> <span class="o">==</span> <span class="s">&#39;&#39;</span><span class="p">:</span>
+            <span class="n">dirname</span> <span class="o">=</span> <span class="s">&#39;.&#39;</span>  <span class="c"># does nothing, but could return error</span>
+        <span class="n">cmd</span> <span class="o">=</span> <span class="s">&#39;CWD &#39;</span> <span class="o">+</span> <span class="n">dirname</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.size"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.size">[docs]</a>    <span class="k">def</span> <span class="nf">size</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Retrieve the size of a file.&#39;&#39;&#39;</span>
+        <span class="c"># The SIZE command is defined in RFC-3659</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;SIZE &#39;</span> <span class="o">+</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;213&#39;</span><span class="p">:</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">resp</span><span class="p">[</span><span class="mi">3</span><span class="p">:]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.mkd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.mkd">[docs]</a>    <span class="k">def</span> <span class="nf">mkd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirname</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Make a directory, return its full pathname.&#39;&#39;&#39;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;MKD &#39;</span> <span class="o">+</span> <span class="n">dirname</span><span class="p">)</span>
+        <span class="c"># fix around non-compliant implementations such as IIS shipped</span>
+        <span class="c"># with Windows server 2003</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">resp</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;257&#39;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="s">&#39;&#39;</span>
+        <span class="k">return</span> <span class="n">parse257</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.rmd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.rmd">[docs]</a>    <span class="k">def</span> <span class="nf">rmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirname</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Remove a directory.&#39;&#39;&#39;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;RMD &#39;</span> <span class="o">+</span> <span class="n">dirname</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.pwd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.pwd">[docs]</a>    <span class="k">def</span> <span class="nf">pwd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Return current working directory.&#39;&#39;&#39;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;PWD&#39;</span><span class="p">)</span>
+        <span class="c"># fix around non-compliant implementations such as IIS shipped</span>
+        <span class="c"># with Windows server 2003</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">resp</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;257&#39;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="s">&#39;&#39;</span>
+        <span class="k">return</span> <span class="n">parse257</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP.quit"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.quit">[docs]</a>    <span class="k">def</span> <span class="nf">quit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Quit, and close the connection.&#39;&#39;&#39;</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;QUIT&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">resp</span>
+</div>
+<div class="viewcode-block" id="FTP.close"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Close the connection without assuming anything about it.&#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="bp">None</span>
+</div></div>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">ssl</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">_SSLSocket</span> <span class="o">=</span> <span class="bp">None</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">_SSLSocket</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLSocket</span>
+
+<div class="viewcode-block" id="FTP_TLS"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP_TLS">[docs]</a>    <span class="k">class</span> <span class="nc">FTP_TLS</span><span class="p">(</span><span class="n">FTP</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;A FTP subclass which adds TLS support to FTP as described</span>
+<span class="sd">        in RFC-4217.</span>
+
+<span class="sd">        Connect as usual to port 21 implicitly securing the FTP control</span>
+<span class="sd">        connection before authenticating.</span>
+
+<span class="sd">        Securing the data connection requires user to explicitly ask</span>
+<span class="sd">        for it by calling prot_p() method.</span>
+
+<span class="sd">        Usage example:</span>
+<span class="sd">        &gt;&gt;&gt; from ftplib import FTP_TLS</span>
+<span class="sd">        &gt;&gt;&gt; ftps = FTP_TLS(&#39;ftp.python.org&#39;)</span>
+<span class="sd">        &gt;&gt;&gt; ftps.login()  # login anonymously previously securing control channel</span>
+<span class="sd">        &#39;230 Guest login ok, access restrictions apply.&#39;</span>
+<span class="sd">        &gt;&gt;&gt; ftps.prot_p()  # switch to secure data connection</span>
+<span class="sd">        &#39;200 Protection level set to P&#39;</span>
+<span class="sd">        &gt;&gt;&gt; ftps.retrlines(&#39;LIST&#39;)  # list directory content securely</span>
+<span class="sd">        total 9</span>
+<span class="sd">        drwxr-xr-x   8 root     wheel        1024 Jan  3  1994 .</span>
+<span class="sd">        drwxr-xr-x   8 root     wheel        1024 Jan  3  1994 ..</span>
+<span class="sd">        drwxr-xr-x   2 root     wheel        1024 Jan  3  1994 bin</span>
+<span class="sd">        drwxr-xr-x   2 root     wheel        1024 Jan  3  1994 etc</span>
+<span class="sd">        d-wxrwxr-x   2 ftp      wheel        1024 Sep  5 13:43 incoming</span>
+<span class="sd">        drwxr-xr-x   2 root     wheel        1024 Nov 17  1993 lib</span>
+<span class="sd">        drwxr-xr-x   6 1094     wheel        1024 Sep 13 19:07 pub</span>
+<span class="sd">        drwxr-xr-x   3 root     wheel        1024 Jan  3  1994 usr</span>
+<span class="sd">        -rw-r--r--   1 root     root          312 Aug  1  1994 welcome.msg</span>
+<span class="sd">        &#39;226 Transfer complete.&#39;</span>
+<span class="sd">        &gt;&gt;&gt; ftps.quit()</span>
+<span class="sd">        &#39;221 Goodbye.&#39;</span>
+<span class="sd">        &gt;&gt;&gt;</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="n">ssl_version</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">PROTOCOL_TLSv1</span>
+
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">passwd</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">acct</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">keyfile</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                     <span class="n">certfile</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                     <span class="n">timeout</span><span class="o">=</span><span class="n">_GLOBAL_DEFAULT_TIMEOUT</span><span class="p">,</span> <span class="n">source_address</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">context</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">keyfile</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;context and keyfile arguments are mutually &quot;</span>
+                                 <span class="s">&quot;exclusive&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">context</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">certfile</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;context and certfile arguments are mutually &quot;</span>
+                                 <span class="s">&quot;exclusive&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">keyfile</span> <span class="o">=</span> <span class="n">keyfile</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">certfile</span> <span class="o">=</span> <span class="n">certfile</span>
+            <span class="k">if</span> <span class="n">context</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">context</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">_create_stdlib_context</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ssl_version</span><span class="p">,</span>
+                                                     <span class="n">certfile</span><span class="o">=</span><span class="n">certfile</span><span class="p">,</span>
+                                                     <span class="n">keyfile</span><span class="o">=</span><span class="n">keyfile</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">context</span> <span class="o">=</span> <span class="n">context</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_prot_p</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">FTP</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">user</span><span class="p">,</span> <span class="n">passwd</span><span class="p">,</span> <span class="n">acct</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">source_address</span><span class="p">)</span>
+
+<div class="viewcode-block" id="FTP_TLS.login"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP_TLS.login">[docs]</a>        <span class="k">def</span> <span class="nf">login</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">passwd</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">acct</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">,</span> <span class="n">secure</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">secure</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">,</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLSocket</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">auth</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">FTP</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user</span><span class="p">,</span> <span class="n">passwd</span><span class="p">,</span> <span class="n">acct</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FTP_TLS.auth"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP_TLS.auth">[docs]</a>        <span class="k">def</span> <span class="nf">auth</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="sd">&#39;&#39;&#39;Set up secure control connection by using TLS/SSL.&#39;&#39;&#39;</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">,</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLSocket</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Already using TLS&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">ssl_version</span> <span class="o">==</span> <span class="n">ssl</span><span class="o">.</span><span class="n">PROTOCOL_TLSv1</span><span class="p">:</span>
+                <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;AUTH TLS&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;AUTH SSL&#39;</span><span class="p">)</span>
+            <span class="n">server_hostname</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">host</span> <span class="k">if</span> <span class="n">ssl</span><span class="o">.</span><span class="n">HAS_SNI</span> <span class="k">else</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">wrap_socket</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">,</span>
+                                                 <span class="n">server_hostname</span><span class="o">=</span><span class="n">server_hostname</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">makefile</span><span class="p">(</span><span class="n">mode</span><span class="o">=</span><span class="s">&#39;r&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">encoding</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">resp</span>
+</div>
+<div class="viewcode-block" id="FTP_TLS.ccc"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP_TLS.ccc">[docs]</a>        <span class="k">def</span> <span class="nf">ccc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="sd">&#39;&#39;&#39;Switch back to a clear-text control connection.&#39;&#39;&#39;</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">,</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLSocket</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;not using TLS&quot;</span><span class="p">)</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;CCC&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">unwrap</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">resp</span>
+</div>
+<div class="viewcode-block" id="FTP_TLS.prot_p"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP_TLS.prot_p">[docs]</a>        <span class="k">def</span> <span class="nf">prot_p</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="sd">&#39;&#39;&#39;Set up secure data connection.&#39;&#39;&#39;</span>
+            <span class="c"># PROT defines whether or not the data channel is to be protected.</span>
+            <span class="c"># Though RFC-2228 defines four possible protection levels,</span>
+            <span class="c"># RFC-4217 only recommends two, Clear and Private.</span>
+            <span class="c"># Clear (PROT C) means that no security is to be used on the</span>
+            <span class="c"># data-channel, Private (PROT P) means that the data-channel</span>
+            <span class="c"># should be protected by TLS.</span>
+            <span class="c"># PBSZ command MUST still be issued, but must have a parameter of</span>
+            <span class="c"># &#39;0&#39; to indicate that no buffering is taking place and the data</span>
+            <span class="c"># connection should not be encapsulated.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;PBSZ 0&#39;</span><span class="p">)</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;PROT P&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_prot_p</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">return</span> <span class="n">resp</span>
+</div>
+<div class="viewcode-block" id="FTP_TLS.prot_c"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP_TLS.prot_c">[docs]</a>        <span class="k">def</span> <span class="nf">prot_c</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="sd">&#39;&#39;&#39;Set up clear text data connection.&#39;&#39;&#39;</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="s">&#39;PROT C&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_prot_p</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">return</span> <span class="n">resp</span>
+
+        <span class="c"># --- Overridden FTP methods</span>
+</div>
+<div class="viewcode-block" id="FTP_TLS.ntransfercmd"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP_TLS.ntransfercmd">[docs]</a>        <span class="k">def</span> <span class="nf">ntransfercmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">rest</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="n">conn</span><span class="p">,</span> <span class="n">size</span> <span class="o">=</span> <span class="n">FTP</span><span class="o">.</span><span class="n">ntransfercmd</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">rest</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prot_p</span><span class="p">:</span>
+                <span class="n">server_hostname</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">host</span> <span class="k">if</span> <span class="n">ssl</span><span class="o">.</span><span class="n">HAS_SNI</span> <span class="k">else</span> <span class="bp">None</span>
+                <span class="n">conn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">wrap_socket</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span>
+                                                <span class="n">server_hostname</span><span class="o">=</span><span class="n">server_hostname</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">conn</span><span class="p">,</span> <span class="n">size</span>
+</div>
+<div class="viewcode-block" id="FTP_TLS.abort"><a class="viewcode-back" href="../ftplib.html#ftplib.FTP_TLS.abort">[docs]</a>        <span class="k">def</span> <span class="nf">abort</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="c"># overridden as we can&#39;t pass MSG_OOB flag to sendall()</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;ABOR&#39;</span> <span class="o">+</span> <span class="n">B_CRLF</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getmultiline</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s">&#39;426&#39;</span><span class="p">,</span> <span class="s">&#39;225&#39;</span><span class="p">,</span> <span class="s">&#39;226&#39;</span><span class="p">}:</span>
+                <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">resp</span>
+</div></div>
+    <span class="n">__all__</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;FTP_TLS&#39;</span><span class="p">)</span>
+    <span class="n">all_errors</span> <span class="o">=</span> <span class="p">(</span><span class="n">Error</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">,</span> <span class="ne">EOFError</span><span class="p">,</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLError</span><span class="p">)</span>
+
+
+<span class="n">_150_re</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="k">def</span> <span class="nf">parse150</span><span class="p">(</span><span class="n">resp</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Parse the &#39;150&#39; response for a RETR request.</span>
+<span class="sd">    Returns the expected transfer size or None; size is not guaranteed to</span>
+<span class="sd">    be present in the 150 message.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;150&#39;</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="k">global</span> <span class="n">_150_re</span>
+    <span class="k">if</span> <span class="n">_150_re</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="kn">import</span> <span class="nn">re</span>
+        <span class="n">_150_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span>
+            <span class="s">&quot;150 .* \((\d+) bytes\)&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">IGNORECASE</span> <span class="o">|</span> <span class="n">re</span><span class="o">.</span><span class="n">ASCII</span><span class="p">)</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">_150_re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">m</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">None</span>
+    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+
+
+<span class="n">_227_re</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="k">def</span> <span class="nf">parse227</span><span class="p">(</span><span class="n">resp</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Parse the &#39;227&#39; response for a PASV request.</span>
+<span class="sd">    Raises error_proto if it does not contain &#39;(h1,h2,h3,h4,p1,p2)&#39;</span>
+<span class="sd">    Return (&#39;host.addr.as.numbers&#39;, port#) tuple.&#39;&#39;&#39;</span>
+
+    <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;227&#39;</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="k">global</span> <span class="n">_227_re</span>
+    <span class="k">if</span> <span class="n">_227_re</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="kn">import</span> <span class="nn">re</span>
+        <span class="n">_227_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;(\d+),(\d+),(\d+),(\d+),(\d+),(\d+)&#39;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">ASCII</span><span class="p">)</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">_227_re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">m</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="n">numbers</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">()</span>
+    <span class="n">host</span> <span class="o">=</span> <span class="s">&#39;.&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">numbers</span><span class="p">[:</span><span class="mi">4</span><span class="p">])</span>
+    <span class="n">port</span> <span class="o">=</span> <span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">numbers</span><span class="p">[</span><span class="mi">4</span><span class="p">])</span> <span class="o">&lt;&lt;</span> <span class="mi">8</span><span class="p">)</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">numbers</span><span class="p">[</span><span class="mi">5</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span>
+
+
+<span class="k">def</span> <span class="nf">parse229</span><span class="p">(</span><span class="n">resp</span><span class="p">,</span> <span class="n">peer</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Parse the &#39;229&#39; response for a EPSV request.</span>
+<span class="sd">    Raises error_proto if it does not contain &#39;(|||port|)&#39;</span>
+<span class="sd">    Return (&#39;host.addr.as.numbers&#39;, port#) tuple.&#39;&#39;&#39;</span>
+
+    <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;229&#39;</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="n">left</span> <span class="o">=</span> <span class="n">resp</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;(&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">left</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span> <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="n">right</span> <span class="o">=</span> <span class="n">resp</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;)&#39;</span><span class="p">,</span> <span class="n">left</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">right</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span> <span class="c"># should contain &#39;(|||port|)&#39;</span>
+    <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="n">left</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="n">resp</span><span class="p">[</span><span class="n">right</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]:</span>
+        <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">resp</span><span class="p">[</span><span class="n">left</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:</span><span class="n">right</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">resp</span><span class="p">[</span><span class="n">left</span><span class="o">+</span><span class="mi">1</span><span class="p">])</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">5</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">error_proto</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="n">host</span> <span class="o">=</span> <span class="n">peer</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">port</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">3</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span>
+
+
+<span class="k">def</span> <span class="nf">parse257</span><span class="p">(</span><span class="n">resp</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Parse the &#39;257&#39; response for a MKD or PWD request.</span>
+<span class="sd">    This is a response to a MKD or PWD request: a directory name.</span>
+<span class="sd">    Returns the directoryname in the 257 reply.&#39;&#39;&#39;</span>
+
+    <span class="k">if</span> <span class="n">resp</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;257&#39;</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">error_reply</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">resp</span><span class="p">[</span><span class="mi">3</span><span class="p">:</span><span class="mi">5</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39; &quot;&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s">&#39;&#39;</span> <span class="c"># Not compliant to RFC 959, but UNIX ftpd does this</span>
+    <span class="n">dirname</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">5</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+    <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">resp</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+        <span class="k">if</span> <span class="n">c</span> <span class="o">==</span> <span class="s">&#39;&quot;&#39;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="n">n</span> <span class="ow">or</span> <span class="n">resp</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&#39;&quot;&#39;</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+        <span class="n">dirname</span> <span class="o">=</span> <span class="n">dirname</span> <span class="o">+</span> <span class="n">c</span>
+    <span class="k">return</span> <span class="n">dirname</span>
+
+
+<span class="k">def</span> <span class="nf">print_line</span><span class="p">(</span><span class="n">line</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Default retrlines callback to print a line.&#39;&#39;&#39;</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">ftpcp</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">sourcename</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">targetname</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="p">,</span> <span class="nb">type</span> <span class="o">=</span> <span class="s">&#39;I&#39;</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Copy file from one FTP-instance to another.&#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">targetname</span><span class="p">:</span>
+        <span class="n">targetname</span> <span class="o">=</span> <span class="n">sourcename</span>
+    <span class="nb">type</span> <span class="o">=</span> <span class="s">&#39;TYPE &#39;</span> <span class="o">+</span> <span class="nb">type</span>
+    <span class="n">source</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="nb">type</span><span class="p">)</span>
+    <span class="n">target</span><span class="o">.</span><span class="n">voidcmd</span><span class="p">(</span><span class="nb">type</span><span class="p">)</span>
+    <span class="n">sourcehost</span><span class="p">,</span> <span class="n">sourceport</span> <span class="o">=</span> <span class="n">parse227</span><span class="p">(</span><span class="n">source</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;PASV&#39;</span><span class="p">))</span>
+    <span class="n">target</span><span class="o">.</span><span class="n">sendport</span><span class="p">(</span><span class="n">sourcehost</span><span class="p">,</span> <span class="n">sourceport</span><span class="p">)</span>
+    <span class="c"># RFC 959: the user must &quot;listen&quot; [...] BEFORE sending the</span>
+    <span class="c"># transfer request.</span>
+    <span class="c"># So: STOR before RETR, because here the target is a &quot;user&quot;.</span>
+    <span class="n">treply</span> <span class="o">=</span> <span class="n">target</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;STOR &#39;</span> <span class="o">+</span> <span class="n">targetname</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">treply</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s">&#39;125&#39;</span><span class="p">,</span> <span class="s">&#39;150&#39;</span><span class="p">}:</span>
+        <span class="k">raise</span> <span class="n">error_proto</span>  <span class="c"># RFC 959</span>
+    <span class="n">sreply</span> <span class="o">=</span> <span class="n">source</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="s">&#39;RETR &#39;</span> <span class="o">+</span> <span class="n">sourcename</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">sreply</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">{</span><span class="s">&#39;125&#39;</span><span class="p">,</span> <span class="s">&#39;150&#39;</span><span class="p">}:</span>
+        <span class="k">raise</span> <span class="n">error_proto</span>  <span class="c"># RFC 959</span>
+    <span class="n">source</span><span class="o">.</span><span class="n">voidresp</span><span class="p">()</span>
+    <span class="n">target</span><span class="o">.</span><span class="n">voidresp</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="Netrc"><a class="viewcode-back" href="../ftplib.html#ftplib.Netrc">[docs]</a><span class="k">class</span> <span class="nc">Netrc</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Class to parse &amp; provide access to &#39;netrc&#39; format files.</span>
+
+<span class="sd">    See the netrc(4) man page for information on the file format.</span>
+
+<span class="sd">    WARNING: This class is obsolete -- use module netrc instead.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">__defuser</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">__defpasswd</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">__defacct</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;This class is deprecated, use the netrc module instead&quot;</span><span class="p">,</span>
+                      <span class="ne">DeprecationWarning</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">filename</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="s">&quot;HOME&quot;</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">:</span>
+                <span class="n">filename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s">&quot;HOME&quot;</span><span class="p">],</span>
+                                        <span class="s">&quot;.netrc&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&quot;specify file to load or set $HOME&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__hosts</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__macros</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">fp</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">)</span>
+        <span class="n">in_macro</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="k">if</span> <span class="n">in_macro</span> <span class="ow">and</span> <span class="n">line</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+                <span class="n">macro_lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+                <span class="k">continue</span>
+            <span class="k">elif</span> <span class="n">in_macro</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">__macros</span><span class="p">[</span><span class="n">macro_name</span><span class="p">]</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">macro_lines</span><span class="p">)</span>
+                <span class="n">in_macro</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">words</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+            <span class="n">host</span> <span class="o">=</span> <span class="n">user</span> <span class="o">=</span> <span class="n">passwd</span> <span class="o">=</span> <span class="n">acct</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="n">default</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">words</span><span class="p">):</span>
+                <span class="n">w1</span> <span class="o">=</span> <span class="n">words</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">words</span><span class="p">):</span>
+                    <span class="n">w2</span> <span class="o">=</span> <span class="n">words</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">w2</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">if</span> <span class="n">w1</span> <span class="o">==</span> <span class="s">&#39;default&#39;</span><span class="p">:</span>
+                    <span class="n">default</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="k">elif</span> <span class="n">w1</span> <span class="o">==</span> <span class="s">&#39;machine&#39;</span> <span class="ow">and</span> <span class="n">w2</span><span class="p">:</span>
+                    <span class="n">host</span> <span class="o">=</span> <span class="n">w2</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+                    <span class="n">i</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="k">elif</span> <span class="n">w1</span> <span class="o">==</span> <span class="s">&#39;login&#39;</span> <span class="ow">and</span> <span class="n">w2</span><span class="p">:</span>
+                    <span class="n">user</span> <span class="o">=</span> <span class="n">w2</span>
+                    <span class="n">i</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="k">elif</span> <span class="n">w1</span> <span class="o">==</span> <span class="s">&#39;password&#39;</span> <span class="ow">and</span> <span class="n">w2</span><span class="p">:</span>
+                    <span class="n">passwd</span> <span class="o">=</span> <span class="n">w2</span>
+                    <span class="n">i</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="k">elif</span> <span class="n">w1</span> <span class="o">==</span> <span class="s">&#39;account&#39;</span> <span class="ow">and</span> <span class="n">w2</span><span class="p">:</span>
+                    <span class="n">acct</span> <span class="o">=</span> <span class="n">w2</span>
+                    <span class="n">i</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="k">elif</span> <span class="n">w1</span> <span class="o">==</span> <span class="s">&#39;macdef&#39;</span> <span class="ow">and</span> <span class="n">w2</span><span class="p">:</span>
+                    <span class="n">macro_name</span> <span class="o">=</span> <span class="n">w2</span>
+                    <span class="n">macro_lines</span> <span class="o">=</span> <span class="p">[]</span>
+                    <span class="n">in_macro</span> <span class="o">=</span> <span class="mi">1</span>
+                    <span class="k">break</span>
+                <span class="n">i</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">default</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">__defuser</span> <span class="o">=</span> <span class="n">user</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defuser</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">__defpasswd</span> <span class="o">=</span> <span class="n">passwd</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defpasswd</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">__defacct</span> <span class="o">=</span> <span class="n">acct</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defacct</span>
+            <span class="k">if</span> <span class="n">host</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">host</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__hosts</span><span class="p">:</span>
+                    <span class="n">ouser</span><span class="p">,</span> <span class="n">opasswd</span><span class="p">,</span> <span class="n">oacct</span> <span class="o">=</span> \
+                           <span class="bp">self</span><span class="o">.</span><span class="n">__hosts</span><span class="p">[</span><span class="n">host</span><span class="p">]</span>
+                    <span class="n">user</span> <span class="o">=</span> <span class="n">user</span> <span class="ow">or</span> <span class="n">ouser</span>
+                    <span class="n">passwd</span> <span class="o">=</span> <span class="n">passwd</span> <span class="ow">or</span> <span class="n">opasswd</span>
+                    <span class="n">acct</span> <span class="o">=</span> <span class="n">acct</span> <span class="ow">or</span> <span class="n">oacct</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">__hosts</span><span class="p">[</span><span class="n">host</span><span class="p">]</span> <span class="o">=</span> <span class="n">user</span><span class="p">,</span> <span class="n">passwd</span><span class="p">,</span> <span class="n">acct</span>
+        <span class="n">fp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="Netrc.get_hosts"><a class="viewcode-back" href="../ftplib.html#ftplib.Netrc.get_hosts">[docs]</a>    <span class="k">def</span> <span class="nf">get_hosts</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a list of hosts mentioned in the .netrc file.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__hosts</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Netrc.get_account"><a class="viewcode-back" href="../ftplib.html#ftplib.Netrc.get_account">[docs]</a>    <span class="k">def</span> <span class="nf">get_account</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns login information for the named host.</span>
+
+<span class="sd">        The return value is a triple containing userid,</span>
+<span class="sd">        password, and the accounting field.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">host</span> <span class="o">=</span> <span class="n">host</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="n">user</span> <span class="o">=</span> <span class="n">passwd</span> <span class="o">=</span> <span class="n">acct</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">host</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">__hosts</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">,</span> <span class="n">passwd</span><span class="p">,</span> <span class="n">acct</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__hosts</span><span class="p">[</span><span class="n">host</span><span class="p">]</span>
+        <span class="n">user</span> <span class="o">=</span> <span class="n">user</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defuser</span>
+        <span class="n">passwd</span> <span class="o">=</span> <span class="n">passwd</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defpasswd</span>
+        <span class="n">acct</span> <span class="o">=</span> <span class="n">acct</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">__defacct</span>
+        <span class="k">return</span> <span class="n">user</span><span class="p">,</span> <span class="n">passwd</span><span class="p">,</span> <span class="n">acct</span>
+</div>
+<div class="viewcode-block" id="Netrc.get_macros"><a class="viewcode-back" href="../ftplib.html#ftplib.Netrc.get_macros">[docs]</a>    <span class="k">def</span> <span class="nf">get_macros</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a list of all defined macro names.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__macros</span><span class="o">.</span><span class="n">keys</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Netrc.get_macro"><a class="viewcode-back" href="../ftplib.html#ftplib.Netrc.get_macro">[docs]</a>    <span class="k">def</span> <span class="nf">get_macro</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">macro</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a sequence of lines which define a named macro.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__macros</span><span class="p">[</span><span class="n">macro</span><span class="p">]</span>
+
+
+</div></div>
+<span class="k">def</span> <span class="nf">test</span><span class="p">():</span>
+    <span class="sd">&#39;&#39;&#39;Test program.</span>
+<span class="sd">    Usage: ftp [-d] [-r[file]] host [-l[dir]] [-d[dir]] [-p] [file] ...</span>
+
+<span class="sd">    -d dir</span>
+<span class="sd">    -l list</span>
+<span class="sd">    -p password</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="n">test</span><span class="o">.</span><span class="n">__doc__</span><span class="p">)</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="n">debugging</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">rcfile</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">while</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;-d&#39;</span><span class="p">:</span>
+        <span class="n">debugging</span> <span class="o">=</span> <span class="n">debugging</span><span class="o">+</span><span class="mi">1</span>
+        <span class="k">del</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">][:</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;-r&#39;</span><span class="p">:</span>
+        <span class="c"># get name of alternate ~/.netrc file:</span>
+        <span class="n">rcfile</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="mi">2</span><span class="p">:]</span>
+        <span class="k">del</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">host</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">ftp</span> <span class="o">=</span> <span class="n">FTP</span><span class="p">(</span><span class="n">host</span><span class="p">)</span>
+    <span class="n">ftp</span><span class="o">.</span><span class="n">set_debuglevel</span><span class="p">(</span><span class="n">debugging</span><span class="p">)</span>
+    <span class="n">userid</span> <span class="o">=</span> <span class="n">passwd</span> <span class="o">=</span> <span class="n">acct</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">netrc</span> <span class="o">=</span> <span class="n">Netrc</span><span class="p">(</span><span class="n">rcfile</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">rcfile</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;Could not open account file&quot;</span>
+                             <span class="s">&quot; -- using anonymous login.&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">userid</span><span class="p">,</span> <span class="n">passwd</span><span class="p">,</span> <span class="n">acct</span> <span class="o">=</span> <span class="n">netrc</span><span class="o">.</span><span class="n">get_account</span><span class="p">(</span><span class="n">host</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="c"># no account for host</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+                    <span class="s">&quot;No account -- using anonymous login.&quot;</span><span class="p">)</span>
+    <span class="n">ftp</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="n">userid</span><span class="p">,</span> <span class="n">passwd</span><span class="p">,</span> <span class="n">acct</span><span class="p">)</span>
+    <span class="k">for</span> <span class="nb">file</span> <span class="ow">in</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">2</span><span class="p">:]:</span>
+        <span class="k">if</span> <span class="nb">file</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;-l&#39;</span><span class="p">:</span>
+            <span class="n">ftp</span><span class="o">.</span><span class="n">dir</span><span class="p">(</span><span class="nb">file</span><span class="p">[</span><span class="mi">2</span><span class="p">:])</span>
+        <span class="k">elif</span> <span class="nb">file</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;-d&#39;</span><span class="p">:</span>
+            <span class="n">cmd</span> <span class="o">=</span> <span class="s">&#39;CWD&#39;</span>
+            <span class="k">if</span> <span class="nb">file</span><span class="p">[</span><span class="mi">2</span><span class="p">:]:</span> <span class="n">cmd</span> <span class="o">=</span> <span class="n">cmd</span> <span class="o">+</span> <span class="s">&#39; &#39;</span> <span class="o">+</span> <span class="nb">file</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span>
+            <span class="n">resp</span> <span class="o">=</span> <span class="n">ftp</span><span class="o">.</span><span class="n">sendcmd</span><span class="p">(</span><span class="n">cmd</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">file</span> <span class="o">==</span> <span class="s">&#39;-p&#39;</span><span class="p">:</span>
+            <span class="n">ftp</span><span class="o">.</span><span class="n">set_pasv</span><span class="p">(</span><span class="ow">not</span> <span class="n">ftp</span><span class="o">.</span><span class="n">passiveserver</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ftp</span><span class="o">.</span><span class="n">retrbinary</span><span class="p">(</span><span class="s">&#39;RETR &#39;</span> <span class="o">+</span> <span class="nb">file</span><span class="p">,</span> \
+                           <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">write</span><span class="p">,</span> <span class="mi">1024</span><span class="p">)</span>
+    <span class="n">ftp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">test</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

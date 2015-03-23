@@ -1,0 +1,577 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>asyncio.streams &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for asyncio.streams</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Stream-related things.&quot;&quot;&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;StreamReader&#39;</span><span class="p">,</span> <span class="s">&#39;StreamWriter&#39;</span><span class="p">,</span> <span class="s">&#39;StreamReaderProtocol&#39;</span><span class="p">,</span>
+           <span class="s">&#39;open_connection&#39;</span><span class="p">,</span> <span class="s">&#39;start_server&#39;</span><span class="p">,</span>
+           <span class="s">&#39;IncompleteReadError&#39;</span><span class="p">,</span>
+           <span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">socket</span>
+
+<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="s">&#39;AF_UNIX&#39;</span><span class="p">):</span>
+    <span class="n">__all__</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s">&#39;open_unix_connection&#39;</span><span class="p">,</span> <span class="s">&#39;start_unix_server&#39;</span><span class="p">])</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">coroutines</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">protocols</span>
+<span class="kn">from</span> <span class="nn">.coroutines</span> <span class="kn">import</span> <span class="n">coroutine</span>
+<span class="kn">from</span> <span class="nn">.log</span> <span class="kn">import</span> <span class="n">logger</span>
+
+
+<span class="n">_DEFAULT_LIMIT</span> <span class="o">=</span> <span class="mi">2</span><span class="o">**</span><span class="mi">16</span>
+
+
+<div class="viewcode-block" id="IncompleteReadError"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.IncompleteReadError">[docs]</a><span class="k">class</span> <span class="nc">IncompleteReadError</span><span class="p">(</span><span class="ne">EOFError</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Incomplete read error. Attributes:</span>
+
+<span class="sd">    - partial: read bytes string before the end of stream was reached</span>
+<span class="sd">    - expected: total number of expected bytes</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">partial</span><span class="p">,</span> <span class="n">expected</span><span class="p">):</span>
+        <span class="ne">EOFError</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> bytes read on a total of </span><span class="si">%s</span><span class="s"> expected bytes&quot;</span>
+                                <span class="o">%</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">partial</span><span class="p">),</span> <span class="n">expected</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">partial</span> <span class="o">=</span> <span class="n">partial</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expected</span> <span class="o">=</span> <span class="n">expected</span>
+
+</div>
+<span class="nd">@coroutine</span>
+<div class="viewcode-block" id="open_connection"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.open_connection">[docs]</a><span class="k">def</span> <span class="nf">open_connection</span><span class="p">(</span><span class="n">host</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                    <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="n">_DEFAULT_LIMIT</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A wrapper for create_connection() returning a (reader, writer) pair.</span>
+
+<span class="sd">    The reader returned is a StreamReader instance; the writer is a</span>
+<span class="sd">    StreamWriter instance.</span>
+
+<span class="sd">    The arguments are all the usual arguments to create_connection()</span>
+<span class="sd">    except protocol_factory; most common are positional host and port,</span>
+<span class="sd">    with various optional keyword arguments following.</span>
+
+<span class="sd">    Additional optional keyword arguments are loop (to set the event loop</span>
+<span class="sd">    instance to use) and limit (to set the buffer limit passed to the</span>
+<span class="sd">    StreamReader).</span>
+
+<span class="sd">    (If you want to customize the StreamReader and/or</span>
+<span class="sd">    StreamReaderProtocol classes, just copy the code -- there&#39;s</span>
+<span class="sd">    really nothing special here except some convenience.)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+    <span class="n">reader</span> <span class="o">=</span> <span class="n">StreamReader</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">protocol</span> <span class="o">=</span> <span class="n">StreamReaderProtocol</span><span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">transport</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">loop</span><span class="o">.</span><span class="n">create_connection</span><span class="p">(</span>
+        <span class="k">lambda</span><span class="p">:</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">)</span>
+    <span class="n">writer</span> <span class="o">=</span> <span class="n">StreamWriter</span><span class="p">(</span><span class="n">transport</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">reader</span><span class="p">,</span> <span class="n">loop</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">reader</span><span class="p">,</span> <span class="n">writer</span>
+
+</div>
+<span class="nd">@coroutine</span>
+<div class="viewcode-block" id="start_server"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.start_server">[docs]</a><span class="k">def</span> <span class="nf">start_server</span><span class="p">(</span><span class="n">client_connected_cb</span><span class="p">,</span> <span class="n">host</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                 <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="n">_DEFAULT_LIMIT</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Start a socket server, call back for each client connected.</span>
+
+<span class="sd">    The first parameter, `client_connected_cb`, takes two parameters:</span>
+<span class="sd">    client_reader, client_writer.  client_reader is a StreamReader</span>
+<span class="sd">    object, while client_writer is a StreamWriter object.  This</span>
+<span class="sd">    parameter can either be a plain callback function or a coroutine;</span>
+<span class="sd">    if it is a coroutine, it will be automatically converted into a</span>
+<span class="sd">    Task.</span>
+
+<span class="sd">    The rest of the arguments are all the usual arguments to</span>
+<span class="sd">    loop.create_server() except protocol_factory; most common are</span>
+<span class="sd">    positional host and port, with various optional keyword arguments</span>
+<span class="sd">    following.  The return value is the same as loop.create_server().</span>
+
+<span class="sd">    Additional optional keyword arguments are loop (to set the event loop</span>
+<span class="sd">    instance to use) and limit (to set the buffer limit passed to the</span>
+<span class="sd">    StreamReader).</span>
+
+<span class="sd">    The return value is the same as loop.create_server(), i.e. a</span>
+<span class="sd">    Server object which can be used to stop the service.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">factory</span><span class="p">():</span>
+        <span class="n">reader</span> <span class="o">=</span> <span class="n">StreamReader</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="n">protocol</span> <span class="o">=</span> <span class="n">StreamReaderProtocol</span><span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">client_connected_cb</span><span class="p">,</span>
+                                        <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">protocol</span>
+
+    <span class="k">return</span> <span class="p">(</span><span class="k">yield from</span> <span class="n">loop</span><span class="o">.</span><span class="n">create_server</span><span class="p">(</span><span class="n">factory</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">))</span>
+
+</div>
+<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="s">&#39;AF_UNIX&#39;</span><span class="p">):</span>
+    <span class="c"># UNIX Domain Sockets are supported on this platform</span>
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">open_unix_connection</span><span class="p">(</span><span class="n">path</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                             <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="n">_DEFAULT_LIMIT</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Similar to `open_connection` but works with UNIX Domain Sockets.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+        <span class="n">reader</span> <span class="o">=</span> <span class="n">StreamReader</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="n">protocol</span> <span class="o">=</span> <span class="n">StreamReaderProtocol</span><span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="n">transport</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">loop</span><span class="o">.</span><span class="n">create_unix_connection</span><span class="p">(</span>
+            <span class="k">lambda</span><span class="p">:</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">)</span>
+        <span class="n">writer</span> <span class="o">=</span> <span class="n">StreamWriter</span><span class="p">(</span><span class="n">transport</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">reader</span><span class="p">,</span> <span class="n">loop</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">reader</span><span class="p">,</span> <span class="n">writer</span>
+
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">start_unix_server</span><span class="p">(</span><span class="n">client_connected_cb</span><span class="p">,</span> <span class="n">path</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span>
+                          <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="n">_DEFAULT_LIMIT</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Similar to `start_server` but works with UNIX Domain Sockets.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+
+        <span class="k">def</span> <span class="nf">factory</span><span class="p">():</span>
+            <span class="n">reader</span> <span class="o">=</span> <span class="n">StreamReader</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+            <span class="n">protocol</span> <span class="o">=</span> <span class="n">StreamReaderProtocol</span><span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">client_connected_cb</span><span class="p">,</span>
+                                            <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">protocol</span>
+
+        <span class="k">return</span> <span class="p">(</span><span class="k">yield from</span> <span class="n">loop</span><span class="o">.</span><span class="n">create_unix_server</span><span class="p">(</span><span class="n">factory</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">))</span>
+
+
+<span class="k">class</span> <span class="nc">FlowControlMixin</span><span class="p">(</span><span class="n">protocols</span><span class="o">.</span><span class="n">Protocol</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Reusable flow control logic for StreamWriter.drain().</span>
+
+<span class="sd">    This implements the protocol methods pause_writing(),</span>
+<span class="sd">    resume_reading() and connection_lost().  If the subclass overrides</span>
+<span class="sd">    these it must call the super methods.</span>
+
+<span class="sd">    StreamWriter.drain() must wait for _drain_helper() coroutine.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">loop</span>  <span class="c"># May be None; we may never need it.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_drain_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_connection_lost</span> <span class="o">=</span> <span class="bp">False</span>
+
+    <span class="k">def</span> <span class="nf">pause_writing</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> pauses writing&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">resume_writing</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s"> resumes writing&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+        <span class="n">waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_drain_waiter</span>
+        <span class="k">if</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_drain_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">waiter</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                <span class="n">waiter</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">connection_lost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_connection_lost</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="c"># Wake up the writer if currently paused.</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_drain_waiter</span>
+        <span class="k">if</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_drain_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">waiter</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">waiter</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">waiter</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">_drain_helper</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_connection_lost</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConnectionResetError</span><span class="p">(</span><span class="s">&#39;Connection lost&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_drain_waiter</span>
+        <span class="k">assert</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">waiter</span><span class="o">.</span><span class="n">cancelled</span><span class="p">()</span>
+        <span class="n">waiter</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_drain_waiter</span> <span class="o">=</span> <span class="n">waiter</span>
+        <span class="k">yield from</span> <span class="n">waiter</span>
+
+
+<div class="viewcode-block" id="StreamReaderProtocol"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReaderProtocol">[docs]</a><span class="k">class</span> <span class="nc">StreamReaderProtocol</span><span class="p">(</span><span class="n">FlowControlMixin</span><span class="p">,</span> <span class="n">protocols</span><span class="o">.</span><span class="n">Protocol</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Helper class to adapt between Protocol and StreamReader.</span>
+
+<span class="sd">    (This is a helper class instead of making StreamReader itself a</span>
+<span class="sd">    Protocol subclass, because the StreamReader has other potential</span>
+<span class="sd">    uses, and to prevent the user of the StreamReader to accidentally</span>
+<span class="sd">    call inappropriate methods of the protocol.)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">stream_reader</span><span class="p">,</span> <span class="n">client_connected_cb</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stream_reader</span> <span class="o">=</span> <span class="n">stream_reader</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stream_writer</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_client_connected_cb</span> <span class="o">=</span> <span class="n">client_connected_cb</span>
+
+<div class="viewcode-block" id="StreamReaderProtocol.connection_made"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReaderProtocol.connection_made">[docs]</a>    <span class="k">def</span> <span class="nf">connection_made</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">transport</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stream_reader</span><span class="o">.</span><span class="n">set_transport</span><span class="p">(</span><span class="n">transport</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_client_connected_cb</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_stream_writer</span> <span class="o">=</span> <span class="n">StreamWriter</span><span class="p">(</span><span class="n">transport</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span>
+                                               <span class="bp">self</span><span class="o">.</span><span class="n">_stream_reader</span><span class="p">,</span>
+                                               <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_client_connected_cb</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_stream_reader</span><span class="p">,</span>
+                                            <span class="bp">self</span><span class="o">.</span><span class="n">_stream_writer</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">coroutines</span><span class="o">.</span><span class="n">iscoroutine</span><span class="p">(</span><span class="n">res</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="StreamReaderProtocol.connection_lost"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReaderProtocol.connection_lost">[docs]</a>    <span class="k">def</span> <span class="nf">connection_lost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_stream_reader</span><span class="o">.</span><span class="n">feed_eof</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_stream_reader</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">connection_lost</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="StreamReaderProtocol.data_received"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReaderProtocol.data_received">[docs]</a>    <span class="k">def</span> <span class="nf">data_received</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stream_reader</span><span class="o">.</span><span class="n">feed_data</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="StreamReaderProtocol.eof_received"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReaderProtocol.eof_received">[docs]</a>    <span class="k">def</span> <span class="nf">eof_received</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stream_reader</span><span class="o">.</span><span class="n">feed_eof</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="StreamWriter"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamWriter">[docs]</a><span class="k">class</span> <span class="nc">StreamWriter</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Wraps a Transport.</span>
+
+<span class="sd">    This exposes write(), writelines(), [can_]write_eof(),</span>
+<span class="sd">    get_extra_info() and close().  It adds drain() which returns an</span>
+<span class="sd">    optional Future on which you can wait for flow control.  It also</span>
+<span class="sd">    adds a transport property which references the Transport</span>
+<span class="sd">    directly.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">transport</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">reader</span><span class="p">,</span> <span class="n">loop</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="o">=</span> <span class="n">transport</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">=</span> <span class="n">protocol</span>
+        <span class="c"># drain() expects that the reader has a exception() method</span>
+        <span class="k">assert</span> <span class="n">reader</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">reader</span><span class="p">,</span> <span class="n">StreamReader</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="o">=</span> <span class="n">reader</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">loop</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&#39;transport=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;reader=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">info</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">transport</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span>
+
+<div class="viewcode-block" id="StreamWriter.write"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamWriter.write">[docs]</a>    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="StreamWriter.writelines"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamWriter.writelines">[docs]</a>    <span class="k">def</span> <span class="nf">writelines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">writelines</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="StreamWriter.write_eof"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamWriter.write_eof">[docs]</a>    <span class="k">def</span> <span class="nf">write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">write_eof</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="StreamWriter.can_write_eof"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamWriter.can_write_eof">[docs]</a>    <span class="k">def</span> <span class="nf">can_write_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">can_write_eof</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="StreamWriter.close"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamWriter.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="StreamWriter.get_extra_info"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamWriter.get_extra_info">[docs]</a>    <span class="k">def</span> <span class="nf">get_extra_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">get_extra_info</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+</div>
+    <span class="nd">@coroutine</span>
+<div class="viewcode-block" id="StreamWriter.drain"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamWriter.drain">[docs]</a>    <span class="k">def</span> <span class="nf">drain</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Flush the write buffer.</span>
+
+<span class="sd">        The intended use is to write</span>
+
+<span class="sd">          w.write(data)</span>
+<span class="sd">          yield from w.drain()</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">exc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_reader</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">exc</span>
+        <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span><span class="o">.</span><span class="n">_drain_helper</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="StreamReader"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader">[docs]</a><span class="k">class</span> <span class="nc">StreamReader</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="n">_DEFAULT_LIMIT</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="c"># The line length limit is  a security feature;</span>
+        <span class="c"># it also doubles as half the buffer limit.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_limit</span> <span class="o">=</span> <span class="n">limit</span>
+        <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">loop</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span> <span class="o">=</span> <span class="bp">False</span>  <span class="c"># Whether we&#39;re done.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="bp">None</span>  <span class="c"># A future.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+
+<div class="viewcode-block" id="StreamReader.exception"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.exception">[docs]</a>    <span class="k">def</span> <span class="nf">exception</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span>
+</div>
+<div class="viewcode-block" id="StreamReader.set_exception"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.set_exception">[docs]</a>    <span class="k">def</span> <span class="nf">set_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="o">=</span> <span class="n">exc</span>
+
+        <span class="n">waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span>
+        <span class="k">if</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">waiter</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+                <span class="n">waiter</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="StreamReader.set_transport"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.set_transport">[docs]</a>    <span class="k">def</span> <span class="nf">set_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">transport</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">,</span> <span class="s">&#39;Transport already set&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="o">=</span> <span class="n">transport</span>
+</div>
+    <span class="k">def</span> <span class="nf">_maybe_resume_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_limit</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">resume_reading</span><span class="p">()</span>
+
+<div class="viewcode-block" id="StreamReader.feed_eof"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.feed_eof">[docs]</a>    <span class="k">def</span> <span class="nf">feed_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="n">waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span>
+        <span class="k">if</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">waiter</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+                <span class="n">waiter</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="StreamReader.at_eof"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.at_eof">[docs]</a>    <span class="k">def</span> <span class="nf">at_eof</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return True if the buffer is empty and &#39;feed_eof&#39; was called.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span>
+</div>
+<div class="viewcode-block" id="StreamReader.feed_data"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.feed_data">[docs]</a>    <span class="k">def</span> <span class="nf">feed_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span><span class="p">,</span> <span class="s">&#39;feed_data after feed_eof&#39;</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+        <span class="n">waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span>
+        <span class="k">if</span> <span class="n">waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">waiter</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+                <span class="n">waiter</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span>
+            <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="ow">and</span>
+            <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">_limit</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span><span class="o">.</span><span class="n">pause_reading</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">NotImplementedError</span><span class="p">:</span>
+                <span class="c"># The transport can&#39;t be paused.</span>
+                <span class="c"># We&#39;ll just have to buffer all data.</span>
+                <span class="c"># Forget the transport so we don&#39;t keep trying.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_transport</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_paused</span> <span class="o">=</span> <span class="bp">True</span>
+</div>
+    <span class="k">def</span> <span class="nf">_create_waiter</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func_name</span><span class="p">):</span>
+        <span class="c"># StreamReader uses a future to link the protocol feed_data() method</span>
+        <span class="c"># to a read coroutine. Running two read coroutines at the same time</span>
+        <span class="c"># would have an unexpected behaviour. It would not possible to know</span>
+        <span class="c"># which coroutine would get the next data.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s">() called while another coroutine is &#39;</span>
+                               <span class="s">&#39;already waiting for incoming data&#39;</span> <span class="o">%</span> <span class="n">func_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+
+    <span class="nd">@coroutine</span>
+<div class="viewcode-block" id="StreamReader.readline"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.readline">[docs]</a>    <span class="k">def</span> <span class="nf">readline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span>
+
+        <span class="n">line</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">()</span>
+        <span class="n">not_enough</span> <span class="o">=</span> <span class="bp">True</span>
+
+        <span class="k">while</span> <span class="n">not_enough</span><span class="p">:</span>
+            <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="ow">and</span> <span class="n">not_enough</span><span class="p">:</span>
+                <span class="n">ichar</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">ichar</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">line</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">ichar</span> <span class="o">+=</span> <span class="mi">1</span>
+                    <span class="n">line</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[:</span><span class="n">ichar</span><span class="p">])</span>
+                    <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[:</span><span class="n">ichar</span><span class="p">]</span>
+                    <span class="n">not_enough</span> <span class="o">=</span> <span class="bp">False</span>
+
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_limit</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_resume_transport</span><span class="p">()</span>
+                    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Line is too long&#39;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span><span class="p">:</span>
+                <span class="k">break</span>
+
+            <span class="k">if</span> <span class="n">not_enough</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_waiter</span><span class="p">(</span><span class="s">&#39;readline&#39;</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span>
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_resume_transport</span><span class="p">()</span>
+        <span class="k">return</span> <span class="nb">bytes</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+</div>
+    <span class="nd">@coroutine</span>
+<div class="viewcode-block" id="StreamReader.read"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.read">[docs]</a>    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">n</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+
+        <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c"># This used to just loop creating a new waiter hoping to</span>
+            <span class="c"># collect everything in self._buffer, but that would</span>
+            <span class="c"># deadlock if the subprocess sends more than self.limit</span>
+            <span class="c"># bytes.  So just call self.read(self._limit) until EOF.</span>
+            <span class="n">blocks</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+                <span class="n">block</span> <span class="o">=</span> <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_limit</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">block</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="n">blocks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">blocks</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_eof</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_waiter</span><span class="p">(</span><span class="s">&#39;read&#39;</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span>
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">n</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># n &gt; 0 and len(self._buffer) &gt; n</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[:</span><span class="n">n</span><span class="p">])</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[:</span><span class="n">n</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_maybe_resume_transport</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">data</span>
+</div>
+    <span class="nd">@coroutine</span>
+<div class="viewcode-block" id="StreamReader.readexactly"><a class="viewcode-back" href="../../asyncio.html#asyncio.streams.StreamReader.readexactly">[docs]</a>    <span class="k">def</span> <span class="nf">readexactly</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span>
+
+        <span class="c"># There used to be &quot;optimized&quot; code here.  It created its own</span>
+        <span class="c"># Future and waited until self._buffer had at least the n</span>
+        <span class="c"># bytes, then called read(n).  Unfortunately, this could pause</span>
+        <span class="c"># the transport if the argument was larger than the pause</span>
+        <span class="c"># limit (which is twice self._limit).  So now we just read()</span>
+        <span class="c"># into a local buffer.</span>
+
+        <span class="n">blocks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">block</span> <span class="o">=</span> <span class="k">yield from</span> <span class="bp">self</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">block</span><span class="p">:</span>
+                <span class="n">partial</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">blocks</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">IncompleteReadError</span><span class="p">(</span><span class="n">partial</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">partial</span><span class="p">)</span> <span class="o">+</span> <span class="n">n</span><span class="p">)</span>
+            <span class="n">blocks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+            <span class="n">n</span> <span class="o">-=</span> <span class="nb">len</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">blocks</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

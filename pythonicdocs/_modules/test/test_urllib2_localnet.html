@@ -1,0 +1,782 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_urllib2_localnet &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_urllib2_localnet</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">base64</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">email</span>
+<span class="kn">import</span> <span class="nn">urllib.parse</span>
+<span class="kn">import</span> <span class="nn">urllib.request</span>
+<span class="kn">import</span> <span class="nn">http.server</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">import</span> <span class="nn">hashlib</span>
+
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">support</span>
+
+<span class="n">threading</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s">&#39;threading&#39;</span><span class="p">)</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">ssl</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">ssl</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="n">here</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">__file__</span><span class="p">)</span>
+<span class="c"># Self-signed cert file for &#39;localhost&#39;</span>
+<span class="n">CERT_localhost</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">here</span><span class="p">,</span> <span class="s">&#39;keycert.pem&#39;</span><span class="p">)</span>
+<span class="c"># Self-signed cert file for &#39;fakehostname&#39;</span>
+<span class="n">CERT_fakehostname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">here</span><span class="p">,</span> <span class="s">&#39;keycert2.pem&#39;</span><span class="p">)</span>
+
+
+<span class="c"># Loopback http server infrastructure</span>
+
+<div class="viewcode-block" id="LoopbackHttpServer"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.LoopbackHttpServer">[docs]</a><span class="k">class</span> <span class="nc">LoopbackHttpServer</span><span class="p">(</span><span class="n">http</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">HTTPServer</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;HTTP server w/ a few modifications that make it useful for</span>
+<span class="sd">    loopback testing purposes.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">server_address</span><span class="p">,</span> <span class="n">RequestHandlerClass</span><span class="p">):</span>
+        <span class="n">http</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">HTTPServer</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                                        <span class="n">server_address</span><span class="p">,</span>
+                                        <span class="n">RequestHandlerClass</span><span class="p">)</span>
+
+        <span class="c"># Set the timeout of our listening socket really low so</span>
+        <span class="c"># that we can stop the server easily.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">settimeout</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>
+
+<div class="viewcode-block" id="LoopbackHttpServer.get_request"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.LoopbackHttpServer.get_request">[docs]</a>    <span class="k">def</span> <span class="nf">get_request</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;HTTPServer method, overridden.&quot;&quot;&quot;</span>
+
+        <span class="n">request</span><span class="p">,</span> <span class="n">client_address</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+
+        <span class="c"># It&#39;s a loopback connection, so setting the timeout</span>
+        <span class="c"># really low shouldn&#39;t affect anything, but should make</span>
+        <span class="c"># deadlocks less likely to occur.</span>
+        <span class="n">request</span><span class="o">.</span><span class="n">settimeout</span><span class="p">(</span><span class="mf">10.0</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="n">client_address</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="LoopbackHttpServerThread"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.LoopbackHttpServerThread">[docs]</a><span class="k">class</span> <span class="nc">LoopbackHttpServerThread</span><span class="p">(</span><span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Stoppable thread that runs a loopback http server.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request_handler</span><span class="p">):</span>
+        <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stop_server</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ready</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="n">request_handler</span><span class="o">.</span><span class="n">protocol_version</span> <span class="o">=</span> <span class="s">&quot;HTTP/1.0&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">httpd</span> <span class="o">=</span> <span class="n">LoopbackHttpServer</span><span class="p">((</span><span class="s">&quot;127.0.0.1&quot;</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span>
+                                        <span class="n">request_handler</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">httpd</span><span class="o">.</span><span class="n">server_port</span>
+
+<div class="viewcode-block" id="LoopbackHttpServerThread.stop"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.LoopbackHttpServerThread.stop">[docs]</a>    <span class="k">def</span> <span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Stops the webserver if it&#39;s currently running.&quot;&quot;&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stop_server</span> <span class="o">=</span> <span class="bp">True</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">httpd</span><span class="o">.</span><span class="n">server_close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="LoopbackHttpServerThread.run"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.LoopbackHttpServerThread.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ready</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stop_server</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">httpd</span><span class="o">.</span><span class="n">handle_request</span><span class="p">()</span>
+
+<span class="c"># Authentication infrastructure</span>
+</div></div>
+<div class="viewcode-block" id="DigestAuthHandler"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.DigestAuthHandler">[docs]</a><span class="k">class</span> <span class="nc">DigestAuthHandler</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Handler for performing digest authentication.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_request_num</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_nonces</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_users</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_realm_name</span> <span class="o">=</span> <span class="s">&quot;Test Realm&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_qop</span> <span class="o">=</span> <span class="s">&quot;auth&quot;</span>
+
+<div class="viewcode-block" id="DigestAuthHandler.set_qop"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.DigestAuthHandler.set_qop">[docs]</a>    <span class="k">def</span> <span class="nf">set_qop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">qop</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_qop</span> <span class="o">=</span> <span class="n">qop</span>
+</div>
+<div class="viewcode-block" id="DigestAuthHandler.set_users"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.DigestAuthHandler.set_users">[docs]</a>    <span class="k">def</span> <span class="nf">set_users</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">users</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">users</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_users</span> <span class="o">=</span> <span class="n">users</span>
+</div>
+<div class="viewcode-block" id="DigestAuthHandler.set_realm"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.DigestAuthHandler.set_realm">[docs]</a>    <span class="k">def</span> <span class="nf">set_realm</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">realm</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_realm_name</span> <span class="o">=</span> <span class="n">realm</span>
+</div>
+    <span class="k">def</span> <span class="nf">_generate_nonce</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_request_num</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">nonce</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_request_num</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;ascii&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_nonces</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">nonce</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">nonce</span>
+
+    <span class="k">def</span> <span class="nf">_create_auth_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">auth_str</span><span class="p">):</span>
+        <span class="n">first_space_index</span> <span class="o">=</span> <span class="n">auth_str</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&quot; &quot;</span><span class="p">)</span>
+        <span class="n">auth_str</span> <span class="o">=</span> <span class="n">auth_str</span><span class="p">[</span><span class="n">first_space_index</span><span class="o">+</span><span class="mi">1</span><span class="p">:]</span>
+
+        <span class="n">parts</span> <span class="o">=</span> <span class="n">auth_str</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;,&quot;</span><span class="p">)</span>
+
+        <span class="n">auth_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">:</span>
+            <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;=&quot;</span><span class="p">)</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;&quot;&#39;</span> <span class="ow">and</span> <span class="n">value</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;&quot;&#39;</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="n">auth_dict</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+        <span class="k">return</span> <span class="n">auth_dict</span>
+
+    <span class="k">def</span> <span class="nf">_validate_auth</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">auth_dict</span><span class="p">,</span> <span class="n">password</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">uri</span><span class="p">):</span>
+        <span class="n">final_dict</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">final_dict</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">auth_dict</span><span class="p">)</span>
+        <span class="n">final_dict</span><span class="p">[</span><span class="s">&quot;password&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">password</span>
+        <span class="n">final_dict</span><span class="p">[</span><span class="s">&quot;method&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">method</span>
+        <span class="n">final_dict</span><span class="p">[</span><span class="s">&quot;uri&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">uri</span>
+        <span class="n">HA1_str</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%(username)s</span><span class="s">:</span><span class="si">%(realm)s</span><span class="s">:</span><span class="si">%(password)s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">final_dict</span>
+        <span class="n">HA1</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">HA1_str</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;ascii&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+        <span class="n">HA2_str</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%(method)s</span><span class="s">:</span><span class="si">%(uri)s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">final_dict</span>
+        <span class="n">HA2</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">HA2_str</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;ascii&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+        <span class="n">final_dict</span><span class="p">[</span><span class="s">&quot;HA1&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">HA1</span>
+        <span class="n">final_dict</span><span class="p">[</span><span class="s">&quot;HA2&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">HA2</span>
+        <span class="n">response_str</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%(HA1)s</span><span class="s">:</span><span class="si">%(nonce)s</span><span class="s">:</span><span class="si">%(nc)s</span><span class="s">:&quot;</span> \
+                       <span class="s">&quot;</span><span class="si">%(cnonce)s</span><span class="s">:</span><span class="si">%(qop)s</span><span class="s">:</span><span class="si">%(HA2)s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">final_dict</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">response_str</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;ascii&quot;</span><span class="p">))</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">response</span> <span class="o">==</span> <span class="n">auth_dict</span><span class="p">[</span><span class="s">&quot;response&quot;</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">_return_auth_challenge</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request_handler</span><span class="p">):</span>
+        <span class="n">request_handler</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">407</span><span class="p">,</span> <span class="s">&quot;Proxy Authentication Required&quot;</span><span class="p">)</span>
+        <span class="n">request_handler</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&quot;Content-Type&quot;</span><span class="p">,</span> <span class="s">&quot;text/html&quot;</span><span class="p">)</span>
+        <span class="n">request_handler</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span>
+            <span class="s">&#39;Proxy-Authenticate&#39;</span><span class="p">,</span> <span class="s">&#39;Digest realm=&quot;</span><span class="si">%s</span><span class="s">&quot;, &#39;</span>
+            <span class="s">&#39;qop=&quot;</span><span class="si">%s</span><span class="s">&quot;,&#39;</span>
+            <span class="s">&#39;nonce=&quot;</span><span class="si">%s</span><span class="s">&quot;, &#39;</span> <span class="o">%</span> \
+            <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_realm_name</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_qop</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_generate_nonce</span><span class="p">()))</span>
+        <span class="c"># XXX: Not sure if we&#39;re supposed to add this next header or</span>
+        <span class="c"># not.</span>
+        <span class="c">#request_handler.send_header(&#39;Connection&#39;, &#39;close&#39;)</span>
+        <span class="n">request_handler</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+        <span class="n">request_handler</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;Proxy Authentication Required.&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">False</span>
+
+<div class="viewcode-block" id="DigestAuthHandler.handle_request"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.DigestAuthHandler.handle_request">[docs]</a>    <span class="k">def</span> <span class="nf">handle_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request_handler</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Performs digest authentication on the given HTTP request</span>
+<span class="sd">        handler.  Returns True if authentication was successful, False</span>
+<span class="sd">        otherwise.</span>
+
+<span class="sd">        If no users have been set, then digest auth is effectively</span>
+<span class="sd">        disabled and this method will always return True.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_users</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">True</span>
+
+        <span class="k">if</span> <span class="s">&quot;Proxy-Authorization&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">request_handler</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_return_auth_challenge</span><span class="p">(</span><span class="n">request_handler</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">auth_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_auth_dict</span><span class="p">(</span>
+                <span class="n">request_handler</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&quot;Proxy-Authorization&quot;</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">if</span> <span class="n">auth_dict</span><span class="p">[</span><span class="s">&quot;username&quot;</span><span class="p">]</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_users</span><span class="p">:</span>
+                <span class="n">password</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_users</span><span class="p">[</span> <span class="n">auth_dict</span><span class="p">[</span><span class="s">&quot;username&quot;</span><span class="p">]</span> <span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_return_auth_challenge</span><span class="p">(</span><span class="n">request_handler</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">auth_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;nonce&quot;</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nonces</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_return_auth_challenge</span><span class="p">(</span><span class="n">request_handler</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_nonces</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">auth_dict</span><span class="p">[</span><span class="s">&quot;nonce&quot;</span><span class="p">])</span>
+
+            <span class="n">auth_validated</span> <span class="o">=</span> <span class="bp">False</span>
+
+            <span class="c"># MSIE uses short_path in its validation, but Python&#39;s</span>
+            <span class="c"># urllib.request uses the full path, so we&#39;re going to see if</span>
+            <span class="c"># either of them works here.</span>
+
+            <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="p">[</span><span class="n">request_handler</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="n">request_handler</span><span class="o">.</span><span class="n">short_path</span><span class="p">]:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_validate_auth</span><span class="p">(</span><span class="n">auth_dict</span><span class="p">,</span>
+                                       <span class="n">password</span><span class="p">,</span>
+                                       <span class="n">request_handler</span><span class="o">.</span><span class="n">command</span><span class="p">,</span>
+                                       <span class="n">path</span><span class="p">):</span>
+                    <span class="n">auth_validated</span> <span class="o">=</span> <span class="bp">True</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">auth_validated</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_return_auth_challenge</span><span class="p">(</span><span class="n">request_handler</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">True</span>
+
+</div></div>
+<div class="viewcode-block" id="BasicAuthHandler"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthHandler">[docs]</a><span class="k">class</span> <span class="nc">BasicAuthHandler</span><span class="p">(</span><span class="n">http</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">BaseHTTPRequestHandler</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Handler for performing basic authentication.&quot;&quot;&quot;</span>
+    <span class="c"># Server side values</span>
+    <span class="n">USER</span> <span class="o">=</span> <span class="s">&#39;testUser&#39;</span>
+    <span class="n">PASSWD</span> <span class="o">=</span> <span class="s">&#39;testPass&#39;</span>
+    <span class="n">REALM</span> <span class="o">=</span> <span class="s">&#39;Test&#39;</span>
+    <span class="n">USER_PASSWD</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">USER</span><span class="p">,</span> <span class="n">PASSWD</span><span class="p">)</span>
+    <span class="n">ENCODED_AUTH</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="n">USER_PASSWD</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">))</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">http</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">BaseHTTPRequestHandler</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+<div class="viewcode-block" id="BasicAuthHandler.log_message"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthHandler.log_message">[docs]</a>    <span class="k">def</span> <span class="nf">log_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">format</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="c"># Suppress console log message</span>
+        <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="BasicAuthHandler.do_HEAD"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthHandler.do_HEAD">[docs]</a>    <span class="k">def</span> <span class="nf">do_HEAD</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">200</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&quot;Content-type&quot;</span><span class="p">,</span> <span class="s">&quot;text/html&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BasicAuthHandler.do_AUTHHEAD"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthHandler.do_AUTHHEAD">[docs]</a>    <span class="k">def</span> <span class="nf">do_AUTHHEAD</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">401</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&quot;WWW-Authenticate&quot;</span><span class="p">,</span> <span class="s">&quot;Basic realm=</span><span class="se">\&quot;</span><span class="si">%s</span><span class="se">\&quot;</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">REALM</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&quot;Content-type&quot;</span><span class="p">,</span> <span class="s">&quot;text/html&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BasicAuthHandler.do_GET"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthHandler.do_GET">[docs]</a>    <span class="k">def</span> <span class="nf">do_GET</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;Authorization&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">do_AUTHHEAD</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;No Auth header received&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span>
+                <span class="s">&quot;Authorization&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s">&quot;Basic &quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">ENCODED_AUTH</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">200</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;It works&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># Request Unauthorized</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">do_AUTHHEAD</span><span class="p">()</span>
+
+
+
+<span class="c"># Proxy test infrastructure</span>
+</div></div>
+<div class="viewcode-block" id="FakeProxyHandler"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.FakeProxyHandler">[docs]</a><span class="k">class</span> <span class="nc">FakeProxyHandler</span><span class="p">(</span><span class="n">http</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">BaseHTTPRequestHandler</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;This is a &#39;fake proxy&#39; that makes it look like the entire</span>
+<span class="sd">    internet has gone down due to a sudden zombie invasion.  It main</span>
+<span class="sd">    utility is in providing us with authentication support for</span>
+<span class="sd">    testing.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">digest_auth_handler</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c"># This has to be set before calling our parent&#39;s __init__(), which will</span>
+        <span class="c"># try to call do_GET().</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span> <span class="o">=</span> <span class="n">digest_auth_handler</span>
+        <span class="n">http</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">BaseHTTPRequestHandler</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+<div class="viewcode-block" id="FakeProxyHandler.log_message"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.FakeProxyHandler.log_message">[docs]</a>    <span class="k">def</span> <span class="nf">log_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">format</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="c"># Uncomment the next line for debugging.</span>
+        <span class="c"># sys.stderr.write(format % args)</span>
+        <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="FakeProxyHandler.do_GET"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.FakeProxyHandler.do_GET">[docs]</a>    <span class="k">def</span> <span class="nf">do_GET</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">scm</span><span class="p">,</span> <span class="n">netloc</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">params</span><span class="p">,</span> <span class="n">query</span><span class="p">,</span> <span class="n">fragment</span><span class="p">)</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">parse</span><span class="o">.</span><span class="n">urlparse</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">,</span> <span class="s">&quot;http&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">short_path</span> <span class="o">=</span> <span class="n">path</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span><span class="o">.</span><span class="n">handle_request</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="s">&quot;OK&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&quot;Content-Type&quot;</span><span class="p">,</span> <span class="s">&quot;text/html&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="s">&quot;You&#39;ve reached </span><span class="si">%s</span><span class="s">!&lt;BR&gt;&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">,</span>
+                                   <span class="s">&quot;ascii&quot;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;Our apologies, but our server is down due to &quot;</span>
+                             <span class="n">b</span><span class="s">&quot;a sudden zombie invasion.&quot;</span><span class="p">)</span>
+
+<span class="c"># Test cases</span>
+</div></div>
+<span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">threading</span><span class="p">,</span> <span class="s">&quot;Threading required for this test.&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="BasicAuthTests"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthTests">[docs]</a><span class="k">class</span> <span class="nc">BasicAuthTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">USER</span> <span class="o">=</span> <span class="s">&quot;testUser&quot;</span>
+    <span class="n">PASSWD</span> <span class="o">=</span> <span class="s">&quot;testPass&quot;</span>
+    <span class="n">INCORRECT_PASSWD</span> <span class="o">=</span> <span class="s">&quot;Incorrect&quot;</span>
+    <span class="n">REALM</span> <span class="o">=</span> <span class="s">&quot;Test&quot;</span>
+
+<div class="viewcode-block" id="BasicAuthTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">BasicAuthTests</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">setUp</span><span class="p">()</span>
+        <span class="c"># With Basic Authentication</span>
+        <span class="k">def</span> <span class="nf">http_server_with_basic_auth_handler</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">BasicAuthHandler</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span> <span class="o">=</span> <span class="n">LoopbackHttpServerThread</span><span class="p">(</span><span class="n">http_server_with_basic_auth_handler</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server_url</span> <span class="o">=</span> <span class="s">&#39;http://127.0.0.1:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">port</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">ready</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BasicAuthTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">BasicAuthTests</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">tearDown</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BasicAuthTests.test_basic_auth_success"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthTests.test_basic_auth_success">[docs]</a>    <span class="k">def</span> <span class="nf">test_basic_auth_success</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">ah</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">HTTPBasicAuthHandler</span><span class="p">()</span>
+        <span class="n">ah</span><span class="o">.</span><span class="n">add_password</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">REALM</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_url</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">USER</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">PASSWD</span><span class="p">)</span>
+        <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">install_opener</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">build_opener</span><span class="p">(</span><span class="n">ah</span><span class="p">))</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">server_url</span><span class="p">))</span>
+        <span class="k">except</span> <span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;Basic auth failed for the url: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_url</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="BasicAuthTests.test_basic_auth_httperror"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.BasicAuthTests.test_basic_auth_httperror">[docs]</a>    <span class="k">def</span> <span class="nf">test_basic_auth_httperror</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">ah</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">HTTPBasicAuthHandler</span><span class="p">()</span>
+        <span class="n">ah</span><span class="o">.</span><span class="n">add_password</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">REALM</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_url</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">USER</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">INCORRECT_PASSWD</span><span class="p">)</span>
+        <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">install_opener</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">build_opener</span><span class="p">(</span><span class="n">ah</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_url</span><span class="p">)</span>
+
+</div></div>
+<span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">threading</span><span class="p">,</span> <span class="s">&quot;Threading required for this test.&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="ProxyAuthTests"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.ProxyAuthTests">[docs]</a><span class="k">class</span> <span class="nc">ProxyAuthTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">URL</span> <span class="o">=</span> <span class="s">&quot;http://localhost&quot;</span>
+
+    <span class="n">USER</span> <span class="o">=</span> <span class="s">&quot;tester&quot;</span>
+    <span class="n">PASSWD</span> <span class="o">=</span> <span class="s">&quot;test123&quot;</span>
+    <span class="n">REALM</span> <span class="o">=</span> <span class="s">&quot;TestRealm&quot;</span>
+
+<div class="viewcode-block" id="ProxyAuthTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.ProxyAuthTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">ProxyAuthTests</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">setUp</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span> <span class="o">=</span> <span class="n">DigestAuthHandler</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span><span class="o">.</span><span class="n">set_users</span><span class="p">({</span><span class="bp">self</span><span class="o">.</span><span class="n">USER</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">PASSWD</span><span class="p">})</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span><span class="o">.</span><span class="n">set_realm</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">REALM</span><span class="p">)</span>
+        <span class="c"># With Digest Authentication.</span>
+        <span class="k">def</span> <span class="nf">create_fake_proxy_handler</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">FakeProxyHandler</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span> <span class="o">=</span> <span class="n">LoopbackHttpServerThread</span><span class="p">(</span><span class="n">create_fake_proxy_handler</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">ready</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="n">proxy_url</span> <span class="o">=</span> <span class="s">&quot;http://127.0.0.1:</span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">port</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">ProxyHandler</span><span class="p">({</span><span class="s">&quot;http&quot;</span> <span class="p">:</span> <span class="n">proxy_url</span><span class="p">})</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">proxy_digest_handler</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">ProxyDigestAuthHandler</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">opener</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">build_opener</span><span class="p">(</span>
+            <span class="n">handler</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">proxy_digest_handler</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ProxyAuthTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.ProxyAuthTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">ProxyAuthTests</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">tearDown</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ProxyAuthTests.test_proxy_with_bad_password_raises_httperror"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.ProxyAuthTests.test_proxy_with_bad_password_raises_httperror">[docs]</a>    <span class="k">def</span> <span class="nf">test_proxy_with_bad_password_raises_httperror</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">proxy_digest_handler</span><span class="o">.</span><span class="n">add_password</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">REALM</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">URL</span><span class="p">,</span>
+                                               <span class="bp">self</span><span class="o">.</span><span class="n">USER</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">PASSWD</span><span class="o">+</span><span class="s">&quot;bad&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span><span class="o">.</span><span class="n">set_qop</span><span class="p">(</span><span class="s">&quot;auth&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span>
+                          <span class="bp">self</span><span class="o">.</span><span class="n">opener</span><span class="o">.</span><span class="n">open</span><span class="p">,</span>
+                          <span class="bp">self</span><span class="o">.</span><span class="n">URL</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ProxyAuthTests.test_proxy_with_no_password_raises_httperror"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.ProxyAuthTests.test_proxy_with_no_password_raises_httperror">[docs]</a>    <span class="k">def</span> <span class="nf">test_proxy_with_no_password_raises_httperror</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span><span class="o">.</span><span class="n">set_qop</span><span class="p">(</span><span class="s">&quot;auth&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">HTTPError</span><span class="p">,</span>
+                          <span class="bp">self</span><span class="o">.</span><span class="n">opener</span><span class="o">.</span><span class="n">open</span><span class="p">,</span>
+                          <span class="bp">self</span><span class="o">.</span><span class="n">URL</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ProxyAuthTests.test_proxy_qop_auth_works"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.ProxyAuthTests.test_proxy_qop_auth_works">[docs]</a>    <span class="k">def</span> <span class="nf">test_proxy_qop_auth_works</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">proxy_digest_handler</span><span class="o">.</span><span class="n">add_password</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">REALM</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">URL</span><span class="p">,</span>
+                                               <span class="bp">self</span><span class="o">.</span><span class="n">USER</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">PASSWD</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span><span class="o">.</span><span class="n">set_qop</span><span class="p">(</span><span class="s">&quot;auth&quot;</span><span class="p">)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">opener</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">URL</span><span class="p">)</span>
+        <span class="k">while</span> <span class="n">result</span><span class="o">.</span><span class="n">read</span><span class="p">():</span>
+            <span class="k">pass</span>
+        <span class="n">result</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ProxyAuthTests.test_proxy_qop_auth_int_works_or_throws_urlerror"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.ProxyAuthTests.test_proxy_qop_auth_int_works_or_throws_urlerror">[docs]</a>    <span class="k">def</span> <span class="nf">test_proxy_qop_auth_int_works_or_throws_urlerror</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">proxy_digest_handler</span><span class="o">.</span><span class="n">add_password</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">REALM</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">URL</span><span class="p">,</span>
+                                               <span class="bp">self</span><span class="o">.</span><span class="n">USER</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">PASSWD</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">digest_auth_handler</span><span class="o">.</span><span class="n">set_qop</span><span class="p">(</span><span class="s">&quot;auth-int&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">opener</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">URL</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">URLError</span><span class="p">:</span>
+            <span class="c"># It&#39;s okay if we don&#39;t support auth-int, but we certainly</span>
+            <span class="c"># shouldn&#39;t receive any kind of exception here other than</span>
+            <span class="c"># a URLError.</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">result</span><span class="p">:</span>
+            <span class="k">while</span> <span class="n">result</span><span class="o">.</span><span class="n">read</span><span class="p">():</span>
+                <span class="k">pass</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="GetRequestHandler"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.GetRequestHandler">[docs]</a><span class="k">def</span> <span class="nf">GetRequestHandler</span><span class="p">(</span><span class="n">responses</span><span class="p">):</span>
+
+    <span class="k">class</span> <span class="nc">FakeHTTPRequestHandler</span><span class="p">(</span><span class="n">http</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">BaseHTTPRequestHandler</span><span class="p">):</span>
+
+        <span class="n">server_version</span> <span class="o">=</span> <span class="s">&quot;TestHTTP/&quot;</span>
+        <span class="n">requests</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">headers_received</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">port</span> <span class="o">=</span> <span class="mi">80</span>
+
+        <span class="k">def</span> <span class="nf">do_GET</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="n">body</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">send_head</span><span class="p">()</span>
+            <span class="k">while</span> <span class="n">body</span><span class="p">:</span>
+                <span class="n">done</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">wfile</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">body</span><span class="p">)</span>
+                <span class="n">body</span> <span class="o">=</span> <span class="n">body</span><span class="p">[</span><span class="n">done</span><span class="p">:]</span>
+
+        <span class="k">def</span> <span class="nf">do_POST</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="n">content_length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&quot;Content-Length&quot;</span><span class="p">]</span>
+            <span class="n">post_data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">rfile</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">content_length</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">do_GET</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">requests</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">post_data</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">send_head</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="n">FakeHTTPRequestHandler</span><span class="o">.</span><span class="n">headers_received</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">requests</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">path</span><span class="p">)</span>
+            <span class="n">response_code</span><span class="p">,</span> <span class="n">headers</span><span class="p">,</span> <span class="n">body</span> <span class="o">=</span> <span class="n">responses</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_response</span><span class="p">(</span><span class="n">response_code</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="p">(</span><span class="n">header</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="n">headers</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="n">header</span><span class="p">,</span> <span class="n">value</span> <span class="o">%</span> <span class="p">{</span><span class="s">&#39;port&#39;</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">})</span>
+            <span class="k">if</span> <span class="n">body</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">send_header</span><span class="p">(</span><span class="s">&quot;Content-type&quot;</span><span class="p">,</span> <span class="s">&quot;text/plain&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+                <span class="k">return</span> <span class="n">body</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">end_headers</span><span class="p">()</span>
+
+        <span class="k">def</span> <span class="nf">log_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+            <span class="k">pass</span>
+
+
+    <span class="k">return</span> <span class="n">FakeHTTPRequestHandler</span>
+
+</div>
+<span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">threading</span><span class="p">,</span> <span class="s">&quot;Threading required for this test.&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="TestUrlopen"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen">[docs]</a><span class="k">class</span> <span class="nc">TestUrlopen</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Tests urllib.request.urlopen using the network.</span>
+
+<span class="sd">    These tests are not exhaustive.  Assuming that testing using files does a</span>
+<span class="sd">    good job overall of some of the basic interface features.  There are no</span>
+<span class="sd">    tests exercising the optional &#39;data&#39; and &#39;proxies&#39; arguments.  No tests</span>
+<span class="sd">    for transparent redirection have been written.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="TestUrlopen.setUp"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">TestUrlopen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">setUp</span><span class="p">()</span>
+        <span class="c"># Ignore proxies for localhost tests.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">old_environ</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s">&#39;NO_PROXY&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;*&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.tearDown"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">server</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">old_environ</span><span class="p">)</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">TestUrlopen</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">tearDown</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.urlopen"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.urlopen">[docs]</a>    <span class="k">def</span> <span class="nf">urlopen</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">l</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c"># Exercise various methods</span>
+            <span class="n">l</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">readlines</span><span class="p">(</span><span class="mi">200</span><span class="p">))</span>
+            <span class="n">l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">())</span>
+            <span class="n">l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">1024</span><span class="p">))</span>
+            <span class="n">l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">l</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.start_server"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.start_server">[docs]</a>    <span class="k">def</span> <span class="nf">start_server</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">responses</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">responses</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">responses</span> <span class="o">=</span> <span class="p">[(</span><span class="mi">200</span><span class="p">,</span> <span class="p">[],</span> <span class="n">b</span><span class="s">&quot;we don&#39;t care&quot;</span><span class="p">)]</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="n">GetRequestHandler</span><span class="p">(</span><span class="n">responses</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span> <span class="o">=</span> <span class="n">LoopbackHttpServerThread</span><span class="p">(</span><span class="n">handler</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">ready</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">port</span>
+        <span class="n">handler</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">port</span>
+        <span class="k">return</span> <span class="n">handler</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.start_https_server"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.start_https_server">[docs]</a>    <span class="k">def</span> <span class="nf">start_https_server</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">responses</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="p">,</span> <span class="s">&#39;HTTPSHandler&#39;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">skipTest</span><span class="p">(</span><span class="s">&#39;ssl support required&#39;</span><span class="p">)</span>
+        <span class="kn">from</span> <span class="nn">test.ssl_servers</span> <span class="kn">import</span> <span class="n">make_https_server</span>
+        <span class="k">if</span> <span class="n">responses</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">responses</span> <span class="o">=</span> <span class="p">[(</span><span class="mi">200</span><span class="p">,</span> <span class="p">[],</span> <span class="n">b</span><span class="s">&quot;we care a bit&quot;</span><span class="p">)]</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="n">GetRequestHandler</span><span class="p">(</span><span class="n">responses</span><span class="p">)</span>
+        <span class="n">server</span> <span class="o">=</span> <span class="n">make_https_server</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handler_class</span><span class="o">=</span><span class="n">handler</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="n">handler</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">port</span>
+        <span class="k">return</span> <span class="n">handler</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_redirection"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_redirection">[docs]</a>    <span class="k">def</span> <span class="nf">test_redirection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">expected_response</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;We got here...&quot;</span>
+        <span class="n">responses</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="p">(</span><span class="mi">302</span><span class="p">,</span> <span class="p">[(</span><span class="s">&quot;Location&quot;</span><span class="p">,</span> <span class="s">&quot;http://localhost:</span><span class="si">%(port)s</span><span class="s">/somewhere_else&quot;</span><span class="p">)],</span>
+             <span class="s">&quot;&quot;</span><span class="p">),</span>
+            <span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="p">[],</span> <span class="n">expected_response</span><span class="p">)</span>
+        <span class="p">]</span>
+
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">(</span><span class="n">responses</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">/&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">expected_response</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">handler</span><span class="o">.</span><span class="n">requests</span><span class="p">,</span> <span class="p">[</span><span class="s">&quot;/&quot;</span><span class="p">,</span> <span class="s">&quot;/somewhere_else&quot;</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_chunked"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_chunked">[docs]</a>    <span class="k">def</span> <span class="nf">test_chunked</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">expected_response</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;hello world&quot;</span>
+        <span class="n">chunked_start</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">b</span><span class="s">&#39;a</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                        <span class="n">b</span><span class="s">&#39;hello worl</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                        <span class="n">b</span><span class="s">&#39;1</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                        <span class="n">b</span><span class="s">&#39;d</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                        <span class="n">b</span><span class="s">&#39;0</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                        <span class="p">)</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="p">[(</span><span class="mi">200</span><span class="p">,</span> <span class="p">[(</span><span class="s">&quot;Transfer-Encoding&quot;</span><span class="p">,</span> <span class="s">&quot;chunked&quot;</span><span class="p">)],</span> <span class="n">chunked_start</span><span class="p">)]</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">(</span><span class="n">response</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">/&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">expected_response</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_404"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_404">[docs]</a>    <span class="k">def</span> <span class="nf">test_404</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">expected_response</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;Bad bad bad...&quot;</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">([(</span><span class="mi">404</span><span class="p">,</span> <span class="p">[],</span> <span class="n">expected_response</span><span class="p">)])</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">/weeble&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">URLError</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;404 should raise URLError&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">expected_response</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">handler</span><span class="o">.</span><span class="n">requests</span><span class="p">,</span> <span class="p">[</span><span class="s">&quot;/weeble&quot;</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_200"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_200">[docs]</a>    <span class="k">def</span> <span class="nf">test_200</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">expected_response</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;pycon 2008...&quot;</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">([(</span><span class="mi">200</span><span class="p">,</span> <span class="p">[],</span> <span class="n">expected_response</span><span class="p">)])</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">/bizarre&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">expected_response</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">handler</span><span class="o">.</span><span class="n">requests</span><span class="p">,</span> <span class="p">[</span><span class="s">&quot;/bizarre&quot;</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_200_with_parameters"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_200_with_parameters">[docs]</a>    <span class="k">def</span> <span class="nf">test_200_with_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">expected_response</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;pycon 2008...&quot;</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">([(</span><span class="mi">200</span><span class="p">,</span> <span class="p">[],</span> <span class="n">expected_response</span><span class="p">)])</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">/bizarre&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+                             <span class="n">b</span><span class="s">&quot;get=with_feeling&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">expected_response</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">handler</span><span class="o">.</span><span class="n">requests</span><span class="p">,</span> <span class="p">[</span><span class="s">&quot;/bizarre&quot;</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;get=with_feeling&quot;</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_https"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_https">[docs]</a>    <span class="k">def</span> <span class="nf">test_https</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_https_server</span><span class="p">()</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;https://localhost:</span><span class="si">%s</span><span class="s">/bizarre&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;we care a bit&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_https_with_cafile"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_https_with_cafile">[docs]</a>    <span class="k">def</span> <span class="nf">test_https_with_cafile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_https_server</span><span class="p">(</span><span class="n">certfile</span><span class="o">=</span><span class="n">CERT_localhost</span><span class="p">)</span>
+        <span class="kn">import</span> <span class="nn">ssl</span>
+        <span class="c"># Good cert</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;https://localhost:</span><span class="si">%s</span><span class="s">/bizarre&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+                            <span class="n">cafile</span><span class="o">=</span><span class="n">CERT_localhost</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;we care a bit&quot;</span><span class="p">)</span>
+        <span class="c"># Bad cert</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">URLError</span><span class="p">)</span> <span class="k">as</span> <span class="n">cm</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;https://localhost:</span><span class="si">%s</span><span class="s">/bizarre&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+                         <span class="n">cafile</span><span class="o">=</span><span class="n">CERT_fakehostname</span><span class="p">)</span>
+        <span class="c"># Good cert, but mismatching hostname</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_https_server</span><span class="p">(</span><span class="n">certfile</span><span class="o">=</span><span class="n">CERT_fakehostname</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">ssl</span><span class="o">.</span><span class="n">CertificateError</span><span class="p">)</span> <span class="k">as</span> <span class="n">cm</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;https://localhost:</span><span class="si">%s</span><span class="s">/bizarre&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+                         <span class="n">cafile</span><span class="o">=</span><span class="n">CERT_fakehostname</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_https_with_cadefault"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_https_with_cadefault">[docs]</a>    <span class="k">def</span> <span class="nf">test_https_with_cadefault</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_https_server</span><span class="p">(</span><span class="n">certfile</span><span class="o">=</span><span class="n">CERT_localhost</span><span class="p">)</span>
+        <span class="c"># Self-signed cert should fail verification with system certificate store</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">urllib</span><span class="o">.</span><span class="n">error</span><span class="o">.</span><span class="n">URLError</span><span class="p">)</span> <span class="k">as</span> <span class="n">cm</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;https://localhost:</span><span class="si">%s</span><span class="s">/bizarre&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+                         <span class="n">cadefault</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_https_sni"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_https_sni">[docs]</a>    <span class="k">def</span> <span class="nf">test_https_sni</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">ssl</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">skipTest</span><span class="p">(</span><span class="s">&quot;ssl module required&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">ssl</span><span class="o">.</span><span class="n">HAS_SNI</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">skipTest</span><span class="p">(</span><span class="s">&quot;SNI support required in OpenSSL&quot;</span><span class="p">)</span>
+        <span class="n">sni_name</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">def</span> <span class="nf">cb_sni</span><span class="p">(</span><span class="n">ssl_sock</span><span class="p">,</span> <span class="n">server_name</span><span class="p">,</span> <span class="n">initial_context</span><span class="p">):</span>
+            <span class="n">nonlocal</span> <span class="n">sni_name</span>
+            <span class="n">sni_name</span> <span class="o">=</span> <span class="n">server_name</span>
+        <span class="n">context</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">SSLContext</span><span class="p">(</span><span class="n">ssl</span><span class="o">.</span><span class="n">PROTOCOL_TLSv1</span><span class="p">)</span>
+        <span class="n">context</span><span class="o">.</span><span class="n">set_servername_callback</span><span class="p">(</span><span class="n">cb_sni</span><span class="p">)</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_https_server</span><span class="p">(</span><span class="n">context</span><span class="o">=</span><span class="n">context</span><span class="p">,</span> <span class="n">certfile</span><span class="o">=</span><span class="n">CERT_localhost</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;https://localhost:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">sni_name</span><span class="p">,</span> <span class="s">&quot;localhost&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_sending_headers"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_sending_headers">[docs]</a>    <span class="k">def</span> <span class="nf">test_sending_headers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">()</span>
+        <span class="n">req</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">Request</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">/&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+                                     <span class="n">headers</span><span class="o">=</span><span class="p">{</span><span class="s">&quot;Range&quot;</span><span class="p">:</span> <span class="s">&quot;bytes=20-39&quot;</span><span class="p">})</span>
+        <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="n">req</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">handler</span><span class="o">.</span><span class="n">headers_received</span><span class="p">[</span><span class="s">&quot;Range&quot;</span><span class="p">],</span> <span class="s">&quot;bytes=20-39&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_basic"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_basic">[docs]</a>    <span class="k">def</span> <span class="nf">test_basic</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">()</span>
+        <span class="n">open_url</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;read&quot;</span><span class="p">,</span> <span class="s">&quot;close&quot;</span><span class="p">,</span> <span class="s">&quot;info&quot;</span><span class="p">,</span> <span class="s">&quot;geturl&quot;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="nb">hasattr</span><span class="p">(</span><span class="n">open_url</span><span class="p">,</span> <span class="n">attr</span><span class="p">),</span> <span class="s">&quot;object returned from &quot;</span>
+                         <span class="s">&quot;urlopen lacks the </span><span class="si">%s</span><span class="s"> attribute&quot;</span> <span class="o">%</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">open_url</span><span class="o">.</span><span class="n">read</span><span class="p">(),</span> <span class="s">&quot;calling &#39;read&#39; failed&quot;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">open_url</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_info"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_info">[docs]</a>    <span class="k">def</span> <span class="nf">test_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">open_url</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span>
+                <span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+            <span class="n">info_obj</span> <span class="o">=</span> <span class="n">open_url</span><span class="o">.</span><span class="n">info</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIsInstance</span><span class="p">(</span><span class="n">info_obj</span><span class="p">,</span> <span class="n">email</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">Message</span><span class="p">,</span>
+                                  <span class="s">&quot;object returned by &#39;info&#39; is not an &quot;</span>
+                                  <span class="s">&quot;instance of email.message.Message&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">info_obj</span><span class="o">.</span><span class="n">get_content_subtype</span><span class="p">(),</span> <span class="s">&quot;plain&quot;</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">server</span><span class="o">.</span><span class="n">stop</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_geturl"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_geturl">[docs]</a>    <span class="k">def</span> <span class="nf">test_geturl</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Make sure same URL as opened is returned by geturl.</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">()</span>
+        <span class="n">open_url</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="n">open_url</span><span class="o">.</span><span class="n">geturl</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_bad_address"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_bad_address">[docs]</a>    <span class="k">def</span> <span class="nf">test_bad_address</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Make sure proper exception is raised when connecting to a bogus</span>
+        <span class="c"># address.</span>
+
+        <span class="c"># as indicated by the comment below, this might fail with some ISP,</span>
+        <span class="c"># so we run the test only when -unetwork/-uall is specified to</span>
+        <span class="c"># mitigate the problem a bit (see #17564)</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">requires</span><span class="p">(</span><span class="s">&#39;network&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">OSError</span><span class="p">,</span>
+                          <span class="c"># Given that both VeriSign and various ISPs have in</span>
+                          <span class="c"># the past or are presently hijacking various invalid</span>
+                          <span class="c"># domain name requests in an attempt to boost traffic</span>
+                          <span class="c"># to their own sites, finding a domain name to use</span>
+                          <span class="c"># for this test is difficult.  RFC2606 leads one to</span>
+                          <span class="c"># believe that &#39;.invalid&#39; should work, but experience</span>
+                          <span class="c"># seemed to indicate otherwise.  Single character</span>
+                          <span class="c"># TLDs are likely to remain invalid, so this seems to</span>
+                          <span class="c"># be the best choice. The trailing &#39;.&#39; prevents a</span>
+                          <span class="c"># related problem: The normal DNS resolver appends</span>
+                          <span class="c"># the domain names from the search path if there is</span>
+                          <span class="c"># no &#39;.&#39; the end and, and if one of those domains</span>
+                          <span class="c"># implements a &#39;*&#39; rule a result is returned.</span>
+                          <span class="c"># However, none of this will prevent the test from</span>
+                          <span class="c"># failing if the ISP hijacks all invalid domain</span>
+                          <span class="c"># requests.  The real solution would be to be able to</span>
+                          <span class="c"># parameterize the framework with a mock resolver.</span>
+                          <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">,</span>
+                          <span class="s">&quot;http://sadflkjsasf.i.nvali.d./&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_iteration"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_iteration">[docs]</a>    <span class="k">def</span> <span class="nf">test_iteration</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">expected_response</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;pycon 2008...&quot;</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">([(</span><span class="mi">200</span><span class="p">,</span> <span class="p">[],</span> <span class="n">expected_response</span><span class="p">)])</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">line</span><span class="p">,</span> <span class="n">expected_response</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="TestUrlopen.test_line_iteration"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.TestUrlopen.test_line_iteration">[docs]</a>    <span class="k">def</span> <span class="nf">test_line_iteration</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="n">b</span><span class="s">&quot;We</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;got</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;here</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;verylong &quot;</span> <span class="o">*</span> <span class="mi">8192</span> <span class="o">+</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">]</span>
+        <span class="n">expected_response</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
+        <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_server</span><span class="p">([(</span><span class="mi">200</span><span class="p">,</span> <span class="p">[],</span> <span class="n">expected_response</span><span class="p">)])</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">urllib</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">urlopen</span><span class="p">(</span><span class="s">&quot;http://localhost:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">handler</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">index</span><span class="p">,</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">line</span><span class="p">,</span> <span class="n">lines</span><span class="p">[</span><span class="n">index</span><span class="p">],</span>
+                             <span class="s">&quot;Fetched line number </span><span class="si">%s</span><span class="s"> doesn&#39;t match expected:</span><span class="se">\n</span><span class="s">&quot;</span>
+                             <span class="s">&quot;    Expected length was </span><span class="si">%s</span><span class="s">, got </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span>
+                             <span class="p">(</span><span class="n">index</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">[</span><span class="n">index</span><span class="p">]),</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">index</span> <span class="o">+</span> <span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">lines</span><span class="p">))</span>
+
+</div></div>
+<span class="n">threads_key</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="setUpModule"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.setUpModule">[docs]</a><span class="k">def</span> <span class="nf">setUpModule</span><span class="p">():</span>
+    <span class="c"># Store the threading_setup in a key and ensure that it is cleaned up</span>
+    <span class="c"># in the tearDown</span>
+    <span class="k">global</span> <span class="n">threads_key</span>
+    <span class="n">threads_key</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">threading_setup</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="tearDownModule"><a class="viewcode-back" href="../../test.html#test.test_urllib2_localnet.tearDownModule">[docs]</a><span class="k">def</span> <span class="nf">tearDownModule</span><span class="p">():</span>
+    <span class="k">if</span> <span class="n">threads_key</span><span class="p">:</span>
+        <span class="n">support</span><span class="o">.</span><span class="n">threading_cleanup</span><span class="p">(</span><span class="n">threads_key</span><span class="p">)</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">unittest</span><span class="o">.</span><span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

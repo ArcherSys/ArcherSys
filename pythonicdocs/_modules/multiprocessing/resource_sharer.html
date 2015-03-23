@@ -1,0 +1,250 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>multiprocessing.resource_sharer &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for multiprocessing.resource_sharer</h1><div class="highlight"><pre>
+<span class="c">#</span>
+<span class="c"># We use a background thread for sharing fds on Unix, and for sharing sockets on</span>
+<span class="c"># Windows.</span>
+<span class="c">#</span>
+<span class="c"># A client which wants to pickle a resource registers it with the resource</span>
+<span class="c"># sharer and gets an identifier in return.  The unpickling process will connect</span>
+<span class="c"># to the resource sharer, sends the identifier and its pid, and then receives</span>
+<span class="c"># the resource.</span>
+<span class="c">#</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">signal</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">process</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">reduction</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">util</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;stop&#39;</span><span class="p">]</span>
+
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+    <span class="n">__all__</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&#39;DupSocket&#39;</span><span class="p">]</span>
+
+<div class="viewcode-block" id="DupSocket"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.resource_sharer.DupSocket">[docs]</a>    <span class="k">class</span> <span class="nc">DupSocket</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Picklable wrapper for a socket.&#39;&#39;&#39;</span>
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">):</span>
+            <span class="n">new_sock</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">dup</span><span class="p">()</span>
+            <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">pid</span><span class="p">):</span>
+                <span class="n">share</span> <span class="o">=</span> <span class="n">new_sock</span><span class="o">.</span><span class="n">share</span><span class="p">(</span><span class="n">pid</span><span class="p">)</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">send_bytes</span><span class="p">(</span><span class="n">share</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_id</span> <span class="o">=</span> <span class="n">_resource_sharer</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">send</span><span class="p">,</span> <span class="n">new_sock</span><span class="o">.</span><span class="n">close</span><span class="p">)</span>
+
+<div class="viewcode-block" id="DupSocket.detach"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.resource_sharer.DupSocket.detach">[docs]</a>        <span class="k">def</span> <span class="nf">detach</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="sd">&#39;&#39;&#39;Get the socket.  This should only be called once.&#39;&#39;&#39;</span>
+            <span class="k">with</span> <span class="n">_resource_sharer</span><span class="o">.</span><span class="n">get_connection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_id</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+                <span class="n">share</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">recv_bytes</span><span class="p">()</span>
+                <span class="k">return</span> <span class="n">socket</span><span class="o">.</span><span class="n">fromshare</span><span class="p">(</span><span class="n">share</span><span class="p">)</span>
+</div></div>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">__all__</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&#39;DupFd&#39;</span><span class="p">]</span>
+
+    <span class="k">class</span> <span class="nc">DupFd</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Wrapper for fd which can be used at any time.&#39;&#39;&#39;</span>
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">):</span>
+            <span class="n">new_fd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">dup</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">pid</span><span class="p">):</span>
+                <span class="n">reduction</span><span class="o">.</span><span class="n">send_handle</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">new_fd</span><span class="p">,</span> <span class="n">pid</span><span class="p">)</span>
+            <span class="k">def</span> <span class="nf">close</span><span class="p">():</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="n">new_fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_id</span> <span class="o">=</span> <span class="n">_resource_sharer</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">send</span><span class="p">,</span> <span class="n">close</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">detach</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="sd">&#39;&#39;&#39;Get the fd.  This should only be called once.&#39;&#39;&#39;</span>
+            <span class="k">with</span> <span class="n">_resource_sharer</span><span class="o">.</span><span class="n">get_connection</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_id</span><span class="p">)</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">reduction</span><span class="o">.</span><span class="n">recv_handle</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
+
+
+<span class="k">class</span> <span class="nc">_ResourceSharer</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;Manager for resouces using background thread.&#39;&#39;&#39;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_key</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_old_locks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_thread</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">register_after_fork</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_ResourceSharer</span><span class="o">.</span><span class="n">_afterfork</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">register</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">send</span><span class="p">,</span> <span class="n">close</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Register resource, returning an identifier.&#39;&#39;&#39;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_start</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_key</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">send</span><span class="p">,</span> <span class="n">close</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_key</span><span class="p">)</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_connection</span><span class="p">(</span><span class="n">ident</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Return connection from which to receive identified resource.&#39;&#39;&#39;</span>
+        <span class="kn">from</span> <span class="nn">.connection</span> <span class="kn">import</span> <span class="n">Client</span>
+        <span class="n">address</span><span class="p">,</span> <span class="n">key</span> <span class="o">=</span> <span class="n">ident</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">Client</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">authkey</span><span class="o">=</span><span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">()</span><span class="o">.</span><span class="n">authkey</span><span class="p">)</span>
+        <span class="n">c</span><span class="o">.</span><span class="n">send</span><span class="p">((</span><span class="n">key</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()))</span>
+        <span class="k">return</span> <span class="n">c</span>
+
+    <span class="k">def</span> <span class="nf">stop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;Stop the background thread and clear registered resources.&#39;&#39;&#39;</span>
+        <span class="kn">from</span> <span class="nn">.connection</span> <span class="kn">import</span> <span class="n">Client</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">c</span> <span class="o">=</span> <span class="n">Client</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">,</span>
+                           <span class="n">authkey</span><span class="o">=</span><span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">()</span><span class="o">.</span><span class="n">authkey</span><span class="p">)</span>
+                <span class="n">c</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+                <span class="n">c</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_thread</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_thread</span><span class="o">.</span><span class="n">is_alive</span><span class="p">():</span>
+                    <span class="n">util</span><span class="o">.</span><span class="n">sub_warning</span><span class="p">(</span><span class="s">&#39;_ResourceSharer thread did &#39;</span>
+                                     <span class="s">&#39;not stop when asked&#39;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_thread</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="p">(</span><span class="n">send</span><span class="p">,</span> <span class="n">close</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="n">close</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_afterfork</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="p">(</span><span class="n">send</span><span class="p">,</span> <span class="n">close</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="c"># If self._lock was locked at the time of the fork, it may be broken</span>
+        <span class="c"># -- see issue 6721.  Replace it without letting it be gc&#39;ed.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_old_locks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_thread</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">_start</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">from</span> <span class="nn">.connection</span> <span class="kn">import</span> <span class="n">Listener</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="ow">is</span> <span class="bp">None</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;starting listener and thread for sending handles&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="o">=</span> <span class="n">Listener</span><span class="p">(</span><span class="n">authkey</span><span class="o">=</span><span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">()</span><span class="o">.</span><span class="n">authkey</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span><span class="o">.</span><span class="n">address</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_serve</span><span class="p">)</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">daemon</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_thread</span> <span class="o">=</span> <span class="n">t</span>
+
+    <span class="k">def</span> <span class="nf">_serve</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">signal</span><span class="p">,</span> <span class="s">&#39;pthread_sigmask&#39;</span><span class="p">):</span>
+            <span class="n">signal</span><span class="o">.</span><span class="n">pthread_sigmask</span><span class="p">(</span><span class="n">signal</span><span class="o">.</span><span class="n">SIG_BLOCK</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">signal</span><span class="o">.</span><span class="n">NSIG</span><span class="p">))</span>
+        <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span> <span class="k">as</span> <span class="n">conn</span><span class="p">:</span>
+                    <span class="n">msg</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">recv</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">msg</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                        <span class="k">break</span>
+                    <span class="n">key</span><span class="p">,</span> <span class="n">destination_pid</span> <span class="o">=</span> <span class="n">msg</span>
+                    <span class="n">send</span><span class="p">,</span> <span class="n">close</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">send</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">destination_pid</span><span class="p">)</span>
+                    <span class="k">finally</span><span class="p">:</span>
+                        <span class="n">close</span><span class="p">()</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">util</span><span class="o">.</span><span class="n">is_exiting</span><span class="p">():</span>
+                    <span class="n">sys</span><span class="o">.</span><span class="n">excepthook</span><span class="p">(</span><span class="o">*</span><span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">())</span>
+
+
+<span class="n">_resource_sharer</span> <span class="o">=</span> <span class="n">_ResourceSharer</span><span class="p">()</span>
+<span class="n">stop</span> <span class="o">=</span> <span class="n">_resource_sharer</span><span class="o">.</span><span class="n">stop</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

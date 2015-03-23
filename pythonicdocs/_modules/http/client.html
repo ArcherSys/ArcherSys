@@ -1,0 +1,1394 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>http.client &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for http.client</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;HTTP/1.1 client library</span>
+
+<span class="sd">&lt;intro stuff goes here&gt;</span>
+<span class="sd">&lt;other stuff, too&gt;</span>
+
+<span class="sd">HTTPConnection goes through a number of &quot;states&quot;, which define when a client</span>
+<span class="sd">may legally make another request or fetch the response for a particular</span>
+<span class="sd">request. This diagram details these state transitions:</span>
+
+<span class="sd">    (null)</span>
+<span class="sd">      |</span>
+<span class="sd">      | HTTPConnection()</span>
+<span class="sd">      v</span>
+<span class="sd">    Idle</span>
+<span class="sd">      |</span>
+<span class="sd">      | putrequest()</span>
+<span class="sd">      v</span>
+<span class="sd">    Request-started</span>
+<span class="sd">      |</span>
+<span class="sd">      | ( putheader() )*  endheaders()</span>
+<span class="sd">      v</span>
+<span class="sd">    Request-sent</span>
+<span class="sd">      |</span>
+<span class="sd">      | response = getresponse()</span>
+<span class="sd">      v</span>
+<span class="sd">    Unread-response   [Response-headers-read]</span>
+<span class="sd">      |\____________________</span>
+<span class="sd">      |                     |</span>
+<span class="sd">      | response.read()     | putrequest()</span>
+<span class="sd">      v                     v</span>
+<span class="sd">    Idle                  Req-started-unread-response</span>
+<span class="sd">                     ______/|</span>
+<span class="sd">                   /        |</span>
+<span class="sd">   response.read() |        | ( putheader() )*  endheaders()</span>
+<span class="sd">                   v        v</span>
+<span class="sd">       Request-started    Req-sent-unread-response</span>
+<span class="sd">                            |</span>
+<span class="sd">                            | response.read()</span>
+<span class="sd">                            v</span>
+<span class="sd">                          Request-sent</span>
+
+<span class="sd">This diagram presents the following rules:</span>
+<span class="sd">  -- a second request may not be started until {response-headers-read}</span>
+<span class="sd">  -- a response [object] cannot be retrieved until {request-sent}</span>
+<span class="sd">  -- there is no differentiation between an unread response body and a</span>
+<span class="sd">     partially read response body</span>
+
+<span class="sd">Note: this enforcement is applied by the HTTPConnection class. The</span>
+<span class="sd">      HTTPResponse class does not enforce this state machine, which</span>
+<span class="sd">      implies sophisticated clients may accelerate the request/response</span>
+<span class="sd">      pipeline. Caution should be taken, though: accelerating the states</span>
+<span class="sd">      beyond the above pattern may imply knowledge of the server&#39;s</span>
+<span class="sd">      connection-close behavior for certain requests. For example, it</span>
+<span class="sd">      is impossible to tell whether the server will close the connection</span>
+<span class="sd">      UNTIL the response headers have been read; this means that further</span>
+<span class="sd">      requests cannot be placed into the pipeline until it is known that</span>
+<span class="sd">      the server will NOT be closing the connection.</span>
+
+<span class="sd">Logical State                  __state            __response</span>
+<span class="sd">-------------                  -------            ----------</span>
+<span class="sd">Idle                           _CS_IDLE           None</span>
+<span class="sd">Request-started                _CS_REQ_STARTED    None</span>
+<span class="sd">Request-sent                   _CS_REQ_SENT       None</span>
+<span class="sd">Unread-response                _CS_IDLE           &lt;response_class&gt;</span>
+<span class="sd">Req-started-unread-response    _CS_REQ_STARTED    &lt;response_class&gt;</span>
+<span class="sd">Req-sent-unread-response       _CS_REQ_SENT       &lt;response_class&gt;</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">email.parser</span>
+<span class="kn">import</span> <span class="nn">email.message</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">collections</span>
+<span class="kn">from</span> <span class="nn">urllib.parse</span> <span class="kn">import</span> <span class="n">urlsplit</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;HTTPResponse&quot;</span><span class="p">,</span> <span class="s">&quot;HTTPConnection&quot;</span><span class="p">,</span>
+           <span class="s">&quot;HTTPException&quot;</span><span class="p">,</span> <span class="s">&quot;NotConnected&quot;</span><span class="p">,</span> <span class="s">&quot;UnknownProtocol&quot;</span><span class="p">,</span>
+           <span class="s">&quot;UnknownTransferEncoding&quot;</span><span class="p">,</span> <span class="s">&quot;UnimplementedFileMode&quot;</span><span class="p">,</span>
+           <span class="s">&quot;IncompleteRead&quot;</span><span class="p">,</span> <span class="s">&quot;InvalidURL&quot;</span><span class="p">,</span> <span class="s">&quot;ImproperConnectionState&quot;</span><span class="p">,</span>
+           <span class="s">&quot;CannotSendRequest&quot;</span><span class="p">,</span> <span class="s">&quot;CannotSendHeader&quot;</span><span class="p">,</span> <span class="s">&quot;ResponseNotReady&quot;</span><span class="p">,</span>
+           <span class="s">&quot;BadStatusLine&quot;</span><span class="p">,</span> <span class="s">&quot;error&quot;</span><span class="p">,</span> <span class="s">&quot;responses&quot;</span><span class="p">]</span>
+
+<span class="n">HTTP_PORT</span> <span class="o">=</span> <span class="mi">80</span>
+<span class="n">HTTPS_PORT</span> <span class="o">=</span> <span class="mi">443</span>
+
+<span class="n">_UNKNOWN</span> <span class="o">=</span> <span class="s">&#39;UNKNOWN&#39;</span>
+
+<span class="c"># connection states</span>
+<span class="n">_CS_IDLE</span> <span class="o">=</span> <span class="s">&#39;Idle&#39;</span>
+<span class="n">_CS_REQ_STARTED</span> <span class="o">=</span> <span class="s">&#39;Request-started&#39;</span>
+<span class="n">_CS_REQ_SENT</span> <span class="o">=</span> <span class="s">&#39;Request-sent&#39;</span>
+
+<span class="c"># status codes</span>
+<span class="c"># informational</span>
+<span class="n">CONTINUE</span> <span class="o">=</span> <span class="mi">100</span>
+<span class="n">SWITCHING_PROTOCOLS</span> <span class="o">=</span> <span class="mi">101</span>
+<span class="n">PROCESSING</span> <span class="o">=</span> <span class="mi">102</span>
+
+<span class="c"># successful</span>
+<span class="n">OK</span> <span class="o">=</span> <span class="mi">200</span>
+<span class="n">CREATED</span> <span class="o">=</span> <span class="mi">201</span>
+<span class="n">ACCEPTED</span> <span class="o">=</span> <span class="mi">202</span>
+<span class="n">NON_AUTHORITATIVE_INFORMATION</span> <span class="o">=</span> <span class="mi">203</span>
+<span class="n">NO_CONTENT</span> <span class="o">=</span> <span class="mi">204</span>
+<span class="n">RESET_CONTENT</span> <span class="o">=</span> <span class="mi">205</span>
+<span class="n">PARTIAL_CONTENT</span> <span class="o">=</span> <span class="mi">206</span>
+<span class="n">MULTI_STATUS</span> <span class="o">=</span> <span class="mi">207</span>
+<span class="n">IM_USED</span> <span class="o">=</span> <span class="mi">226</span>
+
+<span class="c"># redirection</span>
+<span class="n">MULTIPLE_CHOICES</span> <span class="o">=</span> <span class="mi">300</span>
+<span class="n">MOVED_PERMANENTLY</span> <span class="o">=</span> <span class="mi">301</span>
+<span class="n">FOUND</span> <span class="o">=</span> <span class="mi">302</span>
+<span class="n">SEE_OTHER</span> <span class="o">=</span> <span class="mi">303</span>
+<span class="n">NOT_MODIFIED</span> <span class="o">=</span> <span class="mi">304</span>
+<span class="n">USE_PROXY</span> <span class="o">=</span> <span class="mi">305</span>
+<span class="n">TEMPORARY_REDIRECT</span> <span class="o">=</span> <span class="mi">307</span>
+
+<span class="c"># client error</span>
+<span class="n">BAD_REQUEST</span> <span class="o">=</span> <span class="mi">400</span>
+<span class="n">UNAUTHORIZED</span> <span class="o">=</span> <span class="mi">401</span>
+<span class="n">PAYMENT_REQUIRED</span> <span class="o">=</span> <span class="mi">402</span>
+<span class="n">FORBIDDEN</span> <span class="o">=</span> <span class="mi">403</span>
+<span class="n">NOT_FOUND</span> <span class="o">=</span> <span class="mi">404</span>
+<span class="n">METHOD_NOT_ALLOWED</span> <span class="o">=</span> <span class="mi">405</span>
+<span class="n">NOT_ACCEPTABLE</span> <span class="o">=</span> <span class="mi">406</span>
+<span class="n">PROXY_AUTHENTICATION_REQUIRED</span> <span class="o">=</span> <span class="mi">407</span>
+<span class="n">REQUEST_TIMEOUT</span> <span class="o">=</span> <span class="mi">408</span>
+<span class="n">CONFLICT</span> <span class="o">=</span> <span class="mi">409</span>
+<span class="n">GONE</span> <span class="o">=</span> <span class="mi">410</span>
+<span class="n">LENGTH_REQUIRED</span> <span class="o">=</span> <span class="mi">411</span>
+<span class="n">PRECONDITION_FAILED</span> <span class="o">=</span> <span class="mi">412</span>
+<span class="n">REQUEST_ENTITY_TOO_LARGE</span> <span class="o">=</span> <span class="mi">413</span>
+<span class="n">REQUEST_URI_TOO_LONG</span> <span class="o">=</span> <span class="mi">414</span>
+<span class="n">UNSUPPORTED_MEDIA_TYPE</span> <span class="o">=</span> <span class="mi">415</span>
+<span class="n">REQUESTED_RANGE_NOT_SATISFIABLE</span> <span class="o">=</span> <span class="mi">416</span>
+<span class="n">EXPECTATION_FAILED</span> <span class="o">=</span> <span class="mi">417</span>
+<span class="n">UNPROCESSABLE_ENTITY</span> <span class="o">=</span> <span class="mi">422</span>
+<span class="n">LOCKED</span> <span class="o">=</span> <span class="mi">423</span>
+<span class="n">FAILED_DEPENDENCY</span> <span class="o">=</span> <span class="mi">424</span>
+<span class="n">UPGRADE_REQUIRED</span> <span class="o">=</span> <span class="mi">426</span>
+<span class="n">PRECONDITION_REQUIRED</span> <span class="o">=</span> <span class="mi">428</span>
+<span class="n">TOO_MANY_REQUESTS</span> <span class="o">=</span> <span class="mi">429</span>
+<span class="n">REQUEST_HEADER_FIELDS_TOO_LARGE</span> <span class="o">=</span> <span class="mi">431</span>
+
+<span class="c"># server error</span>
+<span class="n">INTERNAL_SERVER_ERROR</span> <span class="o">=</span> <span class="mi">500</span>
+<span class="n">NOT_IMPLEMENTED</span> <span class="o">=</span> <span class="mi">501</span>
+<span class="n">BAD_GATEWAY</span> <span class="o">=</span> <span class="mi">502</span>
+<span class="n">SERVICE_UNAVAILABLE</span> <span class="o">=</span> <span class="mi">503</span>
+<span class="n">GATEWAY_TIMEOUT</span> <span class="o">=</span> <span class="mi">504</span>
+<span class="n">HTTP_VERSION_NOT_SUPPORTED</span> <span class="o">=</span> <span class="mi">505</span>
+<span class="n">INSUFFICIENT_STORAGE</span> <span class="o">=</span> <span class="mi">507</span>
+<span class="n">NOT_EXTENDED</span> <span class="o">=</span> <span class="mi">510</span>
+<span class="n">NETWORK_AUTHENTICATION_REQUIRED</span> <span class="o">=</span> <span class="mi">511</span>
+
+<span class="c"># Mapping status codes to official W3C names</span>
+<span class="n">responses</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="mi">100</span><span class="p">:</span> <span class="s">&#39;Continue&#39;</span><span class="p">,</span>
+    <span class="mi">101</span><span class="p">:</span> <span class="s">&#39;Switching Protocols&#39;</span><span class="p">,</span>
+
+    <span class="mi">200</span><span class="p">:</span> <span class="s">&#39;OK&#39;</span><span class="p">,</span>
+    <span class="mi">201</span><span class="p">:</span> <span class="s">&#39;Created&#39;</span><span class="p">,</span>
+    <span class="mi">202</span><span class="p">:</span> <span class="s">&#39;Accepted&#39;</span><span class="p">,</span>
+    <span class="mi">203</span><span class="p">:</span> <span class="s">&#39;Non-Authoritative Information&#39;</span><span class="p">,</span>
+    <span class="mi">204</span><span class="p">:</span> <span class="s">&#39;No Content&#39;</span><span class="p">,</span>
+    <span class="mi">205</span><span class="p">:</span> <span class="s">&#39;Reset Content&#39;</span><span class="p">,</span>
+    <span class="mi">206</span><span class="p">:</span> <span class="s">&#39;Partial Content&#39;</span><span class="p">,</span>
+
+    <span class="mi">300</span><span class="p">:</span> <span class="s">&#39;Multiple Choices&#39;</span><span class="p">,</span>
+    <span class="mi">301</span><span class="p">:</span> <span class="s">&#39;Moved Permanently&#39;</span><span class="p">,</span>
+    <span class="mi">302</span><span class="p">:</span> <span class="s">&#39;Found&#39;</span><span class="p">,</span>
+    <span class="mi">303</span><span class="p">:</span> <span class="s">&#39;See Other&#39;</span><span class="p">,</span>
+    <span class="mi">304</span><span class="p">:</span> <span class="s">&#39;Not Modified&#39;</span><span class="p">,</span>
+    <span class="mi">305</span><span class="p">:</span> <span class="s">&#39;Use Proxy&#39;</span><span class="p">,</span>
+    <span class="mi">306</span><span class="p">:</span> <span class="s">&#39;(Unused)&#39;</span><span class="p">,</span>
+    <span class="mi">307</span><span class="p">:</span> <span class="s">&#39;Temporary Redirect&#39;</span><span class="p">,</span>
+
+    <span class="mi">400</span><span class="p">:</span> <span class="s">&#39;Bad Request&#39;</span><span class="p">,</span>
+    <span class="mi">401</span><span class="p">:</span> <span class="s">&#39;Unauthorized&#39;</span><span class="p">,</span>
+    <span class="mi">402</span><span class="p">:</span> <span class="s">&#39;Payment Required&#39;</span><span class="p">,</span>
+    <span class="mi">403</span><span class="p">:</span> <span class="s">&#39;Forbidden&#39;</span><span class="p">,</span>
+    <span class="mi">404</span><span class="p">:</span> <span class="s">&#39;Not Found&#39;</span><span class="p">,</span>
+    <span class="mi">405</span><span class="p">:</span> <span class="s">&#39;Method Not Allowed&#39;</span><span class="p">,</span>
+    <span class="mi">406</span><span class="p">:</span> <span class="s">&#39;Not Acceptable&#39;</span><span class="p">,</span>
+    <span class="mi">407</span><span class="p">:</span> <span class="s">&#39;Proxy Authentication Required&#39;</span><span class="p">,</span>
+    <span class="mi">408</span><span class="p">:</span> <span class="s">&#39;Request Timeout&#39;</span><span class="p">,</span>
+    <span class="mi">409</span><span class="p">:</span> <span class="s">&#39;Conflict&#39;</span><span class="p">,</span>
+    <span class="mi">410</span><span class="p">:</span> <span class="s">&#39;Gone&#39;</span><span class="p">,</span>
+    <span class="mi">411</span><span class="p">:</span> <span class="s">&#39;Length Required&#39;</span><span class="p">,</span>
+    <span class="mi">412</span><span class="p">:</span> <span class="s">&#39;Precondition Failed&#39;</span><span class="p">,</span>
+    <span class="mi">413</span><span class="p">:</span> <span class="s">&#39;Request Entity Too Large&#39;</span><span class="p">,</span>
+    <span class="mi">414</span><span class="p">:</span> <span class="s">&#39;Request-URI Too Long&#39;</span><span class="p">,</span>
+    <span class="mi">415</span><span class="p">:</span> <span class="s">&#39;Unsupported Media Type&#39;</span><span class="p">,</span>
+    <span class="mi">416</span><span class="p">:</span> <span class="s">&#39;Requested Range Not Satisfiable&#39;</span><span class="p">,</span>
+    <span class="mi">417</span><span class="p">:</span> <span class="s">&#39;Expectation Failed&#39;</span><span class="p">,</span>
+    <span class="mi">428</span><span class="p">:</span> <span class="s">&#39;Precondition Required&#39;</span><span class="p">,</span>
+    <span class="mi">429</span><span class="p">:</span> <span class="s">&#39;Too Many Requests&#39;</span><span class="p">,</span>
+    <span class="mi">431</span><span class="p">:</span> <span class="s">&#39;Request Header Fields Too Large&#39;</span><span class="p">,</span>
+
+    <span class="mi">500</span><span class="p">:</span> <span class="s">&#39;Internal Server Error&#39;</span><span class="p">,</span>
+    <span class="mi">501</span><span class="p">:</span> <span class="s">&#39;Not Implemented&#39;</span><span class="p">,</span>
+    <span class="mi">502</span><span class="p">:</span> <span class="s">&#39;Bad Gateway&#39;</span><span class="p">,</span>
+    <span class="mi">503</span><span class="p">:</span> <span class="s">&#39;Service Unavailable&#39;</span><span class="p">,</span>
+    <span class="mi">504</span><span class="p">:</span> <span class="s">&#39;Gateway Timeout&#39;</span><span class="p">,</span>
+    <span class="mi">505</span><span class="p">:</span> <span class="s">&#39;HTTP Version Not Supported&#39;</span><span class="p">,</span>
+    <span class="mi">511</span><span class="p">:</span> <span class="s">&#39;Network Authentication Required&#39;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="c"># maximal amount of data to read at one time in _safe_read</span>
+<span class="n">MAXAMOUNT</span> <span class="o">=</span> <span class="mi">1048576</span>
+
+<span class="c"># maximal line length when calling readline().</span>
+<span class="n">_MAXLINE</span> <span class="o">=</span> <span class="mi">65536</span>
+<span class="n">_MAXHEADERS</span> <span class="o">=</span> <span class="mi">100</span>
+
+
+<span class="k">class</span> <span class="nc">HTTPMessage</span><span class="p">(</span><span class="n">email</span><span class="o">.</span><span class="n">message</span><span class="o">.</span><span class="n">Message</span><span class="p">):</span>
+    <span class="c"># XXX The only usage of this method is in</span>
+    <span class="c"># http.server.CGIHTTPRequestHandler.  Maybe move the code there so</span>
+    <span class="c"># that it doesn&#39;t need to be part of the public API.  The API has</span>
+    <span class="c"># never been defined so this could cause backwards compatibility</span>
+    <span class="c"># issues.</span>
+
+    <span class="k">def</span> <span class="nf">getallmatchingheaders</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Find all header lines matching a given header name.</span>
+
+<span class="sd">        Look through the list of headers and find all lines matching a given</span>
+<span class="sd">        header name (and their continuation lines).  A list of the lines is</span>
+<span class="sd">        returned, without interpretation.  If the header does not occur, an</span>
+<span class="sd">        empty list is returned.  If the header occurs multiple times, all</span>
+<span class="sd">        occurrences are returned.  Case is not important in the header name.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">+</span> <span class="s">&#39;:&#39;</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">lst</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">hit</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">line</span><span class="p">[:</span><span class="n">n</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="n">hit</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="k">elif</span> <span class="ow">not</span> <span class="n">line</span><span class="p">[:</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">isspace</span><span class="p">():</span>
+                <span class="n">hit</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">if</span> <span class="n">hit</span><span class="p">:</span>
+                <span class="n">lst</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">lst</span>
+
+<span class="k">def</span> <span class="nf">parse_headers</span><span class="p">(</span><span class="n">fp</span><span class="p">,</span> <span class="n">_class</span><span class="o">=</span><span class="n">HTTPMessage</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Parses only RFC2822 headers from a file pointer.</span>
+
+<span class="sd">    email Parser wants to see strings rather than bytes.</span>
+<span class="sd">    But a TextIOWrapper around self.rfile would buffer too many bytes</span>
+<span class="sd">    from the stream, bytes which we later need to read as bytes.</span>
+<span class="sd">    So we read the correct bytes here, as bytes, for email Parser</span>
+<span class="sd">    to parse.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">headers</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="n">_MAXLINE</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_MAXLINE</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">LineTooLong</span><span class="p">(</span><span class="s">&quot;header line&quot;</span><span class="p">)</span>
+        <span class="n">headers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">headers</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_MAXHEADERS</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">HTTPException</span><span class="p">(</span><span class="s">&quot;got more than </span><span class="si">%d</span><span class="s"> headers&quot;</span> <span class="o">%</span> <span class="n">_MAXHEADERS</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">line</span> <span class="ow">in</span> <span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+            <span class="k">break</span>
+    <span class="n">hstring</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">headers</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">email</span><span class="o">.</span><span class="n">parser</span><span class="o">.</span><span class="n">Parser</span><span class="p">(</span><span class="n">_class</span><span class="o">=</span><span class="n">_class</span><span class="p">)</span><span class="o">.</span><span class="n">parsestr</span><span class="p">(</span><span class="n">hstring</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="HTTPResponse"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse">[docs]</a><span class="k">class</span> <span class="nc">HTTPResponse</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">RawIOBase</span><span class="p">):</span>
+
+    <span class="c"># See RFC 2616 sec 19.6 and RFC 1945 sec 6 for details.</span>
+
+    <span class="c"># The bytes from the socket object are iso-8859-1 strings.</span>
+    <span class="c"># See RFC 2616 sec 2.2 which notes an exception for MIME-encoded</span>
+    <span class="c"># text following RFC 2047.  The basic status line parsing only</span>
+    <span class="c"># accepts iso-8859-1.</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">debuglevel</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="c"># If the response includes a content-length header, we need to</span>
+        <span class="c"># make sure that the client doesn&#39;t read more than the</span>
+        <span class="c"># specified number of bytes.  If it does, it will block until</span>
+        <span class="c"># the server times out and closes the connection.  This will</span>
+        <span class="c"># happen if a self.fp.read() is done (without a size) whether</span>
+        <span class="c"># self.fp is buffered or not.  So, no self.fp.read() by</span>
+        <span class="c"># clients unless they know what they are doing.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fp</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">makefile</span><span class="p">(</span><span class="s">&quot;rb&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">=</span> <span class="n">debuglevel</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_method</span> <span class="o">=</span> <span class="n">method</span>
+
+        <span class="c"># The HTTPResponse object is returned via urllib.  The clients</span>
+        <span class="c"># of http and urllib expect different attributes for the</span>
+        <span class="c"># headers.  headers is used here and supports urllib.  msg is</span>
+        <span class="c"># provided as a backwards compatibility layer for http</span>
+        <span class="c"># clients.</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">msg</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># from the Status-Line of the response</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">=</span> <span class="n">_UNKNOWN</span> <span class="c"># HTTP-Version</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">_UNKNOWN</span>  <span class="c"># Status-Code</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reason</span> <span class="o">=</span> <span class="n">_UNKNOWN</span>  <span class="c"># Reason-Phrase</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span> <span class="o">=</span> <span class="n">_UNKNOWN</span>         <span class="c"># is &quot;chunked&quot; being used?</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">chunk_left</span> <span class="o">=</span> <span class="n">_UNKNOWN</span>      <span class="c"># bytes left to read in current chunk</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">=</span> <span class="n">_UNKNOWN</span>          <span class="c"># number of bytes left in response</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">will_close</span> <span class="o">=</span> <span class="n">_UNKNOWN</span>      <span class="c"># conn will close at end of response</span>
+
+    <span class="k">def</span> <span class="nf">_read_status</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="n">_MAXLINE</span> <span class="o">+</span> <span class="mi">1</span><span class="p">),</span> <span class="s">&quot;iso-8859-1&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_MAXLINE</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">LineTooLong</span><span class="p">(</span><span class="s">&quot;status line&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;reply:&quot;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">line</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+            <span class="c"># Presumably, the server closed the connection before</span>
+            <span class="c"># sending a valid response.</span>
+            <span class="k">raise</span> <span class="n">BadStatusLine</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">version</span><span class="p">,</span> <span class="n">status</span><span class="p">,</span> <span class="n">reason</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">version</span><span class="p">,</span> <span class="n">status</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="n">reason</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="c"># empty version will cause next test to fail.</span>
+                <span class="n">version</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">version</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;HTTP/&quot;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+            <span class="k">raise</span> <span class="n">BadStatusLine</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+
+        <span class="c"># The status code is a three-digit number</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">status</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">status</span> <span class="o">&lt;</span> <span class="mi">100</span> <span class="ow">or</span> <span class="n">status</span> <span class="o">&gt;</span> <span class="mi">999</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">BadStatusLine</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">BadStatusLine</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">version</span><span class="p">,</span> <span class="n">status</span><span class="p">,</span> <span class="n">reason</span>
+
+<div class="viewcode-block" id="HTTPResponse.begin"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.begin">[docs]</a>    <span class="k">def</span> <span class="nf">begin</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># we&#39;ve already started reading the response</span>
+            <span class="k">return</span>
+
+        <span class="c"># read until we get a non-100 response</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">version</span><span class="p">,</span> <span class="n">status</span><span class="p">,</span> <span class="n">reason</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_status</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">status</span> <span class="o">!=</span> <span class="n">CONTINUE</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="c"># skip the header from the 100 response</span>
+            <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+                <span class="n">skip</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="n">_MAXLINE</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+                <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">skip</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_MAXLINE</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">LineTooLong</span><span class="p">(</span><span class="s">&quot;header line&quot;</span><span class="p">)</span>
+                <span class="n">skip</span> <span class="o">=</span> <span class="n">skip</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">skip</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="s">&quot;header:&quot;</span><span class="p">,</span> <span class="n">skip</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">code</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">status</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reason</span> <span class="o">=</span> <span class="n">reason</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">version</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;HTTP/1.0&quot;</span><span class="p">,</span> <span class="s">&quot;HTTP/0.9&quot;</span><span class="p">):</span>
+            <span class="c"># Some servers might still return &quot;0.9&quot;, treat it as 1.0 anyway</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">=</span> <span class="mi">10</span>
+        <span class="k">elif</span> <span class="n">version</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;HTTP/1.&quot;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">=</span> <span class="mi">11</span>   <span class="c"># use HTTP/1.1 code for HTTP/1.x where x&gt;=1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">UnknownProtocol</span><span class="p">(</span><span class="n">version</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">msg</span> <span class="o">=</span> <span class="n">parse_headers</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">hdr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+                <span class="k">print</span><span class="p">(</span><span class="s">&quot;header:&quot;</span><span class="p">,</span> <span class="n">hdr</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s">&quot; &quot;</span><span class="p">)</span>
+
+        <span class="c"># are we using the chunked-style of transfer encoding?</span>
+        <span class="n">tr_enc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;transfer-encoding&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">tr_enc</span> <span class="ow">and</span> <span class="n">tr_enc</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&quot;chunked&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">chunk_left</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span> <span class="o">=</span> <span class="bp">False</span>
+
+        <span class="c"># will the connection close at the end of the response?</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">will_close</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_check_close</span><span class="p">()</span>
+
+        <span class="c"># do we have a Content-Length?</span>
+        <span class="c"># NOTE: RFC 2616, S4.4, #3 says we ignore this if tr_enc is &quot;chunked&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;content-length&quot;</span><span class="p">)</span>
+
+         <span class="c"># are we using the chunked-style of transfer encoding?</span>
+        <span class="n">tr_enc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;transfer-encoding&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">length</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">length</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>  <span class="c"># ignore nonsensical negative lengths</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># does the body have a fixed length? (of zero)</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">status</span> <span class="o">==</span> <span class="n">NO_CONTENT</span> <span class="ow">or</span> <span class="n">status</span> <span class="o">==</span> <span class="n">NOT_MODIFIED</span> <span class="ow">or</span>
+            <span class="mi">100</span> <span class="o">&lt;=</span> <span class="n">status</span> <span class="o">&lt;</span> <span class="mi">200</span> <span class="ow">or</span>      <span class="c"># 1xx codes</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_method</span> <span class="o">==</span> <span class="s">&quot;HEAD&quot;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="c"># if the connection remains open, and we aren&#39;t using chunked, and</span>
+        <span class="c"># a content-length was not provided, then assume that the connection</span>
+        <span class="c"># WILL close.</span>
+        <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">will_close</span> <span class="ow">and</span>
+            <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span> <span class="ow">and</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">will_close</span> <span class="o">=</span> <span class="bp">True</span>
+</div>
+    <span class="k">def</span> <span class="nf">_check_close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">conn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;connection&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">==</span> <span class="mi">11</span><span class="p">:</span>
+            <span class="c"># An HTTP/1.1 proxy is assumed to stay open unless</span>
+            <span class="c"># explicitly closed.</span>
+            <span class="n">conn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;connection&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">conn</span> <span class="ow">and</span> <span class="s">&quot;close&quot;</span> <span class="ow">in</span> <span class="n">conn</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+                <span class="k">return</span> <span class="bp">True</span>
+            <span class="k">return</span> <span class="bp">False</span>
+
+        <span class="c"># Some HTTP/1.0 implementations have support for persistent</span>
+        <span class="c"># connections, using rules different than HTTP/1.1.</span>
+
+        <span class="c"># For older HTTP, Keep-Alive indicates persistent connection.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;keep-alive&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">False</span>
+
+        <span class="c"># At least Akamai returns a &quot;Connection: Keep-Alive&quot; header,</span>
+        <span class="c"># which was supposed to be sent by the client.</span>
+        <span class="k">if</span> <span class="n">conn</span> <span class="ow">and</span> <span class="s">&quot;keep-alive&quot;</span> <span class="ow">in</span> <span class="n">conn</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">False</span>
+
+        <span class="c"># Proxy-Connection is a netscape hack.</span>
+        <span class="n">pconn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;proxy-connection&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">pconn</span> <span class="ow">and</span> <span class="s">&quot;keep-alive&quot;</span> <span class="ow">in</span> <span class="n">pconn</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">False</span>
+
+        <span class="c"># otherwise, assume it will close</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+    <span class="k">def</span> <span class="nf">_close_conn</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">fp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fp</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">fp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<div class="viewcode-block" id="HTTPResponse.close"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">close</span><span class="p">()</span> <span class="c"># set &quot;closed&quot; flag</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+
+    <span class="c"># These implementations are for the benefit of io.BufferedReader.</span>
+
+    <span class="c"># XXX This class should probably be revised to act more like</span>
+    <span class="c"># the &quot;raw stream&quot; that BufferedReader expects.</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.flush"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.flush">[docs]</a>    <span class="k">def</span> <span class="nf">flush</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.readable"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.readable">[docs]</a>    <span class="k">def</span> <span class="nf">readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+    <span class="c"># End of &quot;raw stream&quot; methods</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.isclosed"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.isclosed">[docs]</a>    <span class="k">def</span> <span class="nf">isclosed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;True if the connection is closed.&quot;&quot;&quot;</span>
+        <span class="c"># NOTE: it is possible that we will not ever call self.close(). This</span>
+        <span class="c">#       case occurs when will_close is TRUE, length is None, and we</span>
+        <span class="c">#       read up to the last byte, but NOT past it.</span>
+        <span class="c">#</span>
+        <span class="c"># IMPLIES: if will_close is FALSE, then self.close() will ALWAYS be</span>
+        <span class="c">#          called, meaning self.isclosed() is meaningful.</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span> <span class="ow">is</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.read"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.read">[docs]</a>    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">amt</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_method</span> <span class="o">==</span> <span class="s">&quot;HEAD&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">amt</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># Amount is given, so call base class version</span>
+            <span class="c"># (which is implemented in terms of self.readinto)</span>
+            <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">HTTPResponse</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">amt</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># Amount is not given (unbounded read) so we must check self.length</span>
+            <span class="c"># and self.chunked</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span><span class="p">:</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_readall_chunked</span><span class="p">()</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_safe_read</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">length</span><span class="p">)</span>
+                <span class="k">except</span> <span class="n">IncompleteRead</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+                    <span class="k">raise</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>        <span class="c"># we read everything</span>
+            <span class="k">return</span> <span class="n">s</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.readinto"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.readinto">[docs]</a>    <span class="k">def</span> <span class="nf">readinto</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">0</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_method</span> <span class="o">==</span> <span class="s">&quot;HEAD&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+            <span class="k">return</span> <span class="mi">0</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_readinto_chunked</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">)</span> <span class="o">&gt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">length</span><span class="p">:</span>
+                <span class="c"># clip the read to the &quot;end of response&quot;</span>
+                <span class="n">b</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">b</span><span class="p">)[</span><span class="mi">0</span><span class="p">:</span><span class="bp">self</span><span class="o">.</span><span class="n">length</span><span class="p">]</span>
+
+        <span class="c"># we do not use _safe_read() here because this may be a .will_close</span>
+        <span class="c"># connection, and the user is reading more bytes than will be provided</span>
+        <span class="c"># (for example, reading in 1k chunks)</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">readinto</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">n</span> <span class="ow">and</span> <span class="n">b</span><span class="p">:</span>
+            <span class="c"># Ideally, we would raise IncompleteRead if the content-length</span>
+            <span class="c"># wasn&#39;t satisfied, but it might break compatibility.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">length</span> <span class="o">-=</span> <span class="n">n</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">length</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">n</span>
+</div>
+    <span class="k">def</span> <span class="nf">_read_next_chunk_size</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Read the next chunk size from the file</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="n">_MAXLINE</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_MAXLINE</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">LineTooLong</span><span class="p">(</span><span class="s">&quot;chunk size&quot;</span><span class="p">)</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;;&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="n">i</span><span class="p">]</span> <span class="c"># strip chunk-extensions</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">line</span><span class="p">,</span> <span class="mi">16</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="c"># close the connection as protocol synchronisation is</span>
+            <span class="c"># probably lost</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+            <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">_read_and_discard_trailer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># read and discard trailer up to the CRLF terminator</span>
+        <span class="c">### note: we shouldn&#39;t have any trailers!</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="n">_MAXLINE</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_MAXLINE</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">LineTooLong</span><span class="p">(</span><span class="s">&quot;trailer line&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+                <span class="c"># a vanishingly small number of sites EOF without</span>
+                <span class="c"># sending the trailer</span>
+                <span class="k">break</span>
+            <span class="k">if</span> <span class="n">line</span> <span class="ow">in</span> <span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+                <span class="k">break</span>
+
+    <span class="k">def</span> <span class="nf">_readall_chunked</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span> <span class="o">!=</span> <span class="n">_UNKNOWN</span>
+        <span class="n">chunk_left</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_left</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">chunk_left</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">chunk_left</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_next_chunk_size</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">chunk_left</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="k">break</span>
+                <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">IncompleteRead</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+            <span class="n">value</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_safe_read</span><span class="p">(</span><span class="n">chunk_left</span><span class="p">))</span>
+
+            <span class="c"># we read the whole chunk, get another</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_safe_read</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>      <span class="c"># toss the CRLF at the end of the chunk</span>
+            <span class="n">chunk_left</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_read_and_discard_trailer</span><span class="p">()</span>
+
+        <span class="c"># we read everything; close the &quot;file&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_readinto_chunked</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunked</span> <span class="o">!=</span> <span class="n">_UNKNOWN</span>
+        <span class="n">chunk_left</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">chunk_left</span>
+
+        <span class="n">total_bytes</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">mvb</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">chunk_left</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">chunk_left</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_next_chunk_size</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">chunk_left</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="k">break</span>
+                <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">IncompleteRead</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="n">b</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="n">total_bytes</span><span class="p">]))</span>
+
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">mvb</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">chunk_left</span><span class="p">:</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_safe_readinto</span><span class="p">(</span><span class="n">mvb</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">chunk_left</span> <span class="o">=</span> <span class="n">chunk_left</span> <span class="o">-</span> <span class="n">n</span>
+                <span class="k">return</span> <span class="n">total_bytes</span> <span class="o">+</span> <span class="n">n</span>
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">mvb</span><span class="p">)</span> <span class="o">==</span> <span class="n">chunk_left</span><span class="p">:</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_safe_readinto</span><span class="p">(</span><span class="n">mvb</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_safe_read</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>  <span class="c"># toss the CRLF at the end of the chunk</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">chunk_left</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="k">return</span> <span class="n">total_bytes</span> <span class="o">+</span> <span class="n">n</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">temp_mvb</span> <span class="o">=</span> <span class="n">mvb</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="n">chunk_left</span><span class="p">]</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_safe_readinto</span><span class="p">(</span><span class="n">temp_mvb</span><span class="p">)</span>
+                <span class="n">mvb</span> <span class="o">=</span> <span class="n">mvb</span><span class="p">[</span><span class="n">n</span><span class="p">:]</span>
+                <span class="n">total_bytes</span> <span class="o">+=</span> <span class="n">n</span>
+
+            <span class="c"># we read the whole chunk, get another</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_safe_read</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>      <span class="c"># toss the CRLF at the end of the chunk</span>
+            <span class="n">chunk_left</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_read_and_discard_trailer</span><span class="p">()</span>
+
+        <span class="c"># we read everything; close the &quot;file&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_close_conn</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">total_bytes</span>
+
+    <span class="k">def</span> <span class="nf">_safe_read</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">amt</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Read the number of bytes requested, compensating for partial reads.</span>
+
+<span class="sd">        Normally, we have a blocking socket, but a read() can be interrupted</span>
+<span class="sd">        by a signal (resulting in a partial read).</span>
+
+<span class="sd">        Note that we cannot distinguish between EOF and an interrupt when zero</span>
+<span class="sd">        bytes have been read. IncompleteRead() will be raised in this</span>
+<span class="sd">        situation.</span>
+
+<span class="sd">        This function should be used when &lt;amt&gt; bytes &quot;should&quot; be present for</span>
+<span class="sd">        reading. If the bytes are truly not available (due to EOF), then the</span>
+<span class="sd">        IncompleteRead exception can be used to detect the problem.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="n">amt</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">chunk</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">amt</span><span class="p">,</span> <span class="n">MAXAMOUNT</span><span class="p">))</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">chunk</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">IncompleteRead</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">s</span><span class="p">),</span> <span class="n">amt</span><span class="p">)</span>
+            <span class="n">s</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+            <span class="n">amt</span> <span class="o">-=</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_safe_readinto</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Same as _safe_read, but for reading into a buffer.&quot;&quot;&quot;</span>
+        <span class="n">total_bytes</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">mvb</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+        <span class="k">while</span> <span class="n">total_bytes</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">MAXAMOUNT</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">mvb</span><span class="p">):</span>
+                <span class="n">temp_mvb</span> <span class="o">=</span> <span class="n">mvb</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="n">MAXAMOUNT</span><span class="p">]</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">readinto</span><span class="p">(</span><span class="n">temp_mvb</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">readinto</span><span class="p">(</span><span class="n">mvb</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">n</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">IncompleteRead</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="n">mvb</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="n">total_bytes</span><span class="p">]),</span> <span class="nb">len</span><span class="p">(</span><span class="n">b</span><span class="p">))</span>
+            <span class="n">mvb</span> <span class="o">=</span> <span class="n">mvb</span><span class="p">[</span><span class="n">n</span><span class="p">:]</span>
+            <span class="n">total_bytes</span> <span class="o">+=</span> <span class="n">n</span>
+        <span class="k">return</span> <span class="n">total_bytes</span>
+
+<div class="viewcode-block" id="HTTPResponse.fileno"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.fileno">[docs]</a>    <span class="k">def</span> <span class="nf">fileno</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.getheader"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.getheader">[docs]</a>    <span class="k">def</span> <span class="nf">getheader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ResponseNotReady</span><span class="p">()</span>
+        <span class="n">headers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get_all</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="ow">or</span> <span class="n">default</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">headers</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">headers</span><span class="p">,</span> <span class="s">&#39;__iter__&#39;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">headers</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">headers</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.getheaders"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.getheaders">[docs]</a>    <span class="k">def</span> <span class="nf">getheaders</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return list of (header, value) tuples.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ResponseNotReady</span><span class="p">()</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+
+    <span class="c"># We override IOBase.__iter__ so that it doesn&#39;t check for closed-ness</span>
+</div>
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="c"># For compatibility with old-style urllib responses.</span>
+
+<div class="viewcode-block" id="HTTPResponse.info"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.info">[docs]</a>    <span class="k">def</span> <span class="nf">info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.geturl"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.geturl">[docs]</a>    <span class="k">def</span> <span class="nf">geturl</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">url</span>
+</div>
+<div class="viewcode-block" id="HTTPResponse.getcode"><a class="viewcode-back" href="../../http.html#http.client.HTTPResponse.getcode">[docs]</a>    <span class="k">def</span> <span class="nf">getcode</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">status</span>
+</div></div>
+<div class="viewcode-block" id="HTTPConnection"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection">[docs]</a><span class="k">class</span> <span class="nc">HTTPConnection</span><span class="p">:</span>
+
+    <span class="n">_http_vsn</span> <span class="o">=</span> <span class="mi">11</span>
+    <span class="n">_http_vsn_str</span> <span class="o">=</span> <span class="s">&#39;HTTP/1.1&#39;</span>
+
+    <span class="n">response_class</span> <span class="o">=</span> <span class="n">HTTPResponse</span>
+    <span class="n">default_port</span> <span class="o">=</span> <span class="n">HTTP_PORT</span>
+    <span class="n">auto_open</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="n">debuglevel</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="c"># TCP Maximum Segment Size (MSS) is determined by the TCP stack on</span>
+    <span class="c"># a per-connection basis.  There is no simple and efficient</span>
+    <span class="c"># platform independent mechanism for determining the MSS, so</span>
+    <span class="c"># instead a reasonable estimate is chosen.  The getsockopt()</span>
+    <span class="c"># interface using the TCP_MAXSEG parameter may be a suitable</span>
+    <span class="c"># approach on some operating systems. A value of 16KiB is chosen</span>
+    <span class="c"># as a reasonable estimate of the maximum MSS.</span>
+    <span class="n">mss</span> <span class="o">=</span> <span class="mi">16384</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="n">socket</span><span class="o">.</span><span class="n">_GLOBAL_DEFAULT_TIMEOUT</span><span class="p">,</span>
+                 <span class="n">source_address</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span> <span class="o">=</span> <span class="n">timeout</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">source_address</span> <span class="o">=</span> <span class="n">source_address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__response</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">=</span> <span class="n">_CS_IDLE</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_method</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_host</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_port</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_headers</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_hostport</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+
+        <span class="c"># This is stored as an instance variable to allow unit</span>
+        <span class="c"># tests to replace it with a suitable mockup</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_create_connection</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">create_connection</span>
+
+<div class="viewcode-block" id="HTTPConnection.set_tunnel"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.set_tunnel">[docs]</a>    <span class="k">def</span> <span class="nf">set_tunnel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set up host and port for HTTP CONNECT tunnelling.</span>
+
+<span class="sd">        In a connection that uses HTTP CONNECT tunneling, the host passed to the</span>
+<span class="sd">        constructor is used as a proxy server that relays all communication to</span>
+<span class="sd">        the endpoint passed to `set_tunnel`. This done by sending an HTTP</span>
+<span class="sd">        CONNECT request to the proxy server when the connection is established.</span>
+
+<span class="sd">        This method must be called before the HTML connection has been</span>
+<span class="sd">        established.</span>
+
+<span class="sd">        The headers argument should be a mapping of extra HTTP headers to send</span>
+<span class="sd">        with the CONNECT request.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;Can&#39;t set up tunnel for established connection&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_host</span> <span class="o">=</span> <span class="n">host</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_port</span> <span class="o">=</span> <span class="n">port</span>
+        <span class="k">if</span> <span class="n">headers</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_headers</span> <span class="o">=</span> <span class="n">headers</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_headers</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+</div>
+    <span class="k">def</span> <span class="nf">_get_hostport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">port</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="n">host</span><span class="o">.</span><span class="n">rfind</span><span class="p">(</span><span class="s">&#39;:&#39;</span><span class="p">)</span>
+            <span class="n">j</span> <span class="o">=</span> <span class="n">host</span><span class="o">.</span><span class="n">rfind</span><span class="p">(</span><span class="s">&#39;]&#39;</span><span class="p">)</span>         <span class="c"># ipv6 addresses have [...]</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="n">j</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">port</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">host</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">:])</span>
+                <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">host</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">:]</span> <span class="o">==</span> <span class="s">&quot;&quot;</span><span class="p">:</span> <span class="c"># http://foo.com:/ == http://foo.com/</span>
+                        <span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">default_port</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="n">InvalidURL</span><span class="p">(</span><span class="s">&quot;nonnumeric port: &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="n">host</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">:])</span>
+                <span class="n">host</span> <span class="o">=</span> <span class="n">host</span><span class="p">[:</span><span class="n">i</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">default_port</span>
+            <span class="k">if</span> <span class="n">host</span> <span class="ow">and</span> <span class="n">host</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;[&#39;</span> <span class="ow">and</span> <span class="n">host</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;]&#39;</span><span class="p">:</span>
+                <span class="n">host</span> <span class="o">=</span> <span class="n">host</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+        <span class="k">return</span> <span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+
+<div class="viewcode-block" id="HTTPConnection.set_debuglevel"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.set_debuglevel">[docs]</a>    <span class="k">def</span> <span class="nf">set_debuglevel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">level</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">=</span> <span class="n">level</span>
+</div>
+    <span class="k">def</span> <span class="nf">_tunnel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_hostport</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_host</span><span class="p">,</span>
+                                          <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_port</span><span class="p">)</span>
+        <span class="n">connect_str</span> <span class="o">=</span> <span class="s">&quot;CONNECT </span><span class="si">%s</span><span class="s">:</span><span class="si">%d</span><span class="s"> HTTP/1.0</span><span class="se">\r\n</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">)</span>
+        <span class="n">connect_bytes</span> <span class="o">=</span> <span class="n">connect_str</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;ascii&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">connect_bytes</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">header</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_headers</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">header_str</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">header</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="n">header_bytes</span> <span class="o">=</span> <span class="n">header_str</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;latin-1&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">header_bytes</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">)</span>
+
+        <span class="n">response</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">response_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_method</span><span class="p">)</span>
+        <span class="p">(</span><span class="n">version</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">message</span><span class="p">)</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">_read_status</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">code</span> <span class="o">!=</span> <span class="mi">200</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&quot;Tunnel connection failed: </span><span class="si">%d</span><span class="s"> </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">code</span><span class="p">,</span>
+                                                               <span class="n">message</span><span class="o">.</span><span class="n">strip</span><span class="p">()))</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">response</span><span class="o">.</span><span class="n">fp</span><span class="o">.</span><span class="n">readline</span><span class="p">(</span><span class="n">_MAXLINE</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">_MAXLINE</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">LineTooLong</span><span class="p">(</span><span class="s">&quot;header line&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+                <span class="c"># for sites which EOF without sending a trailer</span>
+                <span class="k">break</span>
+            <span class="k">if</span> <span class="n">line</span> <span class="ow">in</span> <span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+                <span class="k">break</span>
+
+<div class="viewcode-block" id="HTTPConnection.connect"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.connect">[docs]</a>    <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Connect to the host and port specified in __init__.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_create_connection</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">host</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">),</span>
+                                            <span class="bp">self</span><span class="o">.</span><span class="n">timeout</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_address</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_host</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="HTTPConnection.close"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Close the connection to the HTTP server.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>   <span class="c"># close it manually... there may be other refs</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__response</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__response</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__response</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">=</span> <span class="n">_CS_IDLE</span>
+</div>
+<div class="viewcode-block" id="HTTPConnection.send"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.send">[docs]</a>    <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send `data&#39; to the server.</span>
+<span class="sd">        ``data`` can be a string object, a bytes object, an array object, a</span>
+<span class="sd">        file-like object that supports a .read() method, or an iterable object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">auto_open</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">NotConnected</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;send:&quot;</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+        <span class="n">blocksize</span> <span class="o">=</span> <span class="mi">8192</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="s">&quot;read&quot;</span><span class="p">)</span> <span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">print</span><span class="p">(</span><span class="s">&quot;sendIng a read()able&quot;</span><span class="p">)</span>
+            <span class="n">encode</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">mode</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">mode</span>
+            <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                <span class="c"># io.BytesIO and other file-like objects don&#39;t have a `mode`</span>
+                <span class="c"># attribute.</span>
+                <span class="k">pass</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="s">&quot;b&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">mode</span><span class="p">:</span>
+                    <span class="n">encode</span> <span class="o">=</span> <span class="bp">True</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="k">print</span><span class="p">(</span><span class="s">&quot;encoding file using iso-8859-1&quot;</span><span class="p">)</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">datablock</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">blocksize</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">datablock</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="k">if</span> <span class="n">encode</span><span class="p">:</span>
+                    <span class="n">datablock</span> <span class="o">=</span> <span class="n">datablock</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;iso-8859-1&quot;</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">datablock</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">collections</span><span class="o">.</span><span class="n">Iterable</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">sendall</span><span class="p">(</span><span class="n">d</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;data should be a bytes-like object &quot;</span>
+                                <span class="s">&quot;or an iterable, got </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">s</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add a line of output to the current request buffer.</span>
+
+<span class="sd">        Assumes that the line does *not* end with \\r\\n.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_send_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message_body</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send the currently buffered request and clear the buffer.</span>
+
+<span class="sd">        Appends an extra \\r\\n to the buffer.</span>
+<span class="sd">        A message_body may be specified, to be appended to the request.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="o">.</span><span class="n">extend</span><span class="p">((</span><span class="n">b</span><span class="s">&quot;&quot;</span><span class="p">,</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="p">))</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;</span><span class="se">\r\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">)</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_buffer</span><span class="p">[:]</span>
+        <span class="c"># If msg and message_body are sent in a single send() call,</span>
+        <span class="c"># it will avoid performance problems caused by the interaction</span>
+        <span class="c"># between delayed ack and the Nagle algorithm. However,</span>
+        <span class="c"># there is no performance gain if the message is larger</span>
+        <span class="c"># than MSS (and there is a memory penalty for the message</span>
+        <span class="c"># copy).</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">message_body</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">message_body</span><span class="p">)</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">mss</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">+=</span> <span class="n">message_body</span>
+            <span class="n">message_body</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">message_body</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># message_body was not a string (i.e. it is a file), and</span>
+            <span class="c"># we must run the risk of Nagle.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">message_body</span><span class="p">)</span>
+
+<div class="viewcode-block" id="HTTPConnection.putrequest"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.putrequest">[docs]</a>    <span class="k">def</span> <span class="nf">putrequest</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">skip_host</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">skip_accept_encoding</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send a request to the server.</span>
+
+<span class="sd">        `method&#39; specifies an HTTP request method, e.g. &#39;GET&#39;.</span>
+<span class="sd">        `url&#39; specifies the object being requested, e.g. &#39;/index.html&#39;.</span>
+<span class="sd">        `skip_host&#39; if True does not add automatically a &#39;Host:&#39; header</span>
+<span class="sd">        `skip_accept_encoding&#39; if True does not add automatically an</span>
+<span class="sd">           &#39;Accept-Encoding:&#39; header</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c"># if a prior response has been completed, then forget about it.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__response</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">__response</span><span class="o">.</span><span class="n">isclosed</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__response</span> <span class="o">=</span> <span class="bp">None</span>
+
+
+        <span class="c"># in certain cases, we cannot issue another request on this connection.</span>
+        <span class="c"># this occurs when:</span>
+        <span class="c">#   1) we are in the process of sending a request.   (_CS_REQ_STARTED)</span>
+        <span class="c">#   2) a response to a previous request has signalled that it is going</span>
+        <span class="c">#      to close the connection upon completion.</span>
+        <span class="c">#   3) the headers for the previous response have not been read, thus</span>
+        <span class="c">#      we cannot determine whether point (2) is true.   (_CS_REQ_SENT)</span>
+        <span class="c">#</span>
+        <span class="c"># if there is no prior response, then we can request at will.</span>
+        <span class="c">#</span>
+        <span class="c"># if point (2) is true, then we will have passed the socket to the</span>
+        <span class="c"># response (effectively meaning, &quot;there is no prior response&quot;), and</span>
+        <span class="c"># will open a new one when a new request is made.</span>
+        <span class="c">#</span>
+        <span class="c"># Note: if a prior response exists, then we *can* start a new request.</span>
+        <span class="c">#       We are not allowed to begin fetching the response to this new</span>
+        <span class="c">#       request, however, until that prior response is complete.</span>
+        <span class="c">#</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">==</span> <span class="n">_CS_IDLE</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">=</span> <span class="n">_CS_REQ_STARTED</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">CannotSendRequest</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__state</span><span class="p">)</span>
+
+        <span class="c"># Save the method we use, we need it later in the response phase</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_method</span> <span class="o">=</span> <span class="n">method</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">url</span><span class="p">:</span>
+            <span class="n">url</span> <span class="o">=</span> <span class="s">&#39;/&#39;</span>
+        <span class="n">request</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_http_vsn_str</span><span class="p">)</span>
+
+        <span class="c"># Non-ASCII characters should have been eliminated earlier</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_output</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_http_vsn</span> <span class="o">==</span> <span class="mi">11</span><span class="p">:</span>
+            <span class="c"># Issue some standard headers for better HTTP/1.1 compliance</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">skip_host</span><span class="p">:</span>
+                <span class="c"># this header is issued *only* for HTTP/1.1</span>
+                <span class="c"># connections. more specifically, this means it is</span>
+                <span class="c"># only issued when the client uses the new</span>
+                <span class="c"># HTTPConnection() class. backwards-compat clients</span>
+                <span class="c"># will be using HTTP/1.0 and those clients may be</span>
+                <span class="c"># issuing this header themselves. we should NOT issue</span>
+                <span class="c"># it twice; some web servers (such as Apache) barf</span>
+                <span class="c"># when they see two Host: headers</span>
+
+                <span class="c"># If we need a non-standard port,include it in the</span>
+                <span class="c"># header.  If the request is going through a proxy,</span>
+                <span class="c"># but the host of the actual URL, not the host of the</span>
+                <span class="c"># proxy.</span>
+
+                <span class="n">netloc</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+                <span class="k">if</span> <span class="n">url</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;http&#39;</span><span class="p">):</span>
+                    <span class="n">nil</span><span class="p">,</span> <span class="n">netloc</span><span class="p">,</span> <span class="n">nil</span><span class="p">,</span> <span class="n">nil</span><span class="p">,</span> <span class="n">nil</span> <span class="o">=</span> <span class="n">urlsplit</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">netloc</span><span class="p">:</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">netloc_enc</span> <span class="o">=</span> <span class="n">netloc</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;ascii&quot;</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">UnicodeEncodeError</span><span class="p">:</span>
+                        <span class="n">netloc_enc</span> <span class="o">=</span> <span class="n">netloc</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;idna&quot;</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">putheader</span><span class="p">(</span><span class="s">&#39;Host&#39;</span><span class="p">,</span> <span class="n">netloc_enc</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_host</span><span class="p">:</span>
+                        <span class="n">host</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_host</span>
+                        <span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_port</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">host</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">host</span>
+                        <span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span>
+
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">host_enc</span> <span class="o">=</span> <span class="n">host</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;ascii&quot;</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">UnicodeEncodeError</span><span class="p">:</span>
+                        <span class="n">host_enc</span> <span class="o">=</span> <span class="n">host</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;idna&quot;</span><span class="p">)</span>
+
+                    <span class="c"># As per RFC 273, IPv6 address should be wrapped with []</span>
+                    <span class="c"># when used as Host header</span>
+
+                    <span class="k">if</span> <span class="n">host</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;:&#39;</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="n">host_enc</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;[&#39;</span> <span class="o">+</span> <span class="n">host_enc</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;]&#39;</span>
+
+                    <span class="k">if</span> <span class="n">port</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">default_port</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">putheader</span><span class="p">(</span><span class="s">&#39;Host&#39;</span><span class="p">,</span> <span class="n">host_enc</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">host_enc</span> <span class="o">=</span> <span class="n">host_enc</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&quot;ascii&quot;</span><span class="p">)</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">putheader</span><span class="p">(</span><span class="s">&#39;Host&#39;</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">host_enc</span><span class="p">,</span> <span class="n">port</span><span class="p">))</span>
+
+            <span class="c"># note: we are assuming that clients will not attempt to set these</span>
+            <span class="c">#       headers since *this* library must deal with the</span>
+            <span class="c">#       consequences. this also means that when the supporting</span>
+            <span class="c">#       libraries are updated to recognize other forms, then this</span>
+            <span class="c">#       code should be changed (removed or updated).</span>
+
+            <span class="c"># we only want a Content-Encoding of &quot;identity&quot; since we don&#39;t</span>
+            <span class="c"># support encodings such as x-gzip or x-deflate.</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">skip_accept_encoding</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">putheader</span><span class="p">(</span><span class="s">&#39;Accept-Encoding&#39;</span><span class="p">,</span> <span class="s">&#39;identity&#39;</span><span class="p">)</span>
+
+            <span class="c"># we can accept &quot;chunked&quot; Transfer-Encodings, but no others</span>
+            <span class="c"># NOTE: no TE header implies *only* &quot;chunked&quot;</span>
+            <span class="c">#self.putheader(&#39;TE&#39;, &#39;chunked&#39;)</span>
+
+            <span class="c"># if TE is supplied in the header, then it must appear in a</span>
+            <span class="c"># Connection header.</span>
+            <span class="c">#self.putheader(&#39;Connection&#39;, &#39;TE&#39;)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># For HTTP/1.0, the server will assume &quot;not chunked&quot;</span>
+            <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="HTTPConnection.putheader"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.putheader">[docs]</a>    <span class="k">def</span> <span class="nf">putheader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">header</span><span class="p">,</span> <span class="o">*</span><span class="n">values</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send a request header line to the server.</span>
+
+<span class="sd">        For example: h.putheader(&#39;Accept&#39;, &#39;text/html&#39;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">!=</span> <span class="n">_CS_REQ_STARTED</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">CannotSendHeader</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">header</span><span class="p">,</span> <span class="s">&#39;encode&#39;</span><span class="p">):</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">one_value</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">values</span><span class="p">):</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">one_value</span><span class="p">,</span> <span class="s">&#39;encode&#39;</span><span class="p">):</span>
+                <span class="n">values</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">one_value</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;latin-1&#39;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">one_value</span><span class="p">,</span> <span class="nb">int</span><span class="p">):</span>
+                <span class="n">values</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">one_value</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\r\n\t</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+        <span class="n">header</span> <span class="o">=</span> <span class="n">header</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;: &#39;</span> <span class="o">+</span> <span class="n">value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_output</span><span class="p">(</span><span class="n">header</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="HTTPConnection.endheaders"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.endheaders">[docs]</a>    <span class="k">def</span> <span class="nf">endheaders</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message_body</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Indicate that the last header line has been sent to the server.</span>
+
+<span class="sd">        This method sends the request to the server.  The optional message_body</span>
+<span class="sd">        argument can be used to pass a message body associated with the</span>
+<span class="sd">        request.  The message body will be sent in the same packet as the</span>
+<span class="sd">        message headers if it is a string, otherwise it is sent as a separate</span>
+<span class="sd">        packet.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">==</span> <span class="n">_CS_REQ_STARTED</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">=</span> <span class="n">_CS_REQ_SENT</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">CannotSendHeader</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_send_output</span><span class="p">(</span><span class="n">message_body</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="HTTPConnection.request"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.request">[docs]</a>    <span class="k">def</span> <span class="nf">request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">body</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="p">{}):</span>
+        <span class="sd">&quot;&quot;&quot;Send a complete request to the server.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_send_request</span><span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="n">headers</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_set_content_length</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">body</span><span class="p">):</span>
+        <span class="c"># Set the content-length based on the body.</span>
+        <span class="n">thelen</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">thelen</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">body</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">TypeError</span> <span class="k">as</span> <span class="n">te</span><span class="p">:</span>
+            <span class="c"># If this is a file-like object, try to</span>
+            <span class="c"># fstat its file descriptor</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">thelen</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">fstat</span><span class="p">(</span><span class="n">body</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span><span class="o">.</span><span class="n">st_size</span><span class="p">)</span>
+            <span class="k">except</span> <span class="p">(</span><span class="ne">AttributeError</span><span class="p">,</span> <span class="ne">OSError</span><span class="p">):</span>
+                <span class="c"># Don&#39;t send a length if this failed</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Cannot stat!!&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">thelen</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">putheader</span><span class="p">(</span><span class="s">&#39;Content-Length&#39;</span><span class="p">,</span> <span class="n">thelen</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_send_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="n">headers</span><span class="p">):</span>
+        <span class="c"># Honor explicitly requested Host: and Accept-Encoding: headers.</span>
+        <span class="n">header_names</span> <span class="o">=</span> <span class="nb">dict</span><span class="o">.</span><span class="n">fromkeys</span><span class="p">([</span><span class="n">k</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">headers</span><span class="p">])</span>
+        <span class="n">skips</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="s">&#39;host&#39;</span> <span class="ow">in</span> <span class="n">header_names</span><span class="p">:</span>
+            <span class="n">skips</span><span class="p">[</span><span class="s">&#39;skip_host&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="s">&#39;accept-encoding&#39;</span> <span class="ow">in</span> <span class="n">header_names</span><span class="p">:</span>
+            <span class="n">skips</span><span class="p">[</span><span class="s">&#39;skip_accept_encoding&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">putrequest</span><span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="o">**</span><span class="n">skips</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">body</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="p">(</span><span class="s">&#39;content-length&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">header_names</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_set_content_length</span><span class="p">(</span><span class="n">body</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">hdr</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">headers</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">putheader</span><span class="p">(</span><span class="n">hdr</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">body</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="c"># RFC 2616 Section 3.7.1 says that text default has a</span>
+            <span class="c"># default charset of iso-8859-1.</span>
+            <span class="n">body</span> <span class="o">=</span> <span class="n">body</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">endheaders</span><span class="p">(</span><span class="n">body</span><span class="p">)</span>
+
+<div class="viewcode-block" id="HTTPConnection.getresponse"><a class="viewcode-back" href="../../http.html#http.client.HTTPConnection.getresponse">[docs]</a>    <span class="k">def</span> <span class="nf">getresponse</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Get the response from the server.</span>
+
+<span class="sd">        If the HTTPConnection is in the correct state, returns an</span>
+<span class="sd">        instance of HTTPResponse or of whatever object is returned by</span>
+<span class="sd">        class the response_class variable.</span>
+
+<span class="sd">        If a request has not been sent or if a previous response has</span>
+<span class="sd">        not be handled, ResponseNotReady is raised.  If the HTTP</span>
+<span class="sd">        response indicates that the connection should be closed, then</span>
+<span class="sd">        it will be closed before the response is returned.  When the</span>
+<span class="sd">        connection is closed, the underlying socket is closed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c"># if a prior response has been completed, then forget about it.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__response</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">__response</span><span class="o">.</span><span class="n">isclosed</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__response</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># if a prior response exists, then it must be completed (otherwise, we</span>
+        <span class="c"># cannot read this response&#39;s header to determine the connection-close</span>
+        <span class="c"># behavior)</span>
+        <span class="c">#</span>
+        <span class="c"># note: if a prior response existed, but was connection-close, then the</span>
+        <span class="c"># socket and response were made independent of this HTTPConnection</span>
+        <span class="c"># object since a new request requires that we open a whole new</span>
+        <span class="c"># connection</span>
+        <span class="c">#</span>
+        <span class="c"># this means the prior response had one of two states:</span>
+        <span class="c">#   1) will_close: this connection was reset and the prior socket and</span>
+        <span class="c">#                  response operate independently</span>
+        <span class="c">#   2) persistent: the response was retained and we await its</span>
+        <span class="c">#                  isclosed() status to become true.</span>
+        <span class="c">#</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">!=</span> <span class="n">_CS_REQ_SENT</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">__response</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ResponseNotReady</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__state</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">response</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">response_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">debuglevel</span><span class="p">,</span>
+                                           <span class="n">method</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_method</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">response</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">response_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_method</span><span class="p">)</span>
+
+        <span class="n">response</span><span class="o">.</span><span class="n">begin</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">response</span><span class="o">.</span><span class="n">will_close</span> <span class="o">!=</span> <span class="n">_UNKNOWN</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__state</span> <span class="o">=</span> <span class="n">_CS_IDLE</span>
+
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">will_close</span><span class="p">:</span>
+            <span class="c"># this effectively passes the connection to the response</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># remember this, so we can tell when it is complete</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__response</span> <span class="o">=</span> <span class="n">response</span>
+
+        <span class="k">return</span> <span class="n">response</span>
+</div></div>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">ssl</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="k">pass</span>
+<span class="k">else</span><span class="p">:</span>
+<div class="viewcode-block" id="HTTPSConnection"><a class="viewcode-back" href="../../http.html#http.client.HTTPSConnection">[docs]</a>    <span class="k">class</span> <span class="nc">HTTPSConnection</span><span class="p">(</span><span class="n">HTTPConnection</span><span class="p">):</span>
+        <span class="s">&quot;This class allows communication via SSL.&quot;</span>
+
+        <span class="n">default_port</span> <span class="o">=</span> <span class="n">HTTPS_PORT</span>
+
+        <span class="c"># XXX Should key_file and cert_file be deprecated in favour of context?</span>
+
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">key_file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">cert_file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                     <span class="n">timeout</span><span class="o">=</span><span class="n">socket</span><span class="o">.</span><span class="n">_GLOBAL_DEFAULT_TIMEOUT</span><span class="p">,</span>
+                     <span class="n">source_address</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">context</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                     <span class="n">check_hostname</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">HTTPSConnection</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">host</span><span class="p">,</span> <span class="n">port</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span>
+                                                  <span class="n">source_address</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">key_file</span> <span class="o">=</span> <span class="n">key_file</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cert_file</span> <span class="o">=</span> <span class="n">cert_file</span>
+            <span class="k">if</span> <span class="n">context</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">context</span> <span class="o">=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">_create_stdlib_context</span><span class="p">()</span>
+            <span class="n">will_verify</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">verify_mode</span> <span class="o">!=</span> <span class="n">ssl</span><span class="o">.</span><span class="n">CERT_NONE</span>
+            <span class="k">if</span> <span class="n">check_hostname</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">check_hostname</span> <span class="o">=</span> <span class="n">will_verify</span>
+            <span class="k">elif</span> <span class="n">check_hostname</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">will_verify</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;check_hostname needs a SSL context with &quot;</span>
+                                 <span class="s">&quot;either CERT_OPTIONAL or CERT_REQUIRED&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">key_file</span> <span class="ow">or</span> <span class="n">cert_file</span><span class="p">:</span>
+                <span class="n">context</span><span class="o">.</span><span class="n">load_cert_chain</span><span class="p">(</span><span class="n">cert_file</span><span class="p">,</span> <span class="n">key_file</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_context</span> <span class="o">=</span> <span class="n">context</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_hostname</span> <span class="o">=</span> <span class="n">check_hostname</span>
+
+<div class="viewcode-block" id="HTTPSConnection.connect"><a class="viewcode-back" href="../../http.html#http.client.HTTPSConnection.connect">[docs]</a>        <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="s">&quot;Connect to a host on a given (SSL) port.&quot;</span>
+
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">connect</span><span class="p">()</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_host</span><span class="p">:</span>
+                <span class="n">server_hostname</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tunnel_host</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">server_hostname</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">host</span>
+            <span class="n">sni_hostname</span> <span class="o">=</span> <span class="n">server_hostname</span> <span class="k">if</span> <span class="n">ssl</span><span class="o">.</span><span class="n">HAS_SNI</span> <span class="k">else</span> <span class="bp">None</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">wrap_socket</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">,</span>
+                                                  <span class="n">server_hostname</span><span class="o">=</span><span class="n">sni_hostname</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_context</span><span class="o">.</span><span class="n">check_hostname</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_check_hostname</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">ssl</span><span class="o">.</span><span class="n">match_hostname</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">getpeercert</span><span class="p">(),</span> <span class="n">server_hostname</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">shutdown</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SHUT_RDWR</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                    <span class="k">raise</span>
+</div></div>
+    <span class="n">__all__</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;HTTPSConnection&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="HTTPException"><a class="viewcode-back" href="../../http.html#http.client.HTTPException">[docs]</a><span class="k">class</span> <span class="nc">HTTPException</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="c"># Subclasses that define an __init__ must call Exception.__init__</span>
+    <span class="c"># or define self.args.  Otherwise, str() will fail.</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="NotConnected"><a class="viewcode-back" href="../../http.html#http.client.NotConnected">[docs]</a><span class="k">class</span> <span class="nc">NotConnected</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="InvalidURL"><a class="viewcode-back" href="../../http.html#http.client.InvalidURL">[docs]</a><span class="k">class</span> <span class="nc">InvalidURL</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="UnknownProtocol"><a class="viewcode-back" href="../../http.html#http.client.UnknownProtocol">[docs]</a><span class="k">class</span> <span class="nc">UnknownProtocol</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">version</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="n">version</span><span class="p">,</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">version</span> <span class="o">=</span> <span class="n">version</span>
+</div>
+<div class="viewcode-block" id="UnknownTransferEncoding"><a class="viewcode-back" href="../../http.html#http.client.UnknownTransferEncoding">[docs]</a><span class="k">class</span> <span class="nc">UnknownTransferEncoding</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="UnimplementedFileMode"><a class="viewcode-back" href="../../http.html#http.client.UnimplementedFileMode">[docs]</a><span class="k">class</span> <span class="nc">UnimplementedFileMode</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="IncompleteRead"><a class="viewcode-back" href="../../http.html#http.client.IncompleteRead">[docs]</a><span class="k">class</span> <span class="nc">IncompleteRead</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">partial</span><span class="p">,</span> <span class="n">expected</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="n">partial</span><span class="p">,</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">partial</span> <span class="o">=</span> <span class="n">partial</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expected</span> <span class="o">=</span> <span class="n">expected</span>
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">expected</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">e</span> <span class="o">=</span> <span class="s">&#39;, </span><span class="si">%i</span><span class="s"> more expected&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">expected</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">e</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="k">return</span> <span class="s">&#39;IncompleteRead(</span><span class="si">%i</span><span class="s"> bytes read</span><span class="si">%s</span><span class="s">)&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">partial</span><span class="p">),</span> <span class="n">e</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">repr</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ImproperConnectionState"><a class="viewcode-back" href="../../http.html#http.client.ImproperConnectionState">[docs]</a><span class="k">class</span> <span class="nc">ImproperConnectionState</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="CannotSendRequest"><a class="viewcode-back" href="../../http.html#http.client.CannotSendRequest">[docs]</a><span class="k">class</span> <span class="nc">CannotSendRequest</span><span class="p">(</span><span class="n">ImproperConnectionState</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="CannotSendHeader"><a class="viewcode-back" href="../../http.html#http.client.CannotSendHeader">[docs]</a><span class="k">class</span> <span class="nc">CannotSendHeader</span><span class="p">(</span><span class="n">ImproperConnectionState</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="ResponseNotReady"><a class="viewcode-back" href="../../http.html#http.client.ResponseNotReady">[docs]</a><span class="k">class</span> <span class="nc">ResponseNotReady</span><span class="p">(</span><span class="n">ImproperConnectionState</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="BadStatusLine"><a class="viewcode-back" href="../../http.html#http.client.BadStatusLine">[docs]</a><span class="k">class</span> <span class="nc">BadStatusLine</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">line</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">args</span> <span class="o">=</span> <span class="n">line</span><span class="p">,</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">line</span> <span class="o">=</span> <span class="n">line</span>
+</div>
+<span class="k">class</span> <span class="nc">LineTooLong</span><span class="p">(</span><span class="n">HTTPException</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">line_type</span><span class="p">):</span>
+        <span class="n">HTTPException</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;got more than </span><span class="si">%d</span><span class="s"> bytes when reading </span><span class="si">%s</span><span class="s">&quot;</span>
+                                     <span class="o">%</span> <span class="p">(</span><span class="n">_MAXLINE</span><span class="p">,</span> <span class="n">line_type</span><span class="p">))</span>
+
+<span class="c"># for backwards compatibility</span>
+<span class="n">error</span> <span class="o">=</span> <span class="n">HTTPException</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

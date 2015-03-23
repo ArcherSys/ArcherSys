@@ -1,0 +1,301 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>distutils.command.build_clib &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../../index.html" />
+    <link rel="up" title="Module code" href="../../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for distutils.command.build_clib</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.command.build_clib</span>
+
+<span class="sd">Implements the Distutils &#39;build_clib&#39; command, to build a C/C++ library</span>
+<span class="sd">that is included in the module distribution and needed by an extension</span>
+<span class="sd">module.&quot;&quot;&quot;</span>
+
+
+<span class="c"># XXX this module has *lots* of code ripped-off quite transparently from</span>
+<span class="c"># build_ext.py -- not surprisingly really, as the work required to build</span>
+<span class="c"># a static library from a collection of C source files is not really all</span>
+<span class="c"># that different from what&#39;s required to build a shared object file from</span>
+<span class="c"># a collection of C source files.  Nevertheless, I haven&#39;t done the</span>
+<span class="c"># necessary refactoring to account for the overlap in code between the</span>
+<span class="c"># two modules, mainly because a number of subtle details changed in the</span>
+<span class="c"># cut &#39;n paste.  Sigh.</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">distutils.core</span> <span class="kn">import</span> <span class="n">Command</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">distutils.sysconfig</span> <span class="kn">import</span> <span class="n">customize_compiler</span>
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">log</span>
+
+<div class="viewcode-block" id="show_compilers"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.show_compilers">[docs]</a><span class="k">def</span> <span class="nf">show_compilers</span><span class="p">():</span>
+    <span class="kn">from</span> <span class="nn">distutils.ccompiler</span> <span class="kn">import</span> <span class="n">show_compilers</span>
+    <span class="n">show_compilers</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="build_clib"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.build_clib">[docs]</a><span class="k">class</span> <span class="nc">build_clib</span><span class="p">(</span><span class="n">Command</span><span class="p">):</span>
+
+    <span class="n">description</span> <span class="o">=</span> <span class="s">&quot;build C/C++ libraries used by Python extensions&quot;</span>
+
+    <span class="n">user_options</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s">&#39;build-clib=&#39;</span><span class="p">,</span> <span class="s">&#39;b&#39;</span><span class="p">,</span>
+         <span class="s">&quot;directory to build C/C++ libraries to&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;build-temp=&#39;</span><span class="p">,</span> <span class="s">&#39;t&#39;</span><span class="p">,</span>
+         <span class="s">&quot;directory to put temporary build by-products&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;debug&#39;</span><span class="p">,</span> <span class="s">&#39;g&#39;</span><span class="p">,</span>
+         <span class="s">&quot;compile with debugging information&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;force&#39;</span><span class="p">,</span> <span class="s">&#39;f&#39;</span><span class="p">,</span>
+         <span class="s">&quot;forcibly build everything (ignore file timestamps)&quot;</span><span class="p">),</span>
+        <span class="p">(</span><span class="s">&#39;compiler=&#39;</span><span class="p">,</span> <span class="s">&#39;c&#39;</span><span class="p">,</span>
+         <span class="s">&quot;specify the compiler type&quot;</span><span class="p">),</span>
+        <span class="p">]</span>
+
+    <span class="n">boolean_options</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;debug&#39;</span><span class="p">,</span> <span class="s">&#39;force&#39;</span><span class="p">]</span>
+
+    <span class="n">help_options</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">(</span><span class="s">&#39;help-compiler&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+         <span class="s">&quot;list available compilers&quot;</span><span class="p">,</span> <span class="n">show_compilers</span><span class="p">),</span>
+        <span class="p">]</span>
+
+<div class="viewcode-block" id="build_clib.initialize_options"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.build_clib.initialize_options">[docs]</a>    <span class="k">def</span> <span class="nf">initialize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">build_clib</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># List of libraries to build</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># Compilation options for all libraries</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">define</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">undef</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debug</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span> <span class="o">=</span> <span class="bp">None</span>
+
+</div>
+<div class="viewcode-block" id="build_clib.finalize_options"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.build_clib.finalize_options">[docs]</a>    <span class="k">def</span> <span class="nf">finalize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># This might be confusing: both build-clib and build-temp default</span>
+        <span class="c"># to build-temp as defined by the &quot;build&quot; command.  This is because</span>
+        <span class="c"># I think that C libraries are really just temporary build</span>
+        <span class="c"># by-products, at least from the point of view of building Python</span>
+        <span class="c"># extensions -- but I want to keep my options open.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_undefined_options</span><span class="p">(</span><span class="s">&#39;build&#39;</span><span class="p">,</span>
+                                   <span class="p">(</span><span class="s">&#39;build_temp&#39;</span><span class="p">,</span> <span class="s">&#39;build_clib&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;build_temp&#39;</span><span class="p">,</span> <span class="s">&#39;build_temp&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;compiler&#39;</span><span class="p">,</span> <span class="s">&#39;compiler&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;debug&#39;</span><span class="p">,</span> <span class="s">&#39;debug&#39;</span><span class="p">),</span>
+                                   <span class="p">(</span><span class="s">&#39;force&#39;</span><span class="p">,</span> <span class="s">&#39;force&#39;</span><span class="p">))</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">libraries</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">check_library_list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">include_dirs</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">pathsep</span><span class="p">)</span>
+
+        <span class="c"># XXX same as for build_ext -- what about &#39;self.define&#39; and</span>
+        <span class="c"># &#39;self.undef&#39; ?</span>
+
+</div>
+<div class="viewcode-block" id="build_clib.run"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.build_clib.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="c"># Yech -- this is cut &#39;n pasted from build_ext.py!</span>
+        <span class="kn">from</span> <span class="nn">distutils.ccompiler</span> <span class="kn">import</span> <span class="n">new_compiler</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span> <span class="o">=</span> <span class="n">new_compiler</span><span class="p">(</span><span class="n">compiler</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="p">,</span>
+                                     <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">,</span>
+                                     <span class="n">force</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">force</span><span class="p">)</span>
+        <span class="n">customize_compiler</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">set_include_dirs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">define</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># &#39;define&#39; option is a list of (name,value) tuples</span>
+            <span class="k">for</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span><span class="n">value</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">define</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">define_macro</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">undef</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">macro</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">undef</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">undefine_macro</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">build_libraries</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="build_clib.check_library_list"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.build_clib.check_library_list">[docs]</a>    <span class="k">def</span> <span class="nf">check_library_list</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">libraries</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Ensure that the list of libraries is valid.</span>
+
+<span class="sd">        `library` is presumably provided as a command option &#39;libraries&#39;.</span>
+<span class="sd">        This method checks that it is a list of 2-tuples, where the tuples</span>
+<span class="sd">        are (library_name, build_info_dict).</span>
+
+<span class="sd">        Raise DistutilsSetupError if the structure is invalid anywhere;</span>
+<span class="sd">        just returns otherwise.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">libraries</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                  <span class="s">&quot;&#39;libraries&#39; option must be a list of tuples&quot;</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">lib</span> <span class="ow">in</span> <span class="n">libraries</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">lib</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">lib</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                      <span class="s">&quot;each element of &#39;libraries&#39; must a 2-tuple&quot;</span><span class="p">)</span>
+
+            <span class="n">name</span><span class="p">,</span> <span class="n">build_info</span> <span class="o">=</span> <span class="n">lib</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                      <span class="s">&quot;first element of each tuple in &#39;libraries&#39; &quot;</span>
+                      <span class="s">&quot;must be a string (the library name)&quot;</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="s">&#39;/&#39;</span> <span class="ow">in</span> <span class="n">name</span> <span class="ow">or</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">sep</span> <span class="o">!=</span> <span class="s">&#39;/&#39;</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">sep</span> <span class="ow">in</span> <span class="n">name</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span><span class="s">&quot;bad library name &#39;</span><span class="si">%s</span><span class="s">&#39;: &quot;</span>
+                       <span class="s">&quot;may not contain directory separators&quot;</span> <span class="o">%</span> <span class="n">lib</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">build_info</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                      <span class="s">&quot;second element of each tuple in &#39;libraries&#39; &quot;</span>
+                      <span class="s">&quot;must be a dictionary (build info)&quot;</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="build_clib.get_library_names"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.build_clib.get_library_names">[docs]</a>    <span class="k">def</span> <span class="nf">get_library_names</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Assume the library list is valid -- &#39;check_library_list()&#39; is</span>
+        <span class="c"># called from &#39;finalize_options()&#39;, so it should be!</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+
+        <span class="n">lib_names</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">lib_name</span><span class="p">,</span> <span class="n">build_info</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">:</span>
+            <span class="n">lib_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lib_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">lib_names</span>
+
+</div>
+<div class="viewcode-block" id="build_clib.get_source_files"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.build_clib.get_source_files">[docs]</a>    <span class="k">def</span> <span class="nf">get_source_files</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_library_list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">)</span>
+        <span class="n">filenames</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">lib_name</span><span class="p">,</span> <span class="n">build_info</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="p">:</span>
+            <span class="n">sources</span> <span class="o">=</span> <span class="n">build_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;sources&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">sources</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                       <span class="s">&quot;in &#39;libraries&#39; option (library &#39;</span><span class="si">%s</span><span class="s">&#39;), &quot;</span>
+                       <span class="s">&quot;&#39;sources&#39; must be present and must be &quot;</span>
+                       <span class="s">&quot;a list of source filenames&quot;</span> <span class="o">%</span> <span class="n">lib_name</span><span class="p">)</span>
+
+            <span class="n">filenames</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">filenames</span>
+
+</div>
+<div class="viewcode-block" id="build_clib.build_libraries"><a class="viewcode-back" href="../../../distutils.command.html#distutils.command.build_clib.build_clib.build_libraries">[docs]</a>    <span class="k">def</span> <span class="nf">build_libraries</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">libraries</span><span class="p">):</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">lib_name</span><span class="p">,</span> <span class="n">build_info</span><span class="p">)</span> <span class="ow">in</span> <span class="n">libraries</span><span class="p">:</span>
+            <span class="n">sources</span> <span class="o">=</span> <span class="n">build_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;sources&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">sources</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+                <span class="k">raise</span> <span class="n">DistutilsSetupError</span><span class="p">(</span>
+                       <span class="s">&quot;in &#39;libraries&#39; option (library &#39;</span><span class="si">%s</span><span class="s">&#39;), &quot;</span>
+                       <span class="s">&quot;&#39;sources&#39; must be present and must be &quot;</span>
+                       <span class="s">&quot;a list of source filenames&quot;</span> <span class="o">%</span> <span class="n">lib_name</span><span class="p">)</span>
+            <span class="n">sources</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
+
+            <span class="n">log</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&quot;building &#39;</span><span class="si">%s</span><span class="s">&#39; library&quot;</span><span class="p">,</span> <span class="n">lib_name</span><span class="p">)</span>
+
+            <span class="c"># First, compile the source code to object files in the library</span>
+            <span class="c"># directory.  (This should probably change to putting object</span>
+            <span class="c"># files in a temporary build directory.)</span>
+            <span class="n">macros</span> <span class="o">=</span> <span class="n">build_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;macros&#39;</span><span class="p">)</span>
+            <span class="n">include_dirs</span> <span class="o">=</span> <span class="n">build_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;include_dirs&#39;</span><span class="p">)</span>
+            <span class="n">objects</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span>
+                                            <span class="n">output_dir</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">build_temp</span><span class="p">,</span>
+                                            <span class="n">macros</span><span class="o">=</span><span class="n">macros</span><span class="p">,</span>
+                                            <span class="n">include_dirs</span><span class="o">=</span><span class="n">include_dirs</span><span class="p">,</span>
+                                            <span class="n">debug</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">)</span>
+
+            <span class="c"># Now &quot;link&quot; the object files together into a static library.</span>
+            <span class="c"># (On Unix at least, this isn&#39;t really linking -- it just</span>
+            <span class="c"># builds an archive.  Whatever.)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">compiler</span><span class="o">.</span><span class="n">create_static_lib</span><span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">lib_name</span><span class="p">,</span>
+                                            <span class="n">output_dir</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">build_clib</span><span class="p">,</span>
+                                            <span class="n">debug</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

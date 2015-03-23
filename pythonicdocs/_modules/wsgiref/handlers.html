@@ -1,0 +1,639 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>wsgiref.handlers &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for wsgiref.handlers</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Base classes for server/gateway implementations&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">.util</span> <span class="kn">import</span> <span class="n">FileWrapper</span><span class="p">,</span> <span class="n">guess_scheme</span><span class="p">,</span> <span class="n">is_hop_by_hop</span>
+<span class="kn">from</span> <span class="nn">.headers</span> <span class="kn">import</span> <span class="n">Headers</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">time</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s">&#39;BaseHandler&#39;</span><span class="p">,</span> <span class="s">&#39;SimpleHandler&#39;</span><span class="p">,</span> <span class="s">&#39;BaseCGIHandler&#39;</span><span class="p">,</span> <span class="s">&#39;CGIHandler&#39;</span><span class="p">,</span>
+    <span class="s">&#39;IISCGIHandler&#39;</span><span class="p">,</span> <span class="s">&#39;read_environ&#39;</span>
+<span class="p">]</span>
+
+<span class="c"># Weekday and month names for HTTP date/time formatting; always English!</span>
+<span class="n">_weekdayname</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;Mon&quot;</span><span class="p">,</span> <span class="s">&quot;Tue&quot;</span><span class="p">,</span> <span class="s">&quot;Wed&quot;</span><span class="p">,</span> <span class="s">&quot;Thu&quot;</span><span class="p">,</span> <span class="s">&quot;Fri&quot;</span><span class="p">,</span> <span class="s">&quot;Sat&quot;</span><span class="p">,</span> <span class="s">&quot;Sun&quot;</span><span class="p">]</span>
+<span class="n">_monthname</span> <span class="o">=</span> <span class="p">[</span><span class="bp">None</span><span class="p">,</span> <span class="c"># Dummy so we can use 1-based month numbers</span>
+              <span class="s">&quot;Jan&quot;</span><span class="p">,</span> <span class="s">&quot;Feb&quot;</span><span class="p">,</span> <span class="s">&quot;Mar&quot;</span><span class="p">,</span> <span class="s">&quot;Apr&quot;</span><span class="p">,</span> <span class="s">&quot;May&quot;</span><span class="p">,</span> <span class="s">&quot;Jun&quot;</span><span class="p">,</span>
+              <span class="s">&quot;Jul&quot;</span><span class="p">,</span> <span class="s">&quot;Aug&quot;</span><span class="p">,</span> <span class="s">&quot;Sep&quot;</span><span class="p">,</span> <span class="s">&quot;Oct&quot;</span><span class="p">,</span> <span class="s">&quot;Nov&quot;</span><span class="p">,</span> <span class="s">&quot;Dec&quot;</span><span class="p">]</span>
+
+<span class="k">def</span> <span class="nf">format_date_time</span><span class="p">(</span><span class="n">timestamp</span><span class="p">):</span>
+    <span class="n">year</span><span class="p">,</span> <span class="n">month</span><span class="p">,</span> <span class="n">day</span><span class="p">,</span> <span class="n">hh</span><span class="p">,</span> <span class="n">mm</span><span class="p">,</span> <span class="n">ss</span><span class="p">,</span> <span class="n">wd</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">gmtime</span><span class="p">(</span><span class="n">timestamp</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">, </span><span class="si">%02d</span><span class="s"> </span><span class="si">%3s</span><span class="s"> </span><span class="si">%4d</span><span class="s"> </span><span class="si">%02d</span><span class="s">:</span><span class="si">%02d</span><span class="s">:</span><span class="si">%02d</span><span class="s"> GMT&quot;</span> <span class="o">%</span> <span class="p">(</span>
+        <span class="n">_weekdayname</span><span class="p">[</span><span class="n">wd</span><span class="p">],</span> <span class="n">day</span><span class="p">,</span> <span class="n">_monthname</span><span class="p">[</span><span class="n">month</span><span class="p">],</span> <span class="n">year</span><span class="p">,</span> <span class="n">hh</span><span class="p">,</span> <span class="n">mm</span><span class="p">,</span> <span class="n">ss</span>
+    <span class="p">)</span>
+
+<span class="n">_is_request</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&#39;SCRIPT_NAME&#39;</span><span class="p">,</span> <span class="s">&#39;PATH_INFO&#39;</span><span class="p">,</span> <span class="s">&#39;QUERY_STRING&#39;</span><span class="p">,</span> <span class="s">&#39;REQUEST_METHOD&#39;</span><span class="p">,</span> <span class="s">&#39;AUTH_TYPE&#39;</span><span class="p">,</span>
+    <span class="s">&#39;CONTENT_TYPE&#39;</span><span class="p">,</span> <span class="s">&#39;CONTENT_LENGTH&#39;</span><span class="p">,</span> <span class="s">&#39;HTTPS&#39;</span><span class="p">,</span> <span class="s">&#39;REMOTE_USER&#39;</span><span class="p">,</span> <span class="s">&#39;REMOTE_IDENT&#39;</span><span class="p">,</span>
+<span class="p">}</span><span class="o">.</span><span class="n">__contains__</span>
+
+<span class="k">def</span> <span class="nf">_needs_transcode</span><span class="p">(</span><span class="n">k</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">_is_request</span><span class="p">(</span><span class="n">k</span><span class="p">)</span> <span class="ow">or</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;HTTP_&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;SSL_&#39;</span><span class="p">)</span> \
+        <span class="ow">or</span> <span class="p">(</span><span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;REDIRECT_&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">_needs_transcode</span><span class="p">(</span><span class="n">k</span><span class="p">[</span><span class="mi">9</span><span class="p">:]))</span>
+
+<div class="viewcode-block" id="read_environ"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.read_environ">[docs]</a><span class="k">def</span> <span class="nf">read_environ</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Read environment, fixing HTTP variables&quot;&quot;&quot;</span>
+    <span class="n">enc</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">getfilesystemencoding</span><span class="p">()</span>
+    <span class="n">esc</span> <span class="o">=</span> <span class="s">&#39;surrogateescape&#39;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">,</span> <span class="n">esc</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">LookupError</span><span class="p">:</span>
+        <span class="n">esc</span> <span class="o">=</span> <span class="s">&#39;replace&#39;</span>
+    <span class="n">environ</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c"># Take the basic environment from native-unicode os.environ. Attempt to</span>
+    <span class="c"># fix up the variables that come from the HTTP request to compensate for</span>
+    <span class="c"># the bytes-&gt;unicode decoding step that will already have taken place.</span>
+    <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="k">if</span> <span class="n">_needs_transcode</span><span class="p">(</span><span class="n">k</span><span class="p">):</span>
+
+            <span class="c"># On win32, the os.environ is natively Unicode. Different servers</span>
+            <span class="c"># decode the request bytes using different encodings.</span>
+            <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+                <span class="n">software</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;SERVER_SOFTWARE&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+                <span class="c"># On IIS, the HTTP request will be decoded as UTF-8 as long</span>
+                <span class="c"># as the input is a valid UTF-8 sequence. Otherwise it is</span>
+                <span class="c"># decoded using the system code page (mbcs), with no way to</span>
+                <span class="c"># detect this has happened. Because UTF-8 is the more likely</span>
+                <span class="c"># encoding, and mbcs is inherently unreliable (an mbcs string</span>
+                <span class="c"># that happens to be valid UTF-8 will not be decoded as mbcs)</span>
+                <span class="c"># always recreate the original bytes as UTF-8.</span>
+                <span class="k">if</span> <span class="n">software</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;microsoft-iis/&#39;</span><span class="p">):</span>
+                    <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">)</span>
+
+                <span class="c"># Apache mod_cgi writes bytes-as-unicode (as if ISO-8859-1) direct</span>
+                <span class="c"># to the Unicode environ. No modification needed.</span>
+                <span class="k">elif</span> <span class="n">software</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;apache/&#39;</span><span class="p">):</span>
+                    <span class="k">pass</span>
+
+                <span class="c"># Python 3&#39;s http.server.CGIHTTPRequestHandler decodes</span>
+                <span class="c"># using the urllib.unquote default of UTF-8, amongst other</span>
+                <span class="c"># issues.</span>
+                <span class="k">elif</span> <span class="p">(</span>
+                    <span class="n">software</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;simplehttp/&#39;</span><span class="p">)</span>
+                    <span class="ow">and</span> <span class="s">&#39;python/3&#39;</span> <span class="ow">in</span> <span class="n">software</span>
+                <span class="p">):</span>
+                    <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">)</span>
+
+                <span class="c"># For other servers, guess that they have written bytes to</span>
+                <span class="c"># the environ using stdio byte-oriented interfaces, ending up</span>
+                <span class="c"># with the system code page.</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">enc</span><span class="p">,</span> <span class="s">&#39;replace&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">)</span>
+
+            <span class="c"># Recover bytes from unicode environ, using surrogate escapes</span>
+            <span class="c"># where available (Python 3.1+).</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">v</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">enc</span><span class="p">,</span> <span class="n">esc</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">)</span>
+
+        <span class="n">environ</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+    <span class="k">return</span> <span class="n">environ</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler">[docs]</a><span class="k">class</span> <span class="nc">BaseHandler</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Manage the invocation of a WSGI application&quot;&quot;&quot;</span>
+
+    <span class="c"># Configuration parameters; can override per-subclass or per-instance</span>
+    <span class="n">wsgi_version</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">0</span><span class="p">)</span>
+    <span class="n">wsgi_multithread</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="n">wsgi_multiprocess</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="n">wsgi_run_once</span> <span class="o">=</span> <span class="bp">False</span>
+
+    <span class="n">origin_server</span> <span class="o">=</span> <span class="bp">True</span>    <span class="c"># We are transmitting direct to client</span>
+    <span class="n">http_version</span>  <span class="o">=</span> <span class="s">&quot;1.0&quot;</span>   <span class="c"># Version that should be used for response</span>
+    <span class="n">server_software</span> <span class="o">=</span> <span class="bp">None</span>  <span class="c"># String name of server software, if any</span>
+
+    <span class="c"># os_environ is used to supply configuration from the OS environment:</span>
+    <span class="c"># by default it&#39;s a copy of &#39;os.environ&#39; as of import time, but you can</span>
+    <span class="c"># override this in e.g. your __init__ method.</span>
+    <span class="n">os_environ</span><span class="o">=</span> <span class="n">read_environ</span><span class="p">()</span>
+
+    <span class="c"># Collaborator classes</span>
+    <span class="n">wsgi_file_wrapper</span> <span class="o">=</span> <span class="n">FileWrapper</span>     <span class="c"># set to None to disable</span>
+    <span class="n">headers_class</span> <span class="o">=</span> <span class="n">Headers</span>             <span class="c"># must be a Headers-like class</span>
+
+    <span class="c"># Error handling (also per-subclass or per-instance)</span>
+    <span class="n">traceback_limit</span> <span class="o">=</span> <span class="bp">None</span>  <span class="c"># Print entire traceback to self.get_stderr()</span>
+    <span class="n">error_status</span> <span class="o">=</span> <span class="s">&quot;500 Internal Server Error&quot;</span>
+    <span class="n">error_headers</span> <span class="o">=</span> <span class="p">[(</span><span class="s">&#39;Content-Type&#39;</span><span class="p">,</span><span class="s">&#39;text/plain&#39;</span><span class="p">)]</span>
+    <span class="n">error_body</span> <span class="o">=</span> <span class="n">b</span><span class="s">&quot;A server error occurred.  Please contact the administrator.&quot;</span>
+
+    <span class="c"># State variables (don&#39;t mess with these)</span>
+    <span class="n">status</span> <span class="o">=</span> <span class="n">result</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">headers_sent</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">headers</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">bytes_sent</span> <span class="o">=</span> <span class="mi">0</span>
+
+<div class="viewcode-block" id="BaseHandler.run"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">application</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Invoke the application&quot;&quot;&quot;</span>
+        <span class="c"># Note to self: don&#39;t move the close()!  Asynchronous servers shouldn&#39;t</span>
+        <span class="c"># call close() from finish_response(), so if you close() anywhere but</span>
+        <span class="c"># the double-error branch here, you&#39;ll break asynchronous servers by</span>
+        <span class="c"># prematurely closing.  Async servers must return from &#39;run()&#39; without</span>
+        <span class="c"># closing if there might still be output to iterate over.</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">setup_environ</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">result</span> <span class="o">=</span> <span class="n">application</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">environ</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_response</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finish_response</span><span class="p">()</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handle_error</span><span class="p">()</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="c"># If we get an error handling an error, just give up already!</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">raise</span>   <span class="c"># ...and let the actual server figure it out.</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.setup_environ"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.setup_environ">[docs]</a>    <span class="k">def</span> <span class="nf">setup_environ</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set up the environment for one request&quot;&quot;&quot;</span>
+
+        <span class="n">env</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">environ</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">os_environ</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_cgi_vars</span><span class="p">()</span>
+
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;wsgi.input&#39;</span><span class="p">]</span>        <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stdin</span><span class="p">()</span>
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;wsgi.errors&#39;</span><span class="p">]</span>       <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stderr</span><span class="p">()</span>
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;wsgi.version&#39;</span><span class="p">]</span>      <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_version</span>
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;wsgi.run_once&#39;</span><span class="p">]</span>     <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_run_once</span>
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;wsgi.url_scheme&#39;</span><span class="p">]</span>   <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_scheme</span><span class="p">()</span>
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;wsgi.multithread&#39;</span><span class="p">]</span>  <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_multithread</span>
+        <span class="n">env</span><span class="p">[</span><span class="s">&#39;wsgi.multiprocess&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_multiprocess</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_file_wrapper</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">env</span><span class="p">[</span><span class="s">&#39;wsgi.file_wrapper&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_file_wrapper</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">origin_server</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_software</span><span class="p">:</span>
+            <span class="n">env</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s">&#39;SERVER_SOFTWARE&#39;</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">server_software</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.finish_response"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.finish_response">[docs]</a>    <span class="k">def</span> <span class="nf">finish_response</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send any iterable data, then close self and the iterable</span>
+
+<span class="sd">        Subclasses intended for use in asynchronous servers will</span>
+<span class="sd">        want to redefine this method, such that it sets up callbacks</span>
+<span class="sd">        in the event loop to iterate over the data, and to call</span>
+<span class="sd">        &#39;self.close()&#39; once the response is finished.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">result_is_file</span><span class="p">()</span> <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">sendfile</span><span class="p">():</span>
+                <span class="k">for</span> <span class="n">data</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">result</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">finish_content</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.get_scheme"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.get_scheme">[docs]</a>    <span class="k">def</span> <span class="nf">get_scheme</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the URL scheme being used&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">guess_scheme</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">environ</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.set_content_length"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.set_content_length">[docs]</a>    <span class="k">def</span> <span class="nf">set_content_length</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compute Content-Length or switch to chunked encoding if possible&quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">blocks</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">result</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span><span class="ne">AttributeError</span><span class="p">,</span><span class="ne">NotImplementedError</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">blocks</span><span class="o">==</span><span class="mi">1</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Content-Length&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bytes_sent</span><span class="p">)</span>
+                <span class="k">return</span>
+        <span class="c"># XXX Try for chunked encoding if origin server and client is 1.1</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.cleanup_headers"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.cleanup_headers">[docs]</a>    <span class="k">def</span> <span class="nf">cleanup_headers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Make any necessary header changes or defaults</span>
+
+<span class="sd">        Subclasses can extend this to add other defaults.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="s">&#39;Content-Length&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_content_length</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="BaseHandler.start_response"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.start_response">[docs]</a>    <span class="k">def</span> <span class="nf">start_response</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">status</span><span class="p">,</span> <span class="n">headers</span><span class="p">,</span><span class="n">exc_info</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;&#39;start_response()&#39; callable as specified by PEP 3333&quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="n">exc_info</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers_sent</span><span class="p">:</span>
+                    <span class="c"># Re-raise original exception if headers sent</span>
+                    <span class="k">raise</span> <span class="n">exc_info</span><span class="p">[</span><span class="mi">0</span><span class="p">](</span><span class="n">exc_info</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span><span class="o">.</span><span class="n">with_traceback</span><span class="p">(</span><span class="n">exc_info</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="n">exc_info</span> <span class="o">=</span> <span class="bp">None</span>        <span class="c"># avoid dangling circular ref</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&quot;Headers already set!&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="n">status</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers_class</span><span class="p">(</span><span class="n">headers</span><span class="p">)</span>
+        <span class="n">status</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_convert_string_type</span><span class="p">(</span><span class="n">status</span><span class="p">,</span> <span class="s">&quot;Status&quot;</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">status</span><span class="p">)</span><span class="o">&gt;=</span><span class="mi">4</span><span class="p">,</span><span class="s">&quot;Status must be at least 4 characters&quot;</span>
+        <span class="k">assert</span> <span class="nb">int</span><span class="p">(</span><span class="n">status</span><span class="p">[:</span><span class="mi">3</span><span class="p">]),</span><span class="s">&quot;Status message must begin w/3-digit code&quot;</span>
+        <span class="k">assert</span> <span class="n">status</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span><span class="o">==</span><span class="s">&quot; &quot;</span><span class="p">,</span> <span class="s">&quot;Status message must have a space after code&quot;</span>
+
+        <span class="k">if</span> <span class="n">__debug__</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">headers</span><span class="p">:</span>
+                <span class="n">name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_convert_string_type</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="s">&quot;Header name&quot;</span><span class="p">)</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_convert_string_type</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="s">&quot;Header value&quot;</span><span class="p">)</span>
+                <span class="k">assert</span> <span class="ow">not</span> <span class="n">is_hop_by_hop</span><span class="p">(</span><span class="n">name</span><span class="p">),</span><span class="s">&quot;Hop-by-hop headers not allowed&quot;</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">write</span>
+</div>
+    <span class="k">def</span> <span class="nf">_convert_string_type</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">title</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Convert/check value type.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">str</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">value</span>
+        <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span>
+            <span class="s">&quot;{0} must be of type str (got {1})&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">title</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+        <span class="p">)</span>
+
+<div class="viewcode-block" id="BaseHandler.send_preamble"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.send_preamble">[docs]</a>    <span class="k">def</span> <span class="nf">send_preamble</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Transmit version/status/date/server, via self._write()&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">origin_server</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">client_is_modern</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">((</span><span class="s">&#39;HTTP/</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">http_version</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="p">))</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">))</span>
+                <span class="k">if</span> <span class="s">&#39;Date&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span>
+                        <span class="p">(</span><span class="s">&#39;Date: </span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">format_date_time</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()))</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">)</span>
+                    <span class="p">)</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_software</span> <span class="ow">and</span> <span class="s">&#39;Server&#39;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">((</span><span class="s">&#39;Server: </span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">server_software</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">((</span><span class="s">&#39;Status: </span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;iso-8859-1&#39;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="BaseHandler.write"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.write">[docs]</a>    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;&#39;write()&#39; callable as specified by PEP 3333&quot;&quot;&quot;</span>
+
+        <span class="k">assert</span> <span class="nb">type</span><span class="p">(</span><span class="n">data</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">bytes</span><span class="p">,</span> \
+            <span class="s">&quot;write() argument must be a bytes instance&quot;</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">status</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&quot;write() before start_response()&quot;</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers_sent</span><span class="p">:</span>
+            <span class="c"># Before the first output, send the stored headers</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bytes_sent</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>    <span class="c"># make sure we know content-length</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_headers</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bytes_sent</span> <span class="o">+=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+        <span class="c"># XXX check Content-Length and truncate if too many bytes written?</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_flush</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.sendfile"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.sendfile">[docs]</a>    <span class="k">def</span> <span class="nf">sendfile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Platform-specific file transmission</span>
+
+<span class="sd">        Override this method in subclasses to support platform-specific</span>
+<span class="sd">        file transmission.  It is only called if the application&#39;s</span>
+<span class="sd">        return iterable (&#39;self.result&#39;) is an instance of</span>
+<span class="sd">        &#39;self.wsgi_file_wrapper&#39;.</span>
+
+<span class="sd">        This method should return a true value if it was able to actually</span>
+<span class="sd">        transmit the wrapped file-like object using a platform-specific</span>
+<span class="sd">        approach.  It should return a false value if normal iteration</span>
+<span class="sd">        should be used instead.  An exception can be raised to indicate</span>
+<span class="sd">        that transmission was attempted, but failed.</span>
+
+<span class="sd">        NOTE: this method should call &#39;self.send_headers()&#39; if</span>
+<span class="sd">        &#39;self.headers_sent&#39; is false and it is going to attempt direct</span>
+<span class="sd">        transmission of the file.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">False</span>   <span class="c"># No platform-specific transmission by default</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.finish_content"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.finish_content">[docs]</a>    <span class="k">def</span> <span class="nf">finish_content</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Ensure headers and content have both been sent&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers_sent</span><span class="p">:</span>
+            <span class="c"># Only zero Content-Length if not set by the application (so</span>
+            <span class="c"># that HEAD requests can be satisfied properly, see #3839)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s">&#39;Content-Length&#39;</span><span class="p">,</span> <span class="s">&quot;0&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_headers</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">pass</span> <span class="c"># XXX check if content-length was too short?</span>
+</div>
+<div class="viewcode-block" id="BaseHandler.close"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Close the iterable (if needed) and reset all instance vars</span>
+
+<span class="sd">        Subclasses may want to also drop the client connection.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">result</span><span class="p">,</span><span class="s">&#39;close&#39;</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">result</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">status</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">environ</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">bytes_sent</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers_sent</span> <span class="o">=</span> <span class="bp">False</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.send_headers"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.send_headers">[docs]</a>    <span class="k">def</span> <span class="nf">send_headers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Transmit headers to the client, via self._write()&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cleanup_headers</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">headers_sent</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">origin_server</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">client_is_modern</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_preamble</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_write</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">))</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.result_is_file"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.result_is_file">[docs]</a>    <span class="k">def</span> <span class="nf">result_is_file</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;True if &#39;self.result&#39; is an instance of &#39;self.wsgi_file_wrapper&#39;&quot;&quot;&quot;</span>
+        <span class="n">wrapper</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_file_wrapper</span>
+        <span class="k">return</span> <span class="n">wrapper</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">result</span><span class="p">,</span><span class="n">wrapper</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.client_is_modern"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.client_is_modern">[docs]</a>    <span class="k">def</span> <span class="nf">client_is_modern</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;True if client can accept status and headers&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s">&#39;SERVER_PROTOCOL&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span> <span class="o">!=</span> <span class="s">&#39;HTTP/0.9&#39;</span>
+
+</div>
+<div class="viewcode-block" id="BaseHandler.log_exception"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.log_exception">[docs]</a>    <span class="k">def</span> <span class="nf">log_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">exc_info</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Log the &#39;exc_info&#39; tuple in the server log</span>
+
+<span class="sd">        Subclasses may override to retarget the output or change its format.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">traceback</span> <span class="kn">import</span> <span class="n">print_exception</span>
+            <span class="n">stderr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stderr</span><span class="p">()</span>
+            <span class="n">print_exception</span><span class="p">(</span>
+                <span class="n">exc_info</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">exc_info</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">exc_info</span><span class="p">[</span><span class="mi">2</span><span class="p">],</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">traceback_limit</span><span class="p">,</span> <span class="n">stderr</span>
+            <span class="p">)</span>
+            <span class="n">stderr</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">exc_info</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="BaseHandler.handle_error"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.handle_error">[docs]</a>    <span class="k">def</span> <span class="nf">handle_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Log current error, and send error output to client if possible&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_exception</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">())</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers_sent</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">error_output</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">environ</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_response</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finish_response</span><span class="p">()</span>
+        <span class="c"># XXX else: attempt advanced recovery techniques for HTML or text?</span>
+</div>
+<div class="viewcode-block" id="BaseHandler.error_output"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.error_output">[docs]</a>    <span class="k">def</span> <span class="nf">error_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">environ</span><span class="p">,</span> <span class="n">start_response</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;WSGI mini-app to create error output</span>
+
+<span class="sd">        By default, this just uses the &#39;error_status&#39;, &#39;error_headers&#39;,</span>
+<span class="sd">        and &#39;error_body&#39; attributes to generate an output page.  It can</span>
+<span class="sd">        be overridden in a subclass to dynamically generate diagnostics,</span>
+<span class="sd">        choose an appropriate message for the user&#39;s preferred language, etc.</span>
+
+<span class="sd">        Note, however, that it&#39;s not recommended from a security perspective to</span>
+<span class="sd">        spit out diagnostics to any old user; ideally, you should have to do</span>
+<span class="sd">        something special to enable diagnostic output, which is why we don&#39;t</span>
+<span class="sd">        include any here!</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">start_response</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">error_status</span><span class="p">,</span><span class="bp">self</span><span class="o">.</span><span class="n">error_headers</span><span class="p">[:],</span><span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">())</span>
+        <span class="k">return</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">error_body</span><span class="p">]</span>
+
+
+    <span class="c"># Pure abstract methods; *must* be overridden in subclasses</span>
+</div>
+    <span class="k">def</span> <span class="nf">_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">data</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Override in subclass to buffer data for send to client</span>
+
+<span class="sd">        It&#39;s okay if this method actually transmits the data; BaseHandler</span>
+<span class="sd">        just separates write and flush operations for greater efficiency</span>
+<span class="sd">        when the underlying system actually has such a distinction.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+    <span class="k">def</span> <span class="nf">_flush</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Override in subclass to force sending of recent &#39;_write()&#39; calls</span>
+
+<span class="sd">        It&#39;s okay if this method is a no-op (i.e., if &#39;_write()&#39; actually</span>
+<span class="sd">        sends the data.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+<div class="viewcode-block" id="BaseHandler.get_stdin"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.get_stdin">[docs]</a>    <span class="k">def</span> <span class="nf">get_stdin</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Override in subclass to return suitable &#39;wsgi.input&#39;&quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+</div>
+<div class="viewcode-block" id="BaseHandler.get_stderr"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.get_stderr">[docs]</a>    <span class="k">def</span> <span class="nf">get_stderr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Override in subclass to return suitable &#39;wsgi.errors&#39;&quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+</div>
+<div class="viewcode-block" id="BaseHandler.add_cgi_vars"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseHandler.add_cgi_vars">[docs]</a>    <span class="k">def</span> <span class="nf">add_cgi_vars</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Override in subclass to insert CGI variables in &#39;self.environ&#39;&quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+</div></div>
+<div class="viewcode-block" id="SimpleHandler"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.SimpleHandler">[docs]</a><span class="k">class</span> <span class="nc">SimpleHandler</span><span class="p">(</span><span class="n">BaseHandler</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Handler that&#39;s just initialized with streams, environment, etc.</span>
+
+<span class="sd">    This handler subclass is intended for synchronous HTTP/1.0 origin servers,</span>
+<span class="sd">    and handles sending the entire response output, given the correct inputs.</span>
+
+<span class="sd">    Usage::</span>
+
+<span class="sd">        handler = SimpleHandler(</span>
+<span class="sd">            inp,out,err,env, multithread=False, multiprocess=True</span>
+<span class="sd">        )</span>
+<span class="sd">        handler.run(app)&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">stdin</span><span class="p">,</span><span class="n">stdout</span><span class="p">,</span><span class="n">stderr</span><span class="p">,</span><span class="n">environ</span><span class="p">,</span>
+        <span class="n">multithread</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">multiprocess</span><span class="o">=</span><span class="bp">False</span>
+    <span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span> <span class="o">=</span> <span class="n">stdin</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="n">stdout</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span> <span class="o">=</span> <span class="n">stderr</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">base_env</span> <span class="o">=</span> <span class="n">environ</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_multithread</span> <span class="o">=</span> <span class="n">multithread</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wsgi_multiprocess</span> <span class="o">=</span> <span class="n">multiprocess</span>
+
+<div class="viewcode-block" id="SimpleHandler.get_stdin"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.SimpleHandler.get_stdin">[docs]</a>    <span class="k">def</span> <span class="nf">get_stdin</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdin</span>
+</div>
+<div class="viewcode-block" id="SimpleHandler.get_stderr"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.SimpleHandler.get_stderr">[docs]</a>    <span class="k">def</span> <span class="nf">get_stderr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">stderr</span>
+</div>
+<div class="viewcode-block" id="SimpleHandler.add_cgi_vars"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.SimpleHandler.add_cgi_vars">[docs]</a>    <span class="k">def</span> <span class="nf">add_cgi_vars</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">base_env</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_write</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_flush</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_flush</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">flush</span>
+
+</div>
+<div class="viewcode-block" id="BaseCGIHandler"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.BaseCGIHandler">[docs]</a><span class="k">class</span> <span class="nc">BaseCGIHandler</span><span class="p">(</span><span class="n">SimpleHandler</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;CGI-like systems using input/output/error streams and environ mapping</span>
+
+<span class="sd">    Usage::</span>
+
+<span class="sd">        handler = BaseCGIHandler(inp,out,err,env)</span>
+<span class="sd">        handler.run(app)</span>
+
+<span class="sd">    This handler class is useful for gateway protocols like ReadyExec and</span>
+<span class="sd">    FastCGI, that have usable input/output/error streams and an environment</span>
+<span class="sd">    mapping.  It&#39;s also the base class for CGIHandler, which just uses</span>
+<span class="sd">    sys.stdin, os.environ, and so on.</span>
+
+<span class="sd">    The constructor also takes keyword arguments &#39;multithread&#39; and</span>
+<span class="sd">    &#39;multiprocess&#39; (defaulting to &#39;True&#39; and &#39;False&#39; respectively) to control</span>
+<span class="sd">    the configuration sent to the application.  It sets &#39;origin_server&#39; to</span>
+<span class="sd">    False (to enable CGI-like output), and assumes that &#39;wsgi.run_once&#39; is</span>
+<span class="sd">    False.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">origin_server</span> <span class="o">=</span> <span class="bp">False</span>
+
+</div>
+<div class="viewcode-block" id="CGIHandler"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.CGIHandler">[docs]</a><span class="k">class</span> <span class="nc">CGIHandler</span><span class="p">(</span><span class="n">BaseCGIHandler</span><span class="p">):</span>
+
+    <span class="sd">&quot;&quot;&quot;CGI-based invocation via sys.stdin/stdout/stderr and os.environ</span>
+
+<span class="sd">    Usage::</span>
+
+<span class="sd">        CGIHandler().run(app)</span>
+
+<span class="sd">    The difference between this class and BaseCGIHandler is that it always</span>
+<span class="sd">    uses &#39;wsgi.run_once&#39; of &#39;True&#39;, &#39;wsgi.multithread&#39; of &#39;False&#39;, and</span>
+<span class="sd">    &#39;wsgi.multiprocess&#39; of &#39;True&#39;.  It does not take any initialization</span>
+<span class="sd">    parameters, but always uses &#39;sys.stdin&#39;, &#39;os.environ&#39;, and friends.</span>
+
+<span class="sd">    If you need to override any of these parameters, use BaseCGIHandler</span>
+<span class="sd">    instead.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">wsgi_run_once</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="c"># Do not allow os.environ to leak between requests in Google App Engine</span>
+    <span class="c"># and other multi-run CGI use cases.  This is not easily testable.</span>
+    <span class="c"># See http://bugs.python.org/issue7250</span>
+    <span class="n">os_environ</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">BaseCGIHandler</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">,</span>
+            <span class="n">read_environ</span><span class="p">(),</span> <span class="n">multithread</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">multiprocess</span><span class="o">=</span><span class="bp">True</span>
+        <span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="IISCGIHandler"><a class="viewcode-back" href="../../wsgiref.html#wsgiref.handlers.IISCGIHandler">[docs]</a><span class="k">class</span> <span class="nc">IISCGIHandler</span><span class="p">(</span><span class="n">BaseCGIHandler</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;CGI-based invocation with workaround for IIS path bug</span>
+
+<span class="sd">    This handler should be used in preference to CGIHandler when deploying on</span>
+<span class="sd">    Microsoft IIS without having set the config allowPathInfo option (IIS&gt;=7)</span>
+<span class="sd">    or metabase allowPathInfoForScriptMappings (IIS&lt;7).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">wsgi_run_once</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="n">os_environ</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c"># By default, IIS gives a PATH_INFO that duplicates the SCRIPT_NAME at</span>
+    <span class="c"># the front, causing problems for WSGI applications that wish to implement</span>
+    <span class="c"># routing. This handler strips any such duplicated path.</span>
+
+    <span class="c"># IIS can be configured to pass the correct PATH_INFO, but this causes</span>
+    <span class="c"># another bug where PATH_TRANSLATED is wrong. Luckily this variable is</span>
+    <span class="c"># rarely used and is not guaranteed by WSGI. On IIS&lt;7, though, the</span>
+    <span class="c"># setting can only be made on a vhost level, affecting all other script</span>
+    <span class="c"># mappings, many of which break when exposed to the PATH_TRANSLATED bug.</span>
+    <span class="c"># For this reason IIS&lt;7 is almost never deployed with the fix. (Even IIS7</span>
+    <span class="c"># rarely uses it because there is still no UI for it.)</span>
+
+    <span class="c"># There is no way for CGI code to tell whether the option was set, so a</span>
+    <span class="c"># separate handler class is provided.</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">environ</span><span class="o">=</span> <span class="n">read_environ</span><span class="p">()</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;PATH_INFO&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="n">script</span> <span class="o">=</span> <span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;SCRIPT_NAME&#39;</span><span class="p">,</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">path</span><span class="o">+</span><span class="s">&#39;/&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">script</span><span class="o">+</span><span class="s">&#39;/&#39;</span><span class="p">):</span>
+            <span class="n">environ</span><span class="p">[</span><span class="s">&#39;PATH_INFO&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">path</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">script</span><span class="p">):]</span>
+        <span class="n">BaseCGIHandler</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span>
+            <span class="bp">self</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">,</span>
+            <span class="n">environ</span><span class="p">,</span> <span class="n">multithread</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">multiprocess</span><span class="o">=</span><span class="bp">True</span>
+        <span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

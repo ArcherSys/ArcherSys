@@ -1,0 +1,549 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>distutils.fancy_getopt &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for distutils.fancy_getopt</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.fancy_getopt</span>
+
+<span class="sd">Wrapper around the standard getopt module that provides the following</span>
+<span class="sd">additional features:</span>
+<span class="sd">  * short and long options are tied together</span>
+<span class="sd">  * options have help strings, so fancy_getopt could potentially</span>
+<span class="sd">    create a complete usage summary</span>
+<span class="sd">  * options set attributes of a passed-in object</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">string</span><span class="o">,</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">getopt</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="o">*</span>
+
+<span class="c"># Much like command_re in distutils.core, this is close to but not quite</span>
+<span class="c"># the same as a Python NAME -- except, in the spirit of most GNU</span>
+<span class="c"># utilities, we use &#39;-&#39; in place of &#39;_&#39;.  (The spirit of LISP lives on!)</span>
+<span class="c"># The similarities to NAME are again not a coincidence...</span>
+<span class="n">longopt_pat</span> <span class="o">=</span> <span class="s">r&#39;[a-zA-Z](?:[a-zA-Z0-9-]*)&#39;</span>
+<span class="n">longopt_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^</span><span class="si">%s</span><span class="s">$&#39;</span> <span class="o">%</span> <span class="n">longopt_pat</span><span class="p">)</span>
+
+<span class="c"># For recognizing &quot;negative alias&quot; options, eg. &quot;quiet=!verbose&quot;</span>
+<span class="n">neg_alias_re</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&quot;^(</span><span class="si">%s</span><span class="s">)=!(</span><span class="si">%s</span><span class="s">)$&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">longopt_pat</span><span class="p">,</span> <span class="n">longopt_pat</span><span class="p">))</span>
+
+<span class="c"># This is used to translate long options to legitimate Python identifiers</span>
+<span class="c"># (for use as attributes of some object).</span>
+<span class="n">longopt_xlate</span> <span class="o">=</span> <span class="nb">str</span><span class="o">.</span><span class="n">maketrans</span><span class="p">(</span><span class="s">&#39;-&#39;</span><span class="p">,</span> <span class="s">&#39;_&#39;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="FancyGetopt"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt">[docs]</a><span class="k">class</span> <span class="nc">FancyGetopt</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Wrapper around the standard &#39;getopt()&#39; module that provides some</span>
+<span class="sd">    handy extra functionality:</span>
+<span class="sd">      * short and long options are tied together</span>
+<span class="sd">      * options have help strings, and help text can be assembled</span>
+<span class="sd">        from them</span>
+<span class="sd">      * options set attributes of a passed-in object</span>
+<span class="sd">      * boolean options can have &quot;negative aliases&quot; -- eg. if</span>
+<span class="sd">        --quiet is the &quot;negative alias&quot; of --verbose, then &quot;--quiet&quot;</span>
+<span class="sd">        on the command line sets &#39;verbose&#39; to false</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option_table</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="c"># The option table is (currently) a list of tuples.  The</span>
+        <span class="c"># tuples may have 3 or four values:</span>
+        <span class="c">#   (long_option, short_option, help_string [, repeatable])</span>
+        <span class="c"># if an option takes an argument, its long_option should have &#39;=&#39;</span>
+        <span class="c"># appended; short_option should just be a single character, no &#39;:&#39;</span>
+        <span class="c"># in any case.  If a long_option doesn&#39;t have a corresponding</span>
+        <span class="c"># short_option, short_option should be None.  All option tuples</span>
+        <span class="c"># must have long options.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">option_table</span> <span class="o">=</span> <span class="n">option_table</span>
+
+        <span class="c"># &#39;option_index&#39; maps long option names to entries in the option</span>
+        <span class="c"># table (ie. those 3-tuples).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">option_index</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_table</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_build_index</span><span class="p">()</span>
+
+        <span class="c"># &#39;alias&#39; records (duh) alias options; {&#39;foo&#39;: &#39;bar&#39;} means</span>
+        <span class="c"># --foo is an alias for --bar</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">alias</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="c"># &#39;negative_alias&#39; keeps track of options that are the boolean</span>
+        <span class="c"># opposite of some other option</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">negative_alias</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="c"># These keep track of the information in the option table.  We</span>
+        <span class="c"># don&#39;t actually populate these structures until we&#39;re ready to</span>
+        <span class="c"># parse the command-line, since the &#39;option_table&#39; passed in here</span>
+        <span class="c"># isn&#39;t necessarily the final word.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">short_opts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">long_opts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">short2long</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">attr_name</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">takes_arg</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="c"># And &#39;option_order&#39; is filled up in &#39;getopt()&#39;; it records the</span>
+        <span class="c"># original order of options (and their values) on the command-line,</span>
+        <span class="c"># but expands short options, converts aliases, etc.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">option_order</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">def</span> <span class="nf">_build_index</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">option_index</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">option</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_table</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">option_index</span><span class="p">[</span><span class="n">option</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span> <span class="o">=</span> <span class="n">option</span>
+
+<div class="viewcode-block" id="FancyGetopt.set_option_table"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.set_option_table">[docs]</a>    <span class="k">def</span> <span class="nf">set_option_table</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option_table</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">option_table</span> <span class="o">=</span> <span class="n">option_table</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_build_index</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="FancyGetopt.add_option"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.add_option">[docs]</a>    <span class="k">def</span> <span class="nf">add_option</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">long_option</span><span class="p">,</span> <span class="n">short_option</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">help_string</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">long_option</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_index</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DistutilsGetoptError</span><span class="p">(</span>
+                  <span class="s">&quot;option conflict: already an option &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="n">long_option</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">option</span> <span class="o">=</span> <span class="p">(</span><span class="n">long_option</span><span class="p">,</span> <span class="n">short_option</span><span class="p">,</span> <span class="n">help_string</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">option_table</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">option</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">option_index</span><span class="p">[</span><span class="n">long_option</span><span class="p">]</span> <span class="o">=</span> <span class="n">option</span>
+</div>
+<div class="viewcode-block" id="FancyGetopt.has_option"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.has_option">[docs]</a>    <span class="k">def</span> <span class="nf">has_option</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">long_option</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return true if the option table for this parser has an</span>
+<span class="sd">        option with long name &#39;long_option&#39;.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">long_option</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_index</span>
+</div>
+<div class="viewcode-block" id="FancyGetopt.get_attr_name"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.get_attr_name">[docs]</a>    <span class="k">def</span> <span class="nf">get_attr_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">long_option</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Translate long option name &#39;long_option&#39; to the form it</span>
+<span class="sd">        has as an attribute of some object: ie., translate hyphens</span>
+<span class="sd">        to underscores.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">long_option</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">longopt_xlate</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_check_alias_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">aliases</span><span class="p">,</span> <span class="n">what</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">aliases</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">alias</span><span class="p">,</span> <span class="n">opt</span><span class="p">)</span> <span class="ow">in</span> <span class="n">aliases</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">alias</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_index</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsGetoptError</span><span class="p">((</span><span class="s">&quot;invalid </span><span class="si">%s</span><span class="s"> &#39;</span><span class="si">%s</span><span class="s">&#39;: &quot;</span>
+                       <span class="s">&quot;option &#39;</span><span class="si">%s</span><span class="s">&#39; not defined&quot;</span><span class="p">)</span> <span class="o">%</span> <span class="p">(</span><span class="n">what</span><span class="p">,</span> <span class="n">alias</span><span class="p">,</span> <span class="n">alias</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">opt</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_index</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsGetoptError</span><span class="p">((</span><span class="s">&quot;invalid </span><span class="si">%s</span><span class="s"> &#39;</span><span class="si">%s</span><span class="s">&#39;: &quot;</span>
+                       <span class="s">&quot;aliased option &#39;</span><span class="si">%s</span><span class="s">&#39; not defined&quot;</span><span class="p">)</span> <span class="o">%</span> <span class="p">(</span><span class="n">what</span><span class="p">,</span> <span class="n">alias</span><span class="p">,</span> <span class="n">opt</span><span class="p">))</span>
+
+<div class="viewcode-block" id="FancyGetopt.set_aliases"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.set_aliases">[docs]</a>    <span class="k">def</span> <span class="nf">set_aliases</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alias</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the aliases for this option parser.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_alias_dict</span><span class="p">(</span><span class="n">alias</span><span class="p">,</span> <span class="s">&quot;alias&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">alias</span> <span class="o">=</span> <span class="n">alias</span>
+</div>
+<div class="viewcode-block" id="FancyGetopt.set_negative_aliases"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.set_negative_aliases">[docs]</a>    <span class="k">def</span> <span class="nf">set_negative_aliases</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">negative_alias</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the negative aliases for this option parser.</span>
+<span class="sd">        &#39;negative_alias&#39; should be a dictionary mapping option names to</span>
+<span class="sd">        option names, both the key and value must already be defined</span>
+<span class="sd">        in the option table.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_alias_dict</span><span class="p">(</span><span class="n">negative_alias</span><span class="p">,</span> <span class="s">&quot;negative alias&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">negative_alias</span> <span class="o">=</span> <span class="n">negative_alias</span>
+</div>
+    <span class="k">def</span> <span class="nf">_grok_option_table</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Populate the various data structures that keep tabs on the</span>
+<span class="sd">        option table.  Called by &#39;getopt()&#39; before it can do anything</span>
+<span class="sd">        worthwhile.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">long_opts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">short_opts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">short2long</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">repeat</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">option</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_table</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">option</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                <span class="nb">long</span><span class="p">,</span> <span class="n">short</span><span class="p">,</span> <span class="n">help</span> <span class="o">=</span> <span class="n">option</span>
+                <span class="n">repeat</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">option</span><span class="p">)</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+                <span class="nb">long</span><span class="p">,</span> <span class="n">short</span><span class="p">,</span> <span class="n">help</span><span class="p">,</span> <span class="n">repeat</span> <span class="o">=</span> <span class="n">option</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># the option table is part of the code, so simply</span>
+                <span class="c"># assert that it is correct</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;invalid option tuple: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">option</span><span class="p">,))</span>
+
+            <span class="c"># Type- and value-check the option names</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="nb">long</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="nb">long</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsGetoptError</span><span class="p">((</span><span class="s">&quot;invalid long option &#39;</span><span class="si">%s</span><span class="s">&#39;: &quot;</span>
+                       <span class="s">&quot;must be a string of length &gt;= 2&quot;</span><span class="p">)</span> <span class="o">%</span> <span class="nb">long</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="p">((</span><span class="n">short</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">)</span> <span class="ow">or</span>
+                     <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">short</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">short</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">))):</span>
+                <span class="k">raise</span> <span class="n">DistutilsGetoptError</span><span class="p">(</span><span class="s">&quot;invalid short option &#39;</span><span class="si">%s</span><span class="s">&#39;: &quot;</span>
+                       <span class="s">&quot;must a single character or None&quot;</span> <span class="o">%</span> <span class="n">short</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">repeat</span><span class="p">[</span><span class="nb">long</span><span class="p">]</span> <span class="o">=</span> <span class="n">repeat</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">long_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">long</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="nb">long</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;=&#39;</span><span class="p">:</span>             <span class="c"># option takes an argument?</span>
+                <span class="k">if</span> <span class="n">short</span><span class="p">:</span> <span class="n">short</span> <span class="o">=</span> <span class="n">short</span> <span class="o">+</span> <span class="s">&#39;:&#39;</span>
+                <span class="nb">long</span> <span class="o">=</span> <span class="nb">long</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">takes_arg</span><span class="p">[</span><span class="nb">long</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># Is option is a &quot;negative alias&quot; for some other option (eg.</span>
+                <span class="c"># &quot;quiet&quot; == &quot;!verbose&quot;)?</span>
+                <span class="n">alias_to</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">negative_alias</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">long</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">alias_to</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">takes_arg</span><span class="p">[</span><span class="n">alias_to</span><span class="p">]:</span>
+                        <span class="k">raise</span> <span class="n">DistutilsGetoptError</span><span class="p">(</span>
+                              <span class="s">&quot;invalid negative alias &#39;</span><span class="si">%s</span><span class="s">&#39;: &quot;</span>
+                              <span class="s">&quot;aliased option &#39;</span><span class="si">%s</span><span class="s">&#39; takes a value&quot;</span>
+                              <span class="o">%</span> <span class="p">(</span><span class="nb">long</span><span class="p">,</span> <span class="n">alias_to</span><span class="p">))</span>
+
+                    <span class="bp">self</span><span class="o">.</span><span class="n">long_opts</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="nb">long</span> <span class="c"># XXX redundant?!</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">takes_arg</span><span class="p">[</span><span class="nb">long</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="c"># If this is an alias option, make sure its &quot;takes arg&quot; flag is</span>
+            <span class="c"># the same as the option it&#39;s aliased to.</span>
+            <span class="n">alias_to</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">alias</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="nb">long</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">alias_to</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">takes_arg</span><span class="p">[</span><span class="nb">long</span><span class="p">]</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">takes_arg</span><span class="p">[</span><span class="n">alias_to</span><span class="p">]:</span>
+                    <span class="k">raise</span> <span class="n">DistutilsGetoptError</span><span class="p">(</span>
+                          <span class="s">&quot;invalid alias &#39;</span><span class="si">%s</span><span class="s">&#39;: inconsistent with &quot;</span>
+                          <span class="s">&quot;aliased option &#39;</span><span class="si">%s</span><span class="s">&#39; (one of them takes a value, &quot;</span>
+                          <span class="s">&quot;the other doesn&#39;t&quot;</span>
+                          <span class="o">%</span> <span class="p">(</span><span class="nb">long</span><span class="p">,</span> <span class="n">alias_to</span><span class="p">))</span>
+
+            <span class="c"># Now enforce some bondage on the long option name, so we can</span>
+            <span class="c"># later translate it to an attribute name on some object.  Have</span>
+            <span class="c"># to do this a bit late to make sure we&#39;ve removed any trailing</span>
+            <span class="c"># &#39;=&#39;.</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">longopt_re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="nb">long</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="n">DistutilsGetoptError</span><span class="p">(</span>
+                       <span class="s">&quot;invalid long option name &#39;</span><span class="si">%s</span><span class="s">&#39; &quot;</span>
+                       <span class="s">&quot;(must be letters, numbers, hyphens only&quot;</span> <span class="o">%</span> <span class="nb">long</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">attr_name</span><span class="p">[</span><span class="nb">long</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_attr_name</span><span class="p">(</span><span class="nb">long</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">short</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">short_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">short</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">short2long</span><span class="p">[</span><span class="n">short</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span> <span class="o">=</span> <span class="nb">long</span>
+
+<div class="viewcode-block" id="FancyGetopt.getopt"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.getopt">[docs]</a>    <span class="k">def</span> <span class="nf">getopt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">object</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parse command-line options in args. Store as attributes on object.</span>
+
+<span class="sd">        If &#39;args&#39; is None or not supplied, uses &#39;sys.argv[1:]&#39;.  If</span>
+<span class="sd">        &#39;object&#39; is None or not supplied, creates a new OptionDummy</span>
+<span class="sd">        object, stores option values there, and returns a tuple (args,</span>
+<span class="sd">        object).  If &#39;object&#39; is supplied, it is modified in place and</span>
+<span class="sd">        &#39;getopt()&#39; just returns &#39;args&#39;; in both cases, the returned</span>
+<span class="sd">        &#39;args&#39; is a modified copy of the passed-in &#39;args&#39; list, which</span>
+<span class="sd">        is left untouched.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">args</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">args</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+        <span class="k">if</span> <span class="nb">object</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">object</span> <span class="o">=</span> <span class="n">OptionDummy</span><span class="p">()</span>
+            <span class="n">created_object</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">created_object</span> <span class="o">=</span> <span class="bp">False</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_grok_option_table</span><span class="p">()</span>
+
+        <span class="n">short_opts</span> <span class="o">=</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">short_opts</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">opts</span><span class="p">,</span> <span class="n">args</span> <span class="o">=</span> <span class="n">getopt</span><span class="o">.</span><span class="n">getopt</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">short_opts</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">long_opts</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">getopt</span><span class="o">.</span><span class="n">error</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DistutilsArgError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">opt</span><span class="p">,</span> <span class="n">val</span> <span class="ow">in</span> <span class="n">opts</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">opt</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span> <span class="ow">and</span> <span class="n">opt</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;-&#39;</span><span class="p">:</span> <span class="c"># it&#39;s a short option</span>
+                <span class="n">opt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">short2long</span><span class="p">[</span><span class="n">opt</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">opt</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span> <span class="ow">and</span> <span class="n">opt</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;--&#39;</span>
+                <span class="n">opt</span> <span class="o">=</span> <span class="n">opt</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span>
+
+            <span class="n">alias</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">alias</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">opt</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">alias</span><span class="p">:</span>
+                <span class="n">opt</span> <span class="o">=</span> <span class="n">alias</span>
+
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">takes_arg</span><span class="p">[</span><span class="n">opt</span><span class="p">]:</span>     <span class="c"># boolean option?</span>
+                <span class="k">assert</span> <span class="n">val</span> <span class="o">==</span> <span class="s">&#39;&#39;</span><span class="p">,</span> <span class="s">&quot;boolean option can&#39;t have value&quot;</span>
+                <span class="n">alias</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">negative_alias</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">opt</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">alias</span><span class="p">:</span>
+                    <span class="n">opt</span> <span class="o">=</span> <span class="n">alias</span>
+                    <span class="n">val</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">val</span> <span class="o">=</span> <span class="mi">1</span>
+
+            <span class="n">attr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr_name</span><span class="p">[</span><span class="n">opt</span><span class="p">]</span>
+            <span class="c"># The only repeating option at the moment is &#39;verbose&#39;.</span>
+            <span class="c"># It has a negative option -q quiet, which should set verbose = 0.</span>
+            <span class="k">if</span> <span class="n">val</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">repeat</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">attr</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">val</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="nb">object</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">option_order</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">opt</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+
+        <span class="c"># for opts</span>
+        <span class="k">if</span> <span class="n">created_object</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">args</span><span class="p">,</span> <span class="nb">object</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">args</span>
+</div>
+<div class="viewcode-block" id="FancyGetopt.get_option_order"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.get_option_order">[docs]</a>    <span class="k">def</span> <span class="nf">get_option_order</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the list of (option, value) tuples processed by the</span>
+<span class="sd">        previous run of &#39;getopt()&#39;.  Raises RuntimeError if</span>
+<span class="sd">        &#39;getopt()&#39; hasn&#39;t been called yet.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_order</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;&#39;getopt()&#39; hasn&#39;t been called yet&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_order</span>
+</div>
+<div class="viewcode-block" id="FancyGetopt.generate_help"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.generate_help">[docs]</a>    <span class="k">def</span> <span class="nf">generate_help</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generate help text (a list of strings, one per suggested line of</span>
+<span class="sd">        output) from the option table for this FancyGetopt object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Blithely assume the option table is good: probably wouldn&#39;t call</span>
+        <span class="c"># &#39;generate_help()&#39; unless you&#39;ve already called &#39;getopt()&#39;.</span>
+
+        <span class="c"># First pass: determine maximum length of long option names</span>
+        <span class="n">max_opt</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">option</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_table</span><span class="p">:</span>
+            <span class="nb">long</span> <span class="o">=</span> <span class="n">option</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">short</span> <span class="o">=</span> <span class="n">option</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">l</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="nb">long</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">long</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;=&#39;</span><span class="p">:</span>
+                <span class="n">l</span> <span class="o">=</span> <span class="n">l</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">short</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">l</span> <span class="o">=</span> <span class="n">l</span> <span class="o">+</span> <span class="mi">5</span>                   <span class="c"># &quot; (-x)&quot; where short == &#39;x&#39;</span>
+            <span class="k">if</span> <span class="n">l</span> <span class="o">&gt;</span> <span class="n">max_opt</span><span class="p">:</span>
+                <span class="n">max_opt</span> <span class="o">=</span> <span class="n">l</span>
+
+        <span class="n">opt_width</span> <span class="o">=</span> <span class="n">max_opt</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">+</span> <span class="mi">2</span>     <span class="c"># room for indent + dashes + gutter</span>
+
+        <span class="c"># Typical help block looks like this:</span>
+        <span class="c">#   --foo       controls foonabulation</span>
+        <span class="c"># Help block for longest option looks like this:</span>
+        <span class="c">#   --flimflam  set the flim-flam level</span>
+        <span class="c"># and with wrapped text:</span>
+        <span class="c">#   --flimflam  set the flim-flam level (must be between</span>
+        <span class="c">#               0 and 100, except on Tuesdays)</span>
+        <span class="c"># Options with short names will have the short name shown (but</span>
+        <span class="c"># it doesn&#39;t contribute to max_opt):</span>
+        <span class="c">#   --foo (-f)  controls foonabulation</span>
+        <span class="c"># If adding the short option would make the left column too wide,</span>
+        <span class="c"># we push the explanation off to the next line</span>
+        <span class="c">#   --flimflam (-l)</span>
+        <span class="c">#               set the flim-flam level</span>
+        <span class="c"># Important parameters:</span>
+        <span class="c">#   - 2 spaces before option block start lines</span>
+        <span class="c">#   - 2 dashes for each long option name</span>
+        <span class="c">#   - min. 2 spaces between option and explanation (gutter)</span>
+        <span class="c">#   - 5 characters (incl. space) for short option name</span>
+
+        <span class="c"># Now generate lines of help text.  (If 80 columns were good enough</span>
+        <span class="c"># for Jesus, then 78 columns are good enough for me!)</span>
+        <span class="n">line_width</span> <span class="o">=</span> <span class="mi">78</span>
+        <span class="n">text_width</span> <span class="o">=</span> <span class="n">line_width</span> <span class="o">-</span> <span class="n">opt_width</span>
+        <span class="n">big_indent</span> <span class="o">=</span> <span class="s">&#39; &#39;</span> <span class="o">*</span> <span class="n">opt_width</span>
+        <span class="k">if</span> <span class="n">header</span><span class="p">:</span>
+            <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="n">header</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">lines</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;Option summary:&#39;</span><span class="p">]</span>
+
+        <span class="k">for</span> <span class="n">option</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">option_table</span><span class="p">:</span>
+            <span class="nb">long</span><span class="p">,</span> <span class="n">short</span><span class="p">,</span> <span class="n">help</span> <span class="o">=</span> <span class="n">option</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span>
+            <span class="n">text</span> <span class="o">=</span> <span class="n">wrap_text</span><span class="p">(</span><span class="n">help</span><span class="p">,</span> <span class="n">text_width</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">long</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;=&#39;</span><span class="p">:</span>
+                <span class="nb">long</span> <span class="o">=</span> <span class="nb">long</span><span class="p">[</span><span class="mi">0</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+            <span class="c"># Case 1: no short option at all (makes life easy)</span>
+            <span class="k">if</span> <span class="n">short</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">text</span><span class="p">:</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;  --</span><span class="si">%-*s</span><span class="s">  </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">max_opt</span><span class="p">,</span> <span class="nb">long</span><span class="p">,</span> <span class="n">text</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;  --</span><span class="si">%-*s</span><span class="s">  &quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">max_opt</span><span class="p">,</span> <span class="nb">long</span><span class="p">))</span>
+
+            <span class="c"># Case 2: we have a short option, so we have to include it</span>
+            <span class="c"># just after the long option</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">opt_names</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> (-</span><span class="si">%s</span><span class="s">)&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="nb">long</span><span class="p">,</span> <span class="n">short</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">text</span><span class="p">:</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;  --</span><span class="si">%-*s</span><span class="s">  </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span>
+                                 <span class="p">(</span><span class="n">max_opt</span><span class="p">,</span> <span class="n">opt_names</span><span class="p">,</span> <span class="n">text</span><span class="p">[</span><span class="mi">0</span><span class="p">]))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;  --</span><span class="si">%-*s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">opt_names</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">text</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+                <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">big_indent</span> <span class="o">+</span> <span class="n">l</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">lines</span>
+</div>
+<div class="viewcode-block" id="FancyGetopt.print_help"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.FancyGetopt.print_help">[docs]</a>    <span class="k">def</span> <span class="nf">print_help</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">file</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">file</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">generate_help</span><span class="p">(</span><span class="n">header</span><span class="p">):</span>
+            <span class="nb">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">line</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="fancy_getopt"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.fancy_getopt">[docs]</a><span class="k">def</span> <span class="nf">fancy_getopt</span><span class="p">(</span><span class="n">options</span><span class="p">,</span> <span class="n">negative_opt</span><span class="p">,</span> <span class="nb">object</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">FancyGetopt</span><span class="p">(</span><span class="n">options</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">set_negative_aliases</span><span class="p">(</span><span class="n">negative_opt</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">parser</span><span class="o">.</span><span class="n">getopt</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="nb">object</span><span class="p">)</span>
+
+</div>
+<span class="n">WS_TRANS</span> <span class="o">=</span> <span class="p">{</span><span class="nb">ord</span><span class="p">(</span><span class="n">_wschar</span><span class="p">)</span> <span class="p">:</span> <span class="s">&#39; &#39;</span> <span class="k">for</span> <span class="n">_wschar</span> <span class="ow">in</span> <span class="n">string</span><span class="o">.</span><span class="n">whitespace</span><span class="p">}</span>
+
+<div class="viewcode-block" id="wrap_text"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.wrap_text">[docs]</a><span class="k">def</span> <span class="nf">wrap_text</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">width</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;wrap_text(text : string, width : int) -&gt; [string]</span>
+
+<span class="sd">    Split &#39;text&#39; into multiple lines of no more than &#39;width&#39; characters</span>
+<span class="sd">    each, and return the list of strings that results.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">text</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">text</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="n">width</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">text</span><span class="p">]</span>
+
+    <span class="n">text</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">expandtabs</span><span class="p">()</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="n">text</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">WS_TRANS</span><span class="p">)</span>
+    <span class="n">chunks</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">r&#39;( +|-+)&#39;</span><span class="p">,</span> <span class="n">text</span><span class="p">)</span>
+    <span class="n">chunks</span> <span class="o">=</span> <span class="p">[</span><span class="n">ch</span> <span class="k">for</span> <span class="n">ch</span> <span class="ow">in</span> <span class="n">chunks</span> <span class="k">if</span> <span class="n">ch</span><span class="p">]</span> <span class="c"># &#39; - &#39; results in empty strings</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">while</span> <span class="n">chunks</span><span class="p">:</span>
+        <span class="n">cur_line</span> <span class="o">=</span> <span class="p">[]</span>                   <span class="c"># list of chunks (to-be-joined)</span>
+        <span class="n">cur_len</span> <span class="o">=</span> <span class="mi">0</span>                     <span class="c"># length of current line</span>
+
+        <span class="k">while</span> <span class="n">chunks</span><span class="p">:</span>
+            <span class="n">l</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunks</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">cur_len</span> <span class="o">+</span> <span class="n">l</span> <span class="o">&lt;=</span> <span class="n">width</span><span class="p">:</span>    <span class="c"># can squeeze (at least) this chunk in</span>
+                <span class="n">cur_line</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chunks</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+                <span class="k">del</span> <span class="n">chunks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+                <span class="n">cur_len</span> <span class="o">=</span> <span class="n">cur_len</span> <span class="o">+</span> <span class="n">l</span>
+            <span class="k">else</span><span class="p">:</span>                       <span class="c"># this line is full</span>
+                <span class="c"># drop last chunk if all space</span>
+                <span class="k">if</span> <span class="n">cur_line</span> <span class="ow">and</span> <span class="n">cur_line</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39; &#39;</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="n">cur_line</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="k">break</span>
+
+        <span class="k">if</span> <span class="n">chunks</span><span class="p">:</span>                      <span class="c"># any chunks left to process?</span>
+            <span class="c"># if the current line is still empty, then we had a single</span>
+            <span class="c"># chunk that&#39;s too big too fit on a line -- so we break</span>
+            <span class="c"># down and break it up at the line width</span>
+            <span class="k">if</span> <span class="n">cur_len</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">cur_line</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">chunks</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">:</span><span class="n">width</span><span class="p">])</span>
+                <span class="n">chunks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">chunks</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="n">width</span><span class="p">:]</span>
+
+            <span class="c"># all-whitespace chunks at the end of a line can be discarded</span>
+            <span class="c"># (and we know from the re.split above that if a chunk has</span>
+            <span class="c"># *any* whitespace, it is *all* whitespace)</span>
+            <span class="k">if</span> <span class="n">chunks</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39; &#39;</span><span class="p">:</span>
+                <span class="k">del</span> <span class="n">chunks</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="c"># and store this line in the list-of-all-lines -- as a single</span>
+        <span class="c"># string, of course!</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cur_line</span><span class="p">))</span>
+
+    <span class="k">return</span> <span class="n">lines</span>
+
+</div>
+<div class="viewcode-block" id="translate_longopt"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.translate_longopt">[docs]</a><span class="k">def</span> <span class="nf">translate_longopt</span><span class="p">(</span><span class="n">opt</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Convert a long option name to a valid Python identifier by</span>
+<span class="sd">    changing &quot;-&quot; to &quot;_&quot;.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">opt</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">longopt_xlate</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="OptionDummy"><a class="viewcode-back" href="../../distutils.html#distutils.fancy_getopt.OptionDummy">[docs]</a><span class="k">class</span> <span class="nc">OptionDummy</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Dummy class just used as a place to hold command-line option</span>
+<span class="sd">    values as instance attributes.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="p">[]):</span>
+        <span class="sd">&quot;&quot;&quot;Create a new OptionDummy instance.  The attributes listed in</span>
+<span class="sd">        &#39;options&#39; will be initialized to None.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">opt</span> <span class="ow">in</span> <span class="n">options</span><span class="p">:</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">opt</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s">Tra-la-la, supercalifragilisticexpialidocious.</span>
+<span class="s">How *do* you spell that odd word, anyways?</span>
+<span class="s">(Someone ask Mary -- she&#39;ll know [or she&#39;ll</span>
+<span class="s">say, &quot;How should I know?&quot;].)&quot;&quot;&quot;</span>
+
+    <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">20</span><span class="p">,</span> <span class="mi">30</span><span class="p">,</span> <span class="mi">40</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;width: </span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">w</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">wrap_text</span><span class="p">(</span><span class="n">text</span><span class="p">,</span> <span class="n">w</span><span class="p">)))</span>
+        <span class="k">print</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

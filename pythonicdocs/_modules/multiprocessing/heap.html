@@ -1,0 +1,341 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>multiprocessing.heap &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for multiprocessing.heap</h1><div class="highlight"><pre>
+<span class="c">#</span>
+<span class="c"># Module which supports allocation of memory from an mmap</span>
+<span class="c">#</span>
+<span class="c"># multiprocessing/heap.py</span>
+<span class="c">#</span>
+<span class="c"># Copyright (c) 2006-2008, R Oudkerk</span>
+<span class="c"># Licensed to PSF under a Contributor Agreement.</span>
+<span class="c">#</span>
+
+<span class="kn">import</span> <span class="nn">bisect</span>
+<span class="kn">import</span> <span class="nn">mmap</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">context</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">reduction</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">util</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;BufferWrapper&#39;</span><span class="p">]</span>
+
+<span class="c">#</span>
+<span class="c"># Inheritable class which wraps an mmap, and from which blocks can be allocated</span>
+<span class="c">#</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+
+    <span class="kn">import</span> <span class="nn">_winapi</span>
+
+    <span class="k">class</span> <span class="nc">Arena</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+        <span class="n">_rand</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">_RandomNameSequence</span><span class="p">()</span>
+
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="o">=</span> <span class="n">size</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">):</span>
+                <span class="n">name</span> <span class="o">=</span> <span class="s">&#39;pym-</span><span class="si">%d</span><span class="s">-</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">(),</span> <span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_rand</span><span class="p">))</span>
+                <span class="n">buf</span> <span class="o">=</span> <span class="n">mmap</span><span class="o">.</span><span class="n">mmap</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">tagname</span><span class="o">=</span><span class="n">name</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GetLastError</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="c"># We have reopened a preexisting mmap.</span>
+                <span class="n">buf</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">FileExistsError</span><span class="p">(</span><span class="s">&#39;Cannot find name for new mmap&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">buffer</span> <span class="o">=</span> <span class="n">buf</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">__getstate__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="n">context</span><span class="o">.</span><span class="n">assert_spawning</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span>
+
+        <span class="k">def</span> <span class="nf">__setstate__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">state</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">buffer</span> <span class="o">=</span> <span class="n">mmap</span><span class="o">.</span><span class="n">mmap</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">tagname</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+            <span class="k">assert</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GetLastError</span><span class="p">()</span> <span class="o">==</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_ALREADY_EXISTS</span>
+
+<span class="k">else</span><span class="p">:</span>
+
+    <span class="k">class</span> <span class="nc">Arena</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">fd</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">size</span> <span class="o">=</span> <span class="n">size</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fd</span> <span class="o">=</span> <span class="n">fd</span>
+            <span class="k">if</span> <span class="n">fd</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fd</span><span class="p">,</span> <span class="n">name</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkstemp</span><span class="p">(</span>
+                     <span class="n">prefix</span><span class="o">=</span><span class="s">&#39;pym-</span><span class="si">%d</span><span class="s">-&#39;</span><span class="o">%</span><span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">(),</span> <span class="nb">dir</span><span class="o">=</span><span class="n">util</span><span class="o">.</span><span class="n">get_temp_dir</span><span class="p">())</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="n">util</span><span class="o">.</span><span class="n">Finalize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fd</span><span class="p">,))</span>
+                <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fd</span><span class="p">,</span> <span class="s">&#39;wb&#39;</span><span class="p">,</span> <span class="n">closefd</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\0</span><span class="s">&#39;</span><span class="o">*</span><span class="n">size</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">buffer</span> <span class="o">=</span> <span class="n">mmap</span><span class="o">.</span><span class="n">mmap</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fd</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">reduce_arena</span><span class="p">(</span><span class="n">a</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">fd</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Arena is unpicklable because &#39;</span>
+                             <span class="s">&#39;forking was enabled when it was created&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">rebuild_arena</span><span class="p">,</span> <span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">size</span><span class="p">,</span> <span class="n">reduction</span><span class="o">.</span><span class="n">DupFd</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">fd</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">rebuild_arena</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">dupfd</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">Arena</span><span class="p">(</span><span class="n">size</span><span class="p">,</span> <span class="n">dupfd</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+
+    <span class="n">reduction</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Arena</span><span class="p">,</span> <span class="n">reduce_arena</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Class allowing allocation of chunks of memory from arenas</span>
+<span class="c">#</span>
+
+<span class="k">class</span> <span class="nc">Heap</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="n">_alignment</span> <span class="o">=</span> <span class="mi">8</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">mmap</span><span class="o">.</span><span class="n">PAGESIZE</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lastpid</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">=</span> <span class="n">size</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lengths</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_len_to_seq</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_start_to_block</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stop_to_block</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_allocated_blocks</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_arenas</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c"># list of pending blocks to free - see free() comment below</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pending_free_blocks</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_roundup</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">alignment</span><span class="p">):</span>
+        <span class="c"># alignment must be a power of 2</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="n">alignment</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">n</span> <span class="o">+</span> <span class="n">mask</span><span class="p">)</span> <span class="o">&amp;</span> <span class="o">~</span><span class="n">mask</span>
+
+    <span class="k">def</span> <span class="nf">_malloc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+        <span class="c"># returns a large enough block -- it might be much larger</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">bisect</span><span class="o">.</span><span class="n">bisect_left</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_lengths</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_lengths</span><span class="p">):</span>
+            <span class="n">length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_roundup</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_size</span><span class="p">,</span> <span class="n">size</span><span class="p">),</span> <span class="n">mmap</span><span class="o">.</span><span class="n">PAGESIZE</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_size</span> <span class="o">*=</span> <span class="mi">2</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s">&#39;allocating a new mmap of length </span><span class="si">%d</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">length</span><span class="p">)</span>
+            <span class="n">arena</span> <span class="o">=</span> <span class="n">Arena</span><span class="p">(</span><span class="n">length</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_arenas</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">arena</span><span class="p">)</span>
+            <span class="k">return</span> <span class="p">(</span><span class="n">arena</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">length</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">length</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lengths</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">seq</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_len_to_seq</span><span class="p">[</span><span class="n">length</span><span class="p">]</span>
+            <span class="n">block</span> <span class="o">=</span> <span class="n">seq</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">seq</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_len_to_seq</span><span class="p">[</span><span class="n">length</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lengths</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+        <span class="p">(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">)</span> <span class="o">=</span> <span class="n">block</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_to_block</span><span class="p">[(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">)]</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stop_to_block</span><span class="p">[(</span><span class="n">arena</span><span class="p">,</span> <span class="n">stop</span><span class="p">)]</span>
+        <span class="k">return</span> <span class="n">block</span>
+
+    <span class="k">def</span> <span class="nf">_free</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">):</span>
+        <span class="c"># free location and try to merge with neighbours</span>
+        <span class="p">(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">)</span> <span class="o">=</span> <span class="n">block</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">prev_block</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stop_to_block</span><span class="p">[(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">)]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">start</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_absorb</span><span class="p">(</span><span class="n">prev_block</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">next_block</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_to_block</span><span class="p">[(</span><span class="n">arena</span><span class="p">,</span> <span class="n">stop</span><span class="p">)]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">_</span><span class="p">,</span> <span class="n">stop</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_absorb</span><span class="p">(</span><span class="n">next_block</span><span class="p">)</span>
+
+        <span class="n">block</span> <span class="o">=</span> <span class="p">(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">)</span>
+        <span class="n">length</span> <span class="o">=</span> <span class="n">stop</span> <span class="o">-</span> <span class="n">start</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_len_to_seq</span><span class="p">[</span><span class="n">length</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_len_to_seq</span><span class="p">[</span><span class="n">length</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">block</span><span class="p">]</span>
+            <span class="n">bisect</span><span class="o">.</span><span class="n">insort</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_lengths</span><span class="p">,</span> <span class="n">length</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_start_to_block</span><span class="p">[(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">)]</span> <span class="o">=</span> <span class="n">block</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stop_to_block</span><span class="p">[(</span><span class="n">arena</span><span class="p">,</span> <span class="n">stop</span><span class="p">)]</span> <span class="o">=</span> <span class="n">block</span>
+
+    <span class="k">def</span> <span class="nf">_absorb</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">):</span>
+        <span class="c"># deregister this block so it can be merged with a neighbour</span>
+        <span class="p">(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">)</span> <span class="o">=</span> <span class="n">block</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_to_block</span><span class="p">[(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">)]</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stop_to_block</span><span class="p">[(</span><span class="n">arena</span><span class="p">,</span> <span class="n">stop</span><span class="p">)]</span>
+
+        <span class="n">length</span> <span class="o">=</span> <span class="n">stop</span> <span class="o">-</span> <span class="n">start</span>
+        <span class="n">seq</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_len_to_seq</span><span class="p">[</span><span class="n">length</span><span class="p">]</span>
+        <span class="n">seq</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">seq</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_len_to_seq</span><span class="p">[</span><span class="n">length</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_lengths</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">length</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span>
+
+    <span class="k">def</span> <span class="nf">_free_pending_blocks</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Free all the blocks in the pending list - called with the lock held.</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">block</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pending_free_blocks</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">IndexError</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_allocated_blocks</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_free</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">free</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">):</span>
+        <span class="c"># free a block returned by malloc()</span>
+        <span class="c"># Since free() can be called asynchronously by the GC, it could happen</span>
+        <span class="c"># that it&#39;s called while self._lock is held: in that case,</span>
+        <span class="c"># self._lock.acquire() would deadlock (issue #12352). To avoid that, a</span>
+        <span class="c"># trylock is used instead, and if the lock can&#39;t be acquired</span>
+        <span class="c"># immediately, the block is added to a list of blocks to be freed</span>
+        <span class="c"># synchronously sometimes later from malloc() or free(), by calling</span>
+        <span class="c"># _free_pending_blocks() (appending and retrieving from a list is not</span>
+        <span class="c"># strictly thread-safe but under cPython it&#39;s atomic thanks to the GIL).</span>
+        <span class="k">assert</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lastpid</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="o">.</span><span class="n">acquire</span><span class="p">(</span><span class="bp">False</span><span class="p">):</span>
+            <span class="c"># can&#39;t acquire the lock right now, add the block to the list of</span>
+            <span class="c"># pending blocks to free</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pending_free_blocks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># we hold the lock</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_free_pending_blocks</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_allocated_blocks</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_free</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">malloc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+        <span class="c"># return a block of right size (possibly rounded up)</span>
+        <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">size</span> <span class="o">&lt;</span> <span class="n">sys</span><span class="o">.</span><span class="n">maxsize</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">()</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_lastpid</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>                     <span class="c"># reinitialize after fork</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="o">.</span><span class="n">acquire</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_free_pending_blocks</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_roundup</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">size</span><span class="p">,</span><span class="mi">1</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_alignment</span><span class="p">)</span>
+            <span class="p">(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_malloc</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+            <span class="n">new_stop</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">size</span>
+            <span class="k">if</span> <span class="n">new_stop</span> <span class="o">&lt;</span> <span class="n">stop</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_free</span><span class="p">((</span><span class="n">arena</span><span class="p">,</span> <span class="n">new_stop</span><span class="p">,</span> <span class="n">stop</span><span class="p">))</span>
+            <span class="n">block</span> <span class="o">=</span> <span class="p">(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">new_stop</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_allocated_blocks</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">block</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_lock</span><span class="o">.</span><span class="n">release</span><span class="p">()</span>
+
+<span class="c">#</span>
+<span class="c"># Class representing a chunk of an mmap -- can be inherited by child process</span>
+<span class="c">#</span>
+
+<div class="viewcode-block" id="BufferWrapper"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.heap.BufferWrapper">[docs]</a><span class="k">class</span> <span class="nc">BufferWrapper</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="n">_heap</span> <span class="o">=</span> <span class="n">Heap</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">size</span> <span class="o">&lt;</span> <span class="n">sys</span><span class="o">.</span><span class="n">maxsize</span>
+        <span class="n">block</span> <span class="o">=</span> <span class="n">BufferWrapper</span><span class="o">.</span><span class="n">_heap</span><span class="o">.</span><span class="n">malloc</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">size</span><span class="p">)</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">Finalize</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">BufferWrapper</span><span class="o">.</span><span class="n">_heap</span><span class="o">.</span><span class="n">free</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">block</span><span class="p">,))</span>
+
+<div class="viewcode-block" id="BufferWrapper.create_memoryview"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.heap.BufferWrapper.create_memoryview">[docs]</a>    <span class="k">def</span> <span class="nf">create_memoryview</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="p">(</span><span class="n">arena</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">),</span> <span class="n">size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span>
+        <span class="k">return</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">arena</span><span class="o">.</span><span class="n">buffer</span><span class="p">)[</span><span class="n">start</span><span class="p">:</span><span class="n">start</span><span class="o">+</span><span class="n">size</span><span class="p">]</span></div></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

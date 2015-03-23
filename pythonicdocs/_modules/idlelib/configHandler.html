@@ -1,0 +1,814 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>idlelib.configHandler &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for idlelib.configHandler</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Provides access to stored IDLE configuration information.</span>
+
+<span class="sd">Refer to the comments at the beginning of config-main.def for a description of</span>
+<span class="sd">the available configuration files and the design implemented to update user</span>
+<span class="sd">configuration information.  In particular, user configuration choices which</span>
+<span class="sd">duplicate the defaults will be removed from the user&#39;s configuration files,</span>
+<span class="sd">and if a file becomes empty, it will be deleted.</span>
+
+<span class="sd">The contents of the user files may be altered using the Options/Configure IDLE</span>
+<span class="sd">menu to access the configuration GUI (configDialog.py), or manually.</span>
+
+<span class="sd">Throughout this module there is an emphasis on returning useable defaults</span>
+<span class="sd">when a problem occurs in returning a requested configuration value back to</span>
+<span class="sd">idle. This is to allow IDLE to continue to function in spite of errors in</span>
+<span class="sd">the retrieval of config information. When a default is returned instead of</span>
+<span class="sd">a requested config value, a message is printed to stderr to aid in</span>
+<span class="sd">configuration problem notification and resolution.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+
+<span class="kn">from</span> <span class="nn">configparser</span> <span class="kn">import</span> <span class="n">ConfigParser</span>
+
+<div class="viewcode-block" id="InvalidConfigType"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.InvalidConfigType">[docs]</a><span class="k">class</span> <span class="nc">InvalidConfigType</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span> <span class="k">pass</span></div>
+<div class="viewcode-block" id="InvalidConfigSet"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.InvalidConfigSet">[docs]</a><span class="k">class</span> <span class="nc">InvalidConfigSet</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span> <span class="k">pass</span></div>
+<div class="viewcode-block" id="InvalidFgBg"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.InvalidFgBg">[docs]</a><span class="k">class</span> <span class="nc">InvalidFgBg</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span> <span class="k">pass</span></div>
+<div class="viewcode-block" id="InvalidTheme"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.InvalidTheme">[docs]</a><span class="k">class</span> <span class="nc">InvalidTheme</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span> <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="IdleConfParser"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConfParser">[docs]</a><span class="k">class</span> <span class="nc">IdleConfParser</span><span class="p">(</span><span class="n">ConfigParser</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A ConfigParser specialised for idle configuration file handling</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cfgFile</span><span class="p">,</span> <span class="n">cfgDefaults</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        cfgFile - string, fully specified configuration file name</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="o">=</span><span class="n">cfgFile</span>
+        <span class="n">ConfigParser</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">defaults</span><span class="o">=</span><span class="n">cfgDefaults</span><span class="p">,</span> <span class="n">strict</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+<div class="viewcode-block" id="IdleConfParser.Get"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConfParser.Get">[docs]</a>    <span class="k">def</span> <span class="nf">Get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get an option value for given section/option or return default.</span>
+<span class="sd">        If type is specified, return as type.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">has_option</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">default</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="o">==</span><span class="s">&#39;bool&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">getboolean</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">type</span><span class="o">==</span><span class="s">&#39;int&#39;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">getint</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="n">raw</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleConfParser.GetOptionList"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConfParser.GetOptionList">[docs]</a>    <span class="k">def</span> <span class="nf">GetOptionList</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">section</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get an option list for given section</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">has_section</span><span class="p">(</span><span class="n">section</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>  <span class="c">#return a default value</span>
+            <span class="k">return</span> <span class="p">[]</span>
+</div>
+<div class="viewcode-block" id="IdleConfParser.Load"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConfParser.Load">[docs]</a>    <span class="k">def</span> <span class="nf">Load</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Load the configuration file from disk</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="IdleUserConfParser"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleUserConfParser">[docs]</a><span class="k">class</span> <span class="nc">IdleUserConfParser</span><span class="p">(</span><span class="n">IdleConfParser</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    IdleConfigParser specialised for user configuration handling.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="IdleUserConfParser.AddSection"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleUserConfParser.AddSection">[docs]</a>    <span class="k">def</span> <span class="nf">AddSection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">section</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        if section doesn&#39;t exist, add it</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">has_section</span><span class="p">(</span><span class="n">section</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_section</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleUserConfParser.RemoveEmptySections"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleUserConfParser.RemoveEmptySections">[docs]</a>    <span class="k">def</span> <span class="nf">RemoveEmptySections</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        remove any sections that have no options</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">section</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sections</span><span class="p">():</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetOptionList</span><span class="p">(</span><span class="n">section</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">remove_section</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleUserConfParser.IsEmpty"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleUserConfParser.IsEmpty">[docs]</a>    <span class="k">def</span> <span class="nf">IsEmpty</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Remove empty sections and then return 1 if parser has no sections</span>
+<span class="sd">        left, else return 0.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">RemoveEmptySections</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">sections</span><span class="p">():</span>
+            <span class="k">return</span> <span class="mi">0</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="mi">1</span>
+</div>
+<div class="viewcode-block" id="IdleUserConfParser.RemoveOption"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleUserConfParser.RemoveOption">[docs]</a>    <span class="k">def</span> <span class="nf">RemoveOption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        If section/option exists, remove it.</span>
+<span class="sd">        Returns 1 if option was removed, 0 otherwise.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">has_section</span><span class="p">(</span><span class="n">section</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">remove_option</span><span class="p">(</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleUserConfParser.SetOption"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleUserConfParser.SetOption">[docs]</a>    <span class="k">def</span> <span class="nf">SetOption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">,</span><span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Sets option to value, adding section if required.</span>
+<span class="sd">        Returns 1 if option was added or changed, otherwise 0.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">has_option</span><span class="p">(</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">)</span><span class="o">==</span><span class="n">value</span><span class="p">:</span>
+                <span class="k">return</span> <span class="mi">0</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">,</span><span class="n">value</span><span class="p">)</span>
+                <span class="k">return</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">has_section</span><span class="p">(</span><span class="n">section</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add_section</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">,</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">return</span> <span class="mi">1</span>
+</div>
+<div class="viewcode-block" id="IdleUserConfParser.RemoveFile"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleUserConfParser.RemoveFile">[docs]</a>    <span class="k">def</span> <span class="nf">RemoveFile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Removes the user config file from disk if it exists.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">):</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleUserConfParser.Save"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleUserConfParser.Save">[docs]</a>    <span class="k">def</span> <span class="nf">Save</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Update user configuration file.</span>
+
+<span class="sd">        Remove empty sections. If resulting config isn&#39;t empty, write the file</span>
+<span class="sd">        to disk. If config is empty, remove the file from disk if it exists.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">IsEmpty</span><span class="p">():</span>
+            <span class="n">fname</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">file</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">cfgFile</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">fname</span><span class="p">)</span>
+                <span class="n">cfgFile</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">fname</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span>
+            <span class="k">with</span> <span class="n">cfgFile</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">cfgFile</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">RemoveFile</span><span class="p">()</span>
+</div></div>
+<div class="viewcode-block" id="IdleConf"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf">[docs]</a><span class="k">class</span> <span class="nc">IdleConf</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    holds config parsers for all idle config files:</span>
+<span class="sd">    default config files</span>
+<span class="sd">        (idle install dir)/config-main.def</span>
+<span class="sd">        (idle install dir)/config-extensions.def</span>
+<span class="sd">        (idle install dir)/config-highlight.def</span>
+<span class="sd">        (idle install dir)/config-keys.def</span>
+<span class="sd">    user config  files</span>
+<span class="sd">        (user home dir)/.idlerc/config-main.cfg</span>
+<span class="sd">        (user home dir)/.idlerc/config-extensions.cfg</span>
+<span class="sd">        (user home dir)/.idlerc/config-highlight.cfg</span>
+<span class="sd">        (user home dir)/.idlerc/config-keys.cfg</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="o">=</span><span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="o">=</span><span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cfg</span><span class="o">=</span><span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">CreateConfigHandlers</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">LoadCfgFiles</span><span class="p">()</span>
+        <span class="c">#self.LoadCfg()</span>
+
+<div class="viewcode-block" id="IdleConf.CreateConfigHandlers"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.CreateConfigHandlers">[docs]</a>    <span class="k">def</span> <span class="nf">CreateConfigHandlers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        set up a dictionary of config parsers for default and user</span>
+<span class="sd">        configurations respectively</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c">#build idle install path</span>
+        <span class="k">if</span> <span class="n">__name__</span> <span class="o">!=</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span> <span class="c"># we were imported</span>
+            <span class="n">idleDir</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">__file__</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span> <span class="c"># we were exec&#39;ed (for testing only)</span>
+            <span class="n">idleDir</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">userDir</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetUserCfgDir</span><span class="p">()</span>
+        <span class="n">configTypes</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;main&#39;</span><span class="p">,</span><span class="s">&#39;extensions&#39;</span><span class="p">,</span><span class="s">&#39;highlight&#39;</span><span class="p">,</span><span class="s">&#39;keys&#39;</span><span class="p">)</span>
+        <span class="n">defCfgFiles</span><span class="o">=</span><span class="p">{}</span>
+        <span class="n">usrCfgFiles</span><span class="o">=</span><span class="p">{}</span>
+        <span class="k">for</span> <span class="n">cfgType</span> <span class="ow">in</span> <span class="n">configTypes</span><span class="p">:</span> <span class="c">#build config file names</span>
+            <span class="n">defCfgFiles</span><span class="p">[</span><span class="n">cfgType</span><span class="p">]</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">idleDir</span><span class="p">,</span><span class="s">&#39;config-&#39;</span><span class="o">+</span><span class="n">cfgType</span><span class="o">+</span><span class="s">&#39;.def&#39;</span><span class="p">)</span>
+            <span class="n">usrCfgFiles</span><span class="p">[</span><span class="n">cfgType</span><span class="p">]</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">userDir</span><span class="p">,</span><span class="s">&#39;config-&#39;</span><span class="o">+</span><span class="n">cfgType</span><span class="o">+</span><span class="s">&#39;.cfg&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">cfgType</span> <span class="ow">in</span> <span class="n">configTypes</span><span class="p">:</span> <span class="c">#create config parsers</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="n">cfgType</span><span class="p">]</span><span class="o">=</span><span class="n">IdleConfParser</span><span class="p">(</span><span class="n">defCfgFiles</span><span class="p">[</span><span class="n">cfgType</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="n">cfgType</span><span class="p">]</span><span class="o">=</span><span class="n">IdleUserConfParser</span><span class="p">(</span><span class="n">usrCfgFiles</span><span class="p">[</span><span class="n">cfgType</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetUserCfgDir"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetUserCfgDir">[docs]</a>    <span class="k">def</span> <span class="nf">GetUserCfgDir</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Creates (if required) and returns a filesystem directory for storing</span>
+<span class="sd">        user config files.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">cfgDir</span> <span class="o">=</span> <span class="s">&#39;.idlerc&#39;</span>
+        <span class="n">userDir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">expanduser</span><span class="p">(</span><span class="s">&#39;~&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">userDir</span> <span class="o">!=</span> <span class="s">&#39;~&#39;</span><span class="p">:</span> <span class="c"># expanduser() found user home dir</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">userDir</span><span class="p">):</span>
+                <span class="n">warn</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s"> Warning: os.path.expanduser(&quot;~&quot;) points to</span><span class="se">\n</span><span class="s"> &#39;</span><span class="o">+</span>
+                        <span class="n">userDir</span><span class="o">+</span><span class="s">&#39;,</span><span class="se">\n</span><span class="s"> but the path does not exist.&#39;</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="n">warn</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                    <span class="k">pass</span>
+                <span class="n">userDir</span> <span class="o">=</span> <span class="s">&#39;~&#39;</span>
+        <span class="k">if</span> <span class="n">userDir</span> <span class="o">==</span> <span class="s">&quot;~&quot;</span><span class="p">:</span> <span class="c"># still no path to home!</span>
+            <span class="c"># traditionally IDLE has defaulted to os.getcwd(), is this adequate?</span>
+            <span class="n">userDir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">getcwd</span><span class="p">()</span>
+        <span class="n">userDir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">userDir</span><span class="p">,</span> <span class="n">cfgDir</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">userDir</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">userDir</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="n">warn</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s"> Warning: unable to create user config directory</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">+</span>
+                        <span class="n">userDir</span><span class="o">+</span><span class="s">&#39;</span><span class="se">\n</span><span class="s"> Check path and permissions.</span><span class="se">\n</span><span class="s"> Exiting!</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                <span class="k">print</span><span class="p">(</span><span class="n">warn</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">SystemExit</span>
+        <span class="k">return</span> <span class="n">userDir</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetOption"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetOption">[docs]</a>    <span class="k">def</span> <span class="nf">GetOption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">configType</span><span class="p">,</span> <span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                  <span class="n">warn_on_default</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get an option value for given config type and given general</span>
+<span class="sd">        configuration section/option or return a default. If type is specified,</span>
+<span class="sd">        return as type. Firstly the user configuration is checked, with a</span>
+<span class="sd">        fallback to the default configuration, and a final &#39;catch all&#39;</span>
+<span class="sd">        fallback to a useable passed-in default if the option isn&#39;t present in</span>
+<span class="sd">        either the user or the default configuration.</span>
+<span class="sd">        configType must be one of (&#39;main&#39;,&#39;extensions&#39;,&#39;highlight&#39;,&#39;keys&#39;)</span>
+<span class="sd">        If a default is returned, and warn_on_default is True, a warning is</span>
+<span class="sd">        printed to stderr.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="n">configType</span><span class="p">]</span><span class="o">.</span><span class="n">has_option</span><span class="p">(</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">):</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="n">configType</span><span class="p">]</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span>
+                                                    <span class="nb">type</span><span class="o">=</span><span class="nb">type</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="n">raw</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="n">warning</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s"> Warning: configHandler.py - IdleConf.GetOption -</span><span class="se">\n</span><span class="s">&#39;</span>
+                       <span class="s">&#39; invalid </span><span class="si">%r</span><span class="s"> value for configuration option </span><span class="si">%r</span><span class="se">\n</span><span class="s">&#39;</span>
+                       <span class="s">&#39; from section </span><span class="si">%r</span><span class="s">: </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span>
+                       <span class="p">(</span><span class="nb">type</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">section</span><span class="p">,</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="n">configType</span><span class="p">]</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span>
+                                                     <span class="n">raw</span><span class="o">=</span><span class="n">raw</span><span class="p">)))</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">print</span><span class="p">(</span><span class="n">warning</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">pass</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="n">configType</span><span class="p">]</span><span class="o">.</span><span class="n">has_option</span><span class="p">(</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">):</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="n">configType</span><span class="p">]</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span>
+                                                       <span class="nb">type</span><span class="o">=</span><span class="nb">type</span><span class="p">,</span> <span class="n">raw</span><span class="o">=</span><span class="n">raw</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="c">#returning default, print warning</span>
+        <span class="k">if</span> <span class="n">warn_on_default</span><span class="p">:</span>
+            <span class="n">warning</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s"> Warning: configHandler.py - IdleConf.GetOption -</span><span class="se">\n</span><span class="s">&#39;</span>
+                       <span class="s">&#39; problem retrieving configuration option </span><span class="si">%r</span><span class="se">\n</span><span class="s">&#39;</span>
+                       <span class="s">&#39; from section </span><span class="si">%r</span><span class="s">.</span><span class="se">\n</span><span class="s">&#39;</span>
+                       <span class="s">&#39; returning default value: </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span>
+                       <span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">section</span><span class="p">,</span> <span class="n">default</span><span class="p">))</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">print</span><span class="p">(</span><span class="n">warning</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                <span class="k">pass</span>
+        <span class="k">return</span> <span class="n">default</span>
+</div>
+<div class="viewcode-block" id="IdleConf.SetOption"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.SetOption">[docs]</a>    <span class="k">def</span> <span class="nf">SetOption</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">configType</span><span class="p">,</span> <span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;In user&#39;s config file, set section&#39;s option to value.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="n">configType</span><span class="p">]</span><span class="o">.</span><span class="n">SetOption</span><span class="p">(</span><span class="n">section</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetSectionList"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetSectionList">[docs]</a>    <span class="k">def</span> <span class="nf">GetSectionList</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">configSet</span><span class="p">,</span> <span class="n">configType</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get a list of sections from either the user or default config for</span>
+<span class="sd">        the given config type.</span>
+<span class="sd">        configSet must be either &#39;user&#39; or &#39;default&#39;</span>
+<span class="sd">        configType must be one of (&#39;main&#39;,&#39;extensions&#39;,&#39;highlight&#39;,&#39;keys&#39;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="n">configType</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;main&#39;</span><span class="p">,</span><span class="s">&#39;extensions&#39;</span><span class="p">,</span><span class="s">&#39;highlight&#39;</span><span class="p">,</span><span class="s">&#39;keys&#39;</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="n">InvalidConfigType</span><span class="p">(</span><span class="s">&#39;Invalid configType specified&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">configSet</span> <span class="o">==</span> <span class="s">&#39;user&#39;</span><span class="p">:</span>
+            <span class="n">cfgParser</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="n">configType</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">configSet</span> <span class="o">==</span> <span class="s">&#39;default&#39;</span><span class="p">:</span>
+            <span class="n">cfgParser</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="n">configType</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">InvalidConfigSet</span><span class="p">(</span><span class="s">&#39;Invalid configSet specified&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">cfgParser</span><span class="o">.</span><span class="n">sections</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetHighlight"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetHighlight">[docs]</a>    <span class="k">def</span> <span class="nf">GetHighlight</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">theme</span><span class="p">,</span> <span class="n">element</span><span class="p">,</span> <span class="n">fgBg</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        return individual highlighting theme elements.</span>
+<span class="sd">        fgBg - string (&#39;fg&#39;or&#39;bg&#39;) or None, if None return a dictionary</span>
+<span class="sd">        containing fg and bg colours (appropriate for passing to Tkinter in,</span>
+<span class="sd">        e.g., a tag_config call), otherwise fg or bg colour only as specified.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;highlight&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">has_section</span><span class="p">(</span><span class="n">theme</span><span class="p">):</span>
+            <span class="n">themeDict</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetThemeDict</span><span class="p">(</span><span class="s">&#39;default&#39;</span><span class="p">,</span><span class="n">theme</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">themeDict</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetThemeDict</span><span class="p">(</span><span class="s">&#39;user&#39;</span><span class="p">,</span><span class="n">theme</span><span class="p">)</span>
+        <span class="n">fore</span><span class="o">=</span><span class="n">themeDict</span><span class="p">[</span><span class="n">element</span><span class="o">+</span><span class="s">&#39;-foreground&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">element</span><span class="o">==</span><span class="s">&#39;cursor&#39;</span><span class="p">:</span> <span class="c">#there is no config value for cursor bg</span>
+            <span class="n">back</span><span class="o">=</span><span class="n">themeDict</span><span class="p">[</span><span class="s">&#39;normal-background&#39;</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">back</span><span class="o">=</span><span class="n">themeDict</span><span class="p">[</span><span class="n">element</span><span class="o">+</span><span class="s">&#39;-background&#39;</span><span class="p">]</span>
+        <span class="n">highlight</span><span class="o">=</span><span class="p">{</span><span class="s">&quot;foreground&quot;</span><span class="p">:</span> <span class="n">fore</span><span class="p">,</span><span class="s">&quot;background&quot;</span><span class="p">:</span> <span class="n">back</span><span class="p">}</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">fgBg</span><span class="p">:</span> <span class="c">#return dict of both colours</span>
+            <span class="k">return</span> <span class="n">highlight</span>
+        <span class="k">else</span><span class="p">:</span> <span class="c">#return specified colour only</span>
+            <span class="k">if</span> <span class="n">fgBg</span> <span class="o">==</span> <span class="s">&#39;fg&#39;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">highlight</span><span class="p">[</span><span class="s">&quot;foreground&quot;</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">fgBg</span> <span class="o">==</span> <span class="s">&#39;bg&#39;</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">highlight</span><span class="p">[</span><span class="s">&quot;background&quot;</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">InvalidFgBg</span><span class="p">(</span><span class="s">&#39;Invalid fgBg specified&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetThemeDict"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetThemeDict">[docs]</a>    <span class="k">def</span> <span class="nf">GetThemeDict</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="nb">type</span><span class="p">,</span><span class="n">themeName</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        type - string, &#39;default&#39; or &#39;user&#39; theme type</span>
+<span class="sd">        themeName - string, theme name</span>
+<span class="sd">        Returns a dictionary which holds {option:value} for each element</span>
+<span class="sd">        in the specified theme. Values are loaded over a set of ultimate last</span>
+<span class="sd">        fallback defaults to guarantee that all theme elements are present in</span>
+<span class="sd">        a newly created theme.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">type</span> <span class="o">==</span> <span class="s">&#39;user&#39;</span><span class="p">:</span>
+            <span class="n">cfgParser</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="s">&#39;highlight&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="nb">type</span> <span class="o">==</span> <span class="s">&#39;default&#39;</span><span class="p">:</span>
+            <span class="n">cfgParser</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;highlight&#39;</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">InvalidTheme</span><span class="p">(</span><span class="s">&#39;Invalid theme type specified&#39;</span><span class="p">)</span>
+        <span class="c">#foreground and background values are provded for each theme element</span>
+        <span class="c">#(apart from cursor) even though all these values are not yet used</span>
+        <span class="c">#by idle, to allow for their use in the future. Default values are</span>
+        <span class="c">#generally black and white.</span>
+        <span class="n">theme</span><span class="o">=</span><span class="p">{</span> <span class="s">&#39;normal-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;normal-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;keyword-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;keyword-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;builtin-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;builtin-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;comment-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;comment-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;string-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;string-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;definition-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;definition-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;hilite-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;hilite-background&#39;</span><span class="p">:</span><span class="s">&#39;gray&#39;</span><span class="p">,</span>
+                <span class="s">&#39;break-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;break-background&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;hit-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;hit-background&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;error-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;error-background&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="c">#cursor (only foreground can be set)</span>
+                <span class="s">&#39;cursor-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="c">#shell window</span>
+                <span class="s">&#39;stdout-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;stdout-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;stderr-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;stderr-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span><span class="p">,</span>
+                <span class="s">&#39;console-foreground&#39;</span><span class="p">:</span><span class="s">&#39;#000000&#39;</span><span class="p">,</span>
+                <span class="s">&#39;console-background&#39;</span><span class="p">:</span><span class="s">&#39;#ffffff&#39;</span> <span class="p">}</span>
+        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">theme</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">cfgParser</span><span class="o">.</span><span class="n">has_option</span><span class="p">(</span><span class="n">themeName</span><span class="p">,</span><span class="n">element</span><span class="p">):</span>
+                <span class="c">#we are going to return a default, print warning</span>
+                <span class="n">warning</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s"> Warning: configHandler.py - IdleConf.GetThemeDict&#39;</span>
+                           <span class="s">&#39; -</span><span class="se">\n</span><span class="s"> problem retrieving theme element </span><span class="si">%r</span><span class="s">&#39;</span>
+                           <span class="s">&#39;</span><span class="se">\n</span><span class="s"> from theme </span><span class="si">%r</span><span class="s">.</span><span class="se">\n</span><span class="s">&#39;</span>
+                           <span class="s">&#39; returning default value: </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span>
+                           <span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="n">themeName</span><span class="p">,</span> <span class="n">theme</span><span class="p">[</span><span class="n">element</span><span class="p">]))</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="n">warning</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                    <span class="k">pass</span>
+            <span class="n">colour</span><span class="o">=</span><span class="n">cfgParser</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">themeName</span><span class="p">,</span><span class="n">element</span><span class="p">,</span><span class="n">default</span><span class="o">=</span><span class="n">theme</span><span class="p">[</span><span class="n">element</span><span class="p">])</span>
+            <span class="n">theme</span><span class="p">[</span><span class="n">element</span><span class="p">]</span><span class="o">=</span><span class="n">colour</span>
+        <span class="k">return</span> <span class="n">theme</span>
+</div>
+<div class="viewcode-block" id="IdleConf.CurrentTheme"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.CurrentTheme">[docs]</a>    <span class="k">def</span> <span class="nf">CurrentTheme</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns the name of the currently active theme</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetOption</span><span class="p">(</span><span class="s">&#39;main&#39;</span><span class="p">,</span><span class="s">&#39;Theme&#39;</span><span class="p">,</span><span class="s">&#39;name&#39;</span><span class="p">,</span><span class="n">default</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleConf.CurrentKeys"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.CurrentKeys">[docs]</a>    <span class="k">def</span> <span class="nf">CurrentKeys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns the name of the currently active key set</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetOption</span><span class="p">(</span><span class="s">&#39;main&#39;</span><span class="p">,</span><span class="s">&#39;Keys&#39;</span><span class="p">,</span><span class="s">&#39;name&#39;</span><span class="p">,</span><span class="n">default</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetExtensions"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetExtensions">[docs]</a>    <span class="k">def</span> <span class="nf">GetExtensions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">active_only</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">editor_only</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">shell_only</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Gets a list of all idle extensions declared in the config files.</span>
+<span class="sd">        active_only - boolean, if true only return active (enabled) extensions</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">extns</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">RemoveKeyBindNames</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">GetSectionList</span><span class="p">(</span><span class="s">&#39;default&#39;</span><span class="p">,</span><span class="s">&#39;extensions&#39;</span><span class="p">))</span>
+        <span class="n">userExtns</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">RemoveKeyBindNames</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">GetSectionList</span><span class="p">(</span><span class="s">&#39;user&#39;</span><span class="p">,</span><span class="s">&#39;extensions&#39;</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">extn</span> <span class="ow">in</span> <span class="n">userExtns</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">extn</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">extns</span><span class="p">:</span> <span class="c">#user has added own extension</span>
+                <span class="n">extns</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">extn</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">active_only</span><span class="p">:</span>
+            <span class="n">activeExtns</span><span class="o">=</span><span class="p">[]</span>
+            <span class="k">for</span> <span class="n">extn</span> <span class="ow">in</span> <span class="n">extns</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetOption</span><span class="p">(</span><span class="s">&#39;extensions&#39;</span><span class="p">,</span> <span class="n">extn</span><span class="p">,</span> <span class="s">&#39;enable&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span>
+                                  <span class="nb">type</span><span class="o">=</span><span class="s">&#39;bool&#39;</span><span class="p">):</span>
+                    <span class="c">#the extension is enabled</span>
+                    <span class="k">if</span> <span class="n">editor_only</span> <span class="ow">or</span> <span class="n">shell_only</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">editor_only</span><span class="p">:</span>
+                            <span class="n">option</span> <span class="o">=</span> <span class="s">&quot;enable_editor&quot;</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">option</span> <span class="o">=</span> <span class="s">&quot;enable_shell&quot;</span>
+                        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetOption</span><span class="p">(</span><span class="s">&#39;extensions&#39;</span><span class="p">,</span> <span class="n">extn</span><span class="p">,</span><span class="n">option</span><span class="p">,</span>
+                                          <span class="n">default</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;bool&#39;</span><span class="p">,</span>
+                                          <span class="n">warn_on_default</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+                            <span class="n">activeExtns</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">extn</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">activeExtns</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">extn</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">activeExtns</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">extns</span>
+</div>
+<div class="viewcode-block" id="IdleConf.RemoveKeyBindNames"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.RemoveKeyBindNames">[docs]</a>    <span class="k">def</span> <span class="nf">RemoveKeyBindNames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">extnNameList</span><span class="p">):</span>
+        <span class="c">#get rid of keybinding section names</span>
+        <span class="n">names</span><span class="o">=</span><span class="n">extnNameList</span>
+        <span class="n">kbNameIndicies</span><span class="o">=</span><span class="p">[]</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">((</span><span class="s">&#39;_bindings&#39;</span><span class="p">,</span> <span class="s">&#39;_cfgBindings&#39;</span><span class="p">)):</span>
+                <span class="n">kbNameIndicies</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">names</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
+        <span class="n">kbNameIndicies</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="n">kbNameIndicies</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">index</span> <span class="ow">in</span> <span class="n">kbNameIndicies</span><span class="p">:</span> <span class="c">#delete each keybinding section name</span>
+            <span class="k">del</span><span class="p">(</span><span class="n">names</span><span class="p">[</span><span class="n">index</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">names</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetExtnNameForEvent"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetExtnNameForEvent">[docs]</a>    <span class="k">def</span> <span class="nf">GetExtnNameForEvent</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">virtualEvent</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns the name of the extension that virtualEvent is bound in, or</span>
+<span class="sd">        None if not bound in any extension.</span>
+<span class="sd">        virtualEvent - string, name of the virtual event to test for, without</span>
+<span class="sd">                       the enclosing &#39;&lt;&lt; &gt;&gt;&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">extName</span><span class="o">=</span><span class="bp">None</span>
+        <span class="n">vEvent</span><span class="o">=</span><span class="s">&#39;&lt;&lt;&#39;</span><span class="o">+</span><span class="n">virtualEvent</span><span class="o">+</span><span class="s">&#39;&gt;&gt;&#39;</span>
+        <span class="k">for</span> <span class="n">extn</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetExtensions</span><span class="p">(</span><span class="n">active_only</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetExtensionKeys</span><span class="p">(</span><span class="n">extn</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">event</span> <span class="o">==</span> <span class="n">vEvent</span><span class="p">:</span>
+                    <span class="n">extName</span><span class="o">=</span><span class="n">extn</span>
+        <span class="k">return</span> <span class="n">extName</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetExtensionKeys"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetExtensionKeys">[docs]</a>    <span class="k">def</span> <span class="nf">GetExtensionKeys</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">extensionName</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        returns a dictionary of the configurable keybindings for a particular</span>
+<span class="sd">        extension,as they exist in the dictionary returned by GetCurrentKeySet;</span>
+<span class="sd">        that is, where previously used bindings are disabled.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">keysName</span><span class="o">=</span><span class="n">extensionName</span><span class="o">+</span><span class="s">&#39;_cfgBindings&#39;</span>
+        <span class="n">activeKeys</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetCurrentKeySet</span><span class="p">()</span>
+        <span class="n">extKeys</span><span class="o">=</span><span class="p">{}</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;extensions&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">has_section</span><span class="p">(</span><span class="n">keysName</span><span class="p">):</span>
+            <span class="n">eventNames</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;extensions&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">GetOptionList</span><span class="p">(</span><span class="n">keysName</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">eventName</span> <span class="ow">in</span> <span class="n">eventNames</span><span class="p">:</span>
+                <span class="n">event</span><span class="o">=</span><span class="s">&#39;&lt;&lt;&#39;</span><span class="o">+</span><span class="n">eventName</span><span class="o">+</span><span class="s">&#39;&gt;&gt;&#39;</span>
+                <span class="n">binding</span><span class="o">=</span><span class="n">activeKeys</span><span class="p">[</span><span class="n">event</span><span class="p">]</span>
+                <span class="n">extKeys</span><span class="p">[</span><span class="n">event</span><span class="p">]</span><span class="o">=</span><span class="n">binding</span>
+        <span class="k">return</span> <span class="n">extKeys</span>
+</div>
+    <span class="k">def</span> <span class="nf">__GetRawExtensionKeys</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">extensionName</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        returns a dictionary of the configurable keybindings for a particular</span>
+<span class="sd">        extension, as defined in the configuration files, or an empty dictionary</span>
+<span class="sd">        if no bindings are found</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">keysName</span><span class="o">=</span><span class="n">extensionName</span><span class="o">+</span><span class="s">&#39;_cfgBindings&#39;</span>
+        <span class="n">extKeys</span><span class="o">=</span><span class="p">{}</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;extensions&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">has_section</span><span class="p">(</span><span class="n">keysName</span><span class="p">):</span>
+            <span class="n">eventNames</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;extensions&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">GetOptionList</span><span class="p">(</span><span class="n">keysName</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">eventName</span> <span class="ow">in</span> <span class="n">eventNames</span><span class="p">:</span>
+                <span class="n">binding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetOption</span><span class="p">(</span><span class="s">&#39;extensions&#39;</span><span class="p">,</span><span class="n">keysName</span><span class="p">,</span>
+                        <span class="n">eventName</span><span class="p">,</span><span class="n">default</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+                <span class="n">event</span><span class="o">=</span><span class="s">&#39;&lt;&lt;&#39;</span><span class="o">+</span><span class="n">eventName</span><span class="o">+</span><span class="s">&#39;&gt;&gt;&#39;</span>
+                <span class="n">extKeys</span><span class="p">[</span><span class="n">event</span><span class="p">]</span><span class="o">=</span><span class="n">binding</span>
+        <span class="k">return</span> <span class="n">extKeys</span>
+
+<div class="viewcode-block" id="IdleConf.GetExtensionBindings"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetExtensionBindings">[docs]</a>    <span class="k">def</span> <span class="nf">GetExtensionBindings</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">extensionName</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a dictionary of all the event bindings for a particular</span>
+<span class="sd">        extension. The configurable keybindings are returned as they exist in</span>
+<span class="sd">        the dictionary returned by GetCurrentKeySet; that is, where re-used</span>
+<span class="sd">        keybindings are disabled.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">bindsName</span><span class="o">=</span><span class="n">extensionName</span><span class="o">+</span><span class="s">&#39;_bindings&#39;</span>
+        <span class="n">extBinds</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetExtensionKeys</span><span class="p">(</span><span class="n">extensionName</span><span class="p">)</span>
+        <span class="c">#add the non-configurable bindings</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;extensions&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">has_section</span><span class="p">(</span><span class="n">bindsName</span><span class="p">):</span>
+            <span class="n">eventNames</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;extensions&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">GetOptionList</span><span class="p">(</span><span class="n">bindsName</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">eventName</span> <span class="ow">in</span> <span class="n">eventNames</span><span class="p">:</span>
+                <span class="n">binding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetOption</span><span class="p">(</span><span class="s">&#39;extensions&#39;</span><span class="p">,</span><span class="n">bindsName</span><span class="p">,</span>
+                        <span class="n">eventName</span><span class="p">,</span><span class="n">default</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+                <span class="n">event</span><span class="o">=</span><span class="s">&#39;&lt;&lt;&#39;</span><span class="o">+</span><span class="n">eventName</span><span class="o">+</span><span class="s">&#39;&gt;&gt;&#39;</span>
+                <span class="n">extBinds</span><span class="p">[</span><span class="n">event</span><span class="p">]</span><span class="o">=</span><span class="n">binding</span>
+
+        <span class="k">return</span> <span class="n">extBinds</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetKeyBinding"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetKeyBinding">[docs]</a>    <span class="k">def</span> <span class="nf">GetKeyBinding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">keySetName</span><span class="p">,</span> <span class="n">eventStr</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        returns the keybinding for a specific event.</span>
+<span class="sd">        keySetName - string, name of key binding set</span>
+<span class="sd">        eventStr - string, the virtual event we want the binding for,</span>
+<span class="sd">                   represented as a string, eg. &#39;&lt;&lt;event&gt;&gt;&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">eventName</span><span class="o">=</span><span class="n">eventStr</span><span class="p">[</span><span class="mi">2</span><span class="p">:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span> <span class="c">#trim off the angle brackets</span>
+        <span class="n">binding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetOption</span><span class="p">(</span><span class="s">&#39;keys&#39;</span><span class="p">,</span><span class="n">keySetName</span><span class="p">,</span><span class="n">eventName</span><span class="p">,</span><span class="n">default</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">binding</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetCurrentKeySet"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetCurrentKeySet">[docs]</a>    <span class="k">def</span> <span class="nf">GetCurrentKeySet</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetKeySet</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">CurrentKeys</span><span class="p">())</span>
+
+        <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&quot;darwin&quot;</span><span class="p">:</span>
+            <span class="c"># OS X Tk variants do not support the &quot;Alt&quot; keyboard modifier.</span>
+            <span class="c"># So replace all keybingings that use &quot;Alt&quot; with ones that</span>
+            <span class="c"># use the &quot;Option&quot; keyboard modifier.</span>
+            <span class="c"># TO DO: the &quot;Option&quot; modifier does not work properly for</span>
+            <span class="c">#        Cocoa Tk and XQuartz Tk so we should not use it</span>
+            <span class="c">#        in default OS X KeySets.</span>
+            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">v2</span> <span class="o">=</span> <span class="p">[</span> <span class="n">x</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;&lt;Alt-&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;Option-&#39;</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">v</span> <span class="p">]</span>
+                <span class="k">if</span> <span class="n">v</span> <span class="o">!=</span> <span class="n">v2</span><span class="p">:</span>
+                    <span class="n">result</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">v2</span>
+
+        <span class="k">return</span> <span class="n">result</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetKeySet"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetKeySet">[docs]</a>    <span class="k">def</span> <span class="nf">GetKeySet</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">keySetName</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a dictionary of: all requested core keybindings, plus the</span>
+<span class="sd">        keybindings for all currently active extensions. If a binding defined</span>
+<span class="sd">        in an extension is already in use, that binding is disabled.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">keySet</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetCoreKeys</span><span class="p">(</span><span class="n">keySetName</span><span class="p">)</span>
+        <span class="n">activeExtns</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetExtensions</span><span class="p">(</span><span class="n">active_only</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">extn</span> <span class="ow">in</span> <span class="n">activeExtns</span><span class="p">:</span>
+            <span class="n">extKeys</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">__GetRawExtensionKeys</span><span class="p">(</span><span class="n">extn</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">extKeys</span><span class="p">:</span> <span class="c">#the extension defines keybindings</span>
+                <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">extKeys</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">extKeys</span><span class="p">[</span><span class="n">event</span><span class="p">]</span> <span class="ow">in</span> <span class="n">keySet</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+                        <span class="c">#the binding is already in use</span>
+                        <span class="n">extKeys</span><span class="p">[</span><span class="n">event</span><span class="p">]</span><span class="o">=</span><span class="s">&#39;&#39;</span> <span class="c">#disable this binding</span>
+                    <span class="n">keySet</span><span class="p">[</span><span class="n">event</span><span class="p">]</span><span class="o">=</span><span class="n">extKeys</span><span class="p">[</span><span class="n">event</span><span class="p">]</span> <span class="c">#add binding</span>
+        <span class="k">return</span> <span class="n">keySet</span>
+</div>
+<div class="viewcode-block" id="IdleConf.IsCoreBinding"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.IsCoreBinding">[docs]</a>    <span class="k">def</span> <span class="nf">IsCoreBinding</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">virtualEvent</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        returns true if the virtual event is bound in the core idle keybindings.</span>
+<span class="sd">        virtualEvent - string, name of the virtual event to test for, without</span>
+<span class="sd">                       the enclosing &#39;&lt;&lt; &gt;&gt;&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">(</span><span class="s">&#39;&lt;&lt;&#39;</span><span class="o">+</span><span class="n">virtualEvent</span><span class="o">+</span><span class="s">&#39;&gt;&gt;&#39;</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetCoreKeys</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetCoreKeys"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetCoreKeys">[docs]</a>    <span class="k">def</span> <span class="nf">GetCoreKeys</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">keySetName</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        returns the requested set of core keybindings, with fallbacks if</span>
+<span class="sd">        required.</span>
+<span class="sd">        Keybindings loaded from the config file(s) are loaded _over_ these</span>
+<span class="sd">        defaults, so if there is a problem getting any core binding there will</span>
+<span class="sd">        be an &#39;ultimate last resort fallback&#39; to the CUA-ish bindings</span>
+<span class="sd">        defined here.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">keyBindings</span><span class="o">=</span><span class="p">{</span>
+            <span class="s">&#39;&lt;&lt;copy&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-c&gt;&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;Control-C&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;cut&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-x&gt;&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;Control-X&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;paste&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-v&gt;&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;Control-V&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;beginning-of-line&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-a&gt;&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;Home&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;center-insert&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-l&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;close-all-windows&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-q&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;close-window&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-F4&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;do-nothing&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-x&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;end-of-file&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-d&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;python-docs&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;F1&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;python-context-help&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Shift-F1&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;history-next&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-n&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;history-previous&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-p&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;interrupt-execution&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-c&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;view-restart&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;F6&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;restart-shell&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-F6&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;open-class-browser&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-c&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;open-module&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-m&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;open-new-window&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-n&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;open-window-from-file&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-o&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;plain-newline-and-indent&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-j&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;print-window&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-p&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;redo&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-y&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;remove-selection&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Escape&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;save-copy-of-window-as-file&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-Shift-S&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;save-window-as-file&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-s&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;save-window&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-s&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;select-all&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-a&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;toggle-auto-coloring&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-slash&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;undo&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-z&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;find-again&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-g&gt;&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;F3&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;find-in-files&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-F3&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;find-selection&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-F3&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;find&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-f&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;replace&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-h&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;goto-line&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-g&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;smart-backspace&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Key-BackSpace&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;newline-and-indent&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Key-Return&gt;&#39;</span><span class="p">,</span> <span class="s">&#39;&lt;Key-KP_Enter&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;smart-indent&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Key-Tab&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;indent-region&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-Key-bracketright&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;dedent-region&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-Key-bracketleft&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;comment-region&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-Key-3&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;uncomment-region&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-Key-4&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;tabify-region&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-Key-5&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;untabify-region&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-Key-6&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;toggle-tabs&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-Key-t&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;change-indentwidth&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Alt-Key-u&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;del-word-left&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-Key-BackSpace&gt;&#39;</span><span class="p">],</span>
+            <span class="s">&#39;&lt;&lt;del-word-right&gt;&gt;&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s">&#39;&lt;Control-Key-Delete&gt;&#39;</span><span class="p">]</span>
+            <span class="p">}</span>
+        <span class="k">if</span> <span class="n">keySetName</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">keyBindings</span><span class="p">:</span>
+                <span class="n">binding</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">GetKeyBinding</span><span class="p">(</span><span class="n">keySetName</span><span class="p">,</span><span class="n">event</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">binding</span><span class="p">:</span>
+                    <span class="n">keyBindings</span><span class="p">[</span><span class="n">event</span><span class="p">]</span><span class="o">=</span><span class="n">binding</span>
+                <span class="k">else</span><span class="p">:</span> <span class="c">#we are going to return a default, print warning</span>
+                    <span class="n">warning</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s"> Warning: configHandler.py - IdleConf.GetCoreKeys&#39;</span>
+                               <span class="s">&#39; -</span><span class="se">\n</span><span class="s"> problem retrieving key binding for event </span><span class="si">%r</span><span class="s">&#39;</span>
+                               <span class="s">&#39;</span><span class="se">\n</span><span class="s"> from key set </span><span class="si">%r</span><span class="s">.</span><span class="se">\n</span><span class="s">&#39;</span>
+                               <span class="s">&#39; returning default value: </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span>
+                               <span class="p">(</span><span class="n">event</span><span class="p">,</span> <span class="n">keySetName</span><span class="p">,</span> <span class="n">keyBindings</span><span class="p">[</span><span class="n">event</span><span class="p">]))</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="k">print</span><span class="p">(</span><span class="n">warning</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+                        <span class="k">pass</span>
+        <span class="k">return</span> <span class="n">keyBindings</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetExtraHelpSourceList"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetExtraHelpSourceList">[docs]</a>    <span class="k">def</span> <span class="nf">GetExtraHelpSourceList</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">configSet</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetch list of extra help sources from a given configSet.</span>
+
+<span class="sd">        Valid configSets are &#39;user&#39; or &#39;default&#39;.  Return a list of tuples of</span>
+<span class="sd">        the form (menu_item , path_to_help_file , option), or return the empty</span>
+<span class="sd">        list.  &#39;option&#39; is the sequence number of the help resource.  &#39;option&#39;</span>
+<span class="sd">        values determine the position of the menu items on the Help menu,</span>
+<span class="sd">        therefore the returned list must be sorted by &#39;option&#39;.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">helpSources</span><span class="o">=</span><span class="p">[]</span>
+        <span class="k">if</span> <span class="n">configSet</span><span class="o">==</span><span class="s">&#39;user&#39;</span><span class="p">:</span>
+            <span class="n">cfgParser</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="s">&#39;main&#39;</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">configSet</span><span class="o">==</span><span class="s">&#39;default&#39;</span><span class="p">:</span>
+            <span class="n">cfgParser</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="s">&#39;main&#39;</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">InvalidConfigSet</span><span class="p">(</span><span class="s">&#39;Invalid configSet specified&#39;</span><span class="p">)</span>
+        <span class="n">options</span><span class="o">=</span><span class="n">cfgParser</span><span class="o">.</span><span class="n">GetOptionList</span><span class="p">(</span><span class="s">&#39;HelpFiles&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">option</span> <span class="ow">in</span> <span class="n">options</span><span class="p">:</span>
+            <span class="n">value</span><span class="o">=</span><span class="n">cfgParser</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="s">&#39;HelpFiles&#39;</span><span class="p">,</span><span class="n">option</span><span class="p">,</span><span class="n">default</span><span class="o">=</span><span class="s">&#39;;&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">value</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">)</span><span class="o">==-</span><span class="mi">1</span><span class="p">:</span> <span class="c">#malformed config entry with no &#39;;&#39;</span>
+                <span class="n">menuItem</span><span class="o">=</span><span class="s">&#39;&#39;</span> <span class="c">#make these empty</span>
+                <span class="n">helpPath</span><span class="o">=</span><span class="s">&#39;&#39;</span> <span class="c">#so value won&#39;t be added to list</span>
+            <span class="k">else</span><span class="p">:</span> <span class="c">#config entry contains &#39;;&#39; as expected</span>
+                <span class="n">value</span><span class="o">=</span><span class="n">value</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">)</span>
+                <span class="n">menuItem</span><span class="o">=</span><span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+                <span class="n">helpPath</span><span class="o">=</span><span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">menuItem</span> <span class="ow">and</span> <span class="n">helpPath</span><span class="p">:</span> <span class="c">#neither are empty strings</span>
+                <span class="n">helpSources</span><span class="o">.</span><span class="n">append</span><span class="p">(</span> <span class="p">(</span><span class="n">menuItem</span><span class="p">,</span><span class="n">helpPath</span><span class="p">,</span><span class="n">option</span><span class="p">)</span> <span class="p">)</span>
+        <span class="n">helpSources</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">x</span><span class="p">[</span><span class="mi">2</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">helpSources</span>
+</div>
+<div class="viewcode-block" id="IdleConf.GetAllExtraHelpSourcesList"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.GetAllExtraHelpSourcesList">[docs]</a>    <span class="k">def</span> <span class="nf">GetAllExtraHelpSourcesList</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Returns a list of tuples containing the details of all additional help</span>
+<span class="sd">        sources configured, or an empty list if there are none. Tuples are of</span>
+<span class="sd">        the format returned by GetExtraHelpSourceList.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">allHelpSources</span><span class="o">=</span><span class="p">(</span> <span class="bp">self</span><span class="o">.</span><span class="n">GetExtraHelpSourceList</span><span class="p">(</span><span class="s">&#39;default&#39;</span><span class="p">)</span><span class="o">+</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">GetExtraHelpSourceList</span><span class="p">(</span><span class="s">&#39;user&#39;</span><span class="p">)</span> <span class="p">)</span>
+        <span class="k">return</span> <span class="n">allHelpSources</span>
+</div>
+<div class="viewcode-block" id="IdleConf.LoadCfgFiles"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.LoadCfgFiles">[docs]</a>    <span class="k">def</span> <span class="nf">LoadCfgFiles</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        load all configuration files.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">Load</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">Load</span><span class="p">()</span> <span class="c">#same keys</span>
+</div>
+<div class="viewcode-block" id="IdleConf.SaveUserCfgFiles"><a class="viewcode-back" href="../../idlelib.html#idlelib.configHandler.IdleConf.SaveUserCfgFiles">[docs]</a>    <span class="k">def</span> <span class="nf">SaveUserCfgFiles</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        write all loaded user configuration files back to disk</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">Save</span><span class="p">()</span>
+</div></div>
+<span class="n">idleConf</span><span class="o">=</span><span class="n">IdleConf</span><span class="p">()</span>
+
+<span class="c">### module test</span>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">dumpCfg</span><span class="p">(</span><span class="n">cfg</span><span class="p">):</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">,</span><span class="n">cfg</span><span class="p">,</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">cfg</span><span class="p">:</span>
+            <span class="n">sections</span><span class="o">=</span><span class="n">cfg</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">sections</span><span class="p">()</span>
+            <span class="k">print</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+            <span class="k">print</span><span class="p">(</span><span class="n">sections</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">section</span> <span class="ow">in</span> <span class="n">sections</span><span class="p">:</span>
+                <span class="n">options</span><span class="o">=</span><span class="n">cfg</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">options</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
+                <span class="k">print</span><span class="p">(</span><span class="n">section</span><span class="p">)</span>
+                <span class="k">print</span><span class="p">(</span><span class="n">options</span><span class="p">)</span>
+                <span class="k">for</span> <span class="n">option</span> <span class="ow">in</span> <span class="n">options</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="s">&#39;=&#39;</span><span class="p">,</span> <span class="n">cfg</span><span class="p">[</span><span class="n">key</span><span class="p">]</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="n">section</span><span class="p">,</span><span class="n">option</span><span class="p">))</span>
+    <span class="n">dumpCfg</span><span class="p">(</span><span class="n">idleConf</span><span class="o">.</span><span class="n">defaultCfg</span><span class="p">)</span>
+    <span class="n">dumpCfg</span><span class="p">(</span><span class="n">idleConf</span><span class="o">.</span><span class="n">userCfg</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">idleConf</span><span class="o">.</span><span class="n">userCfg</span><span class="p">[</span><span class="s">&#39;main&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">Get</span><span class="p">(</span><span class="s">&#39;Theme&#39;</span><span class="p">,</span><span class="s">&#39;name&#39;</span><span class="p">))</span>
+    <span class="c">#print idleConf.userCfg[&#39;highlight&#39;].GetDefHighlight(&#39;Foo&#39;,&#39;normal&#39;)</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

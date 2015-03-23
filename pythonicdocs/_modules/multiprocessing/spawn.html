@@ -1,0 +1,379 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>multiprocessing.spawn &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for multiprocessing.spawn</h1><div class="highlight"><pre>
+<span class="c">#</span>
+<span class="c"># Code used to start processes when using the spawn or forkserver</span>
+<span class="c"># start methods.</span>
+<span class="c">#</span>
+<span class="c"># multiprocessing/spawn.py</span>
+<span class="c">#</span>
+<span class="c"># Copyright (c) 2006-2008, R Oudkerk</span>
+<span class="c"># Licensed to PSF under a Contributor Agreement.</span>
+<span class="c">#</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">pickle</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">runpy</span>
+<span class="kn">import</span> <span class="nn">types</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">get_start_method</span><span class="p">,</span> <span class="n">set_start_method</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">process</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">util</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;_main&#39;</span><span class="p">,</span> <span class="s">&#39;freeze_support&#39;</span><span class="p">,</span> <span class="s">&#39;set_executable&#39;</span><span class="p">,</span> <span class="s">&#39;get_executable&#39;</span><span class="p">,</span>
+           <span class="s">&#39;get_preparation_data&#39;</span><span class="p">,</span> <span class="s">&#39;get_command_line&#39;</span><span class="p">,</span> <span class="s">&#39;import_main_path&#39;</span><span class="p">]</span>
+
+<span class="c">#</span>
+<span class="c"># _python_exe is the assumed path to the python executable.</span>
+<span class="c"># People embedding Python want to modify it.</span>
+<span class="c">#</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">!=</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+    <span class="n">WINEXE</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">WINSERVICE</span> <span class="o">=</span> <span class="bp">False</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">WINEXE</span> <span class="o">=</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">sys</span><span class="p">,</span> <span class="s">&#39;frozen&#39;</span><span class="p">,</span> <span class="bp">False</span><span class="p">))</span>
+    <span class="n">WINSERVICE</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;pythonservice.exe&quot;</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">WINSERVICE</span><span class="p">:</span>
+    <span class="n">_python_exe</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">exec_prefix</span><span class="p">,</span> <span class="s">&#39;python.exe&#39;</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">_python_exe</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">executable</span>
+
+<div class="viewcode-block" id="set_executable"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.spawn.set_executable">[docs]</a><span class="k">def</span> <span class="nf">set_executable</span><span class="p">(</span><span class="n">exe</span><span class="p">):</span>
+    <span class="k">global</span> <span class="n">_python_exe</span>
+    <span class="n">_python_exe</span> <span class="o">=</span> <span class="n">exe</span>
+</div>
+<div class="viewcode-block" id="get_executable"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.spawn.get_executable">[docs]</a><span class="k">def</span> <span class="nf">get_executable</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">_python_exe</span>
+
+<span class="c">#</span>
+<span class="c">#</span>
+<span class="c">#</span>
+</div>
+<span class="k">def</span> <span class="nf">is_forking</span><span class="p">(</span><span class="n">argv</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Return whether commandline indicates we are forking</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span> <span class="ow">and</span> <span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;--multiprocessing-fork&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">True</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">False</span>
+
+
+<div class="viewcode-block" id="freeze_support"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.spawn.freeze_support">[docs]</a><span class="k">def</span> <span class="nf">freeze_support</span><span class="p">():</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Run code for process object if this in not the main process</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="n">is_forking</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">):</span>
+        <span class="n">kwds</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">2</span><span class="p">:]:</span>
+            <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">arg</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">value</span> <span class="o">==</span> <span class="s">&#39;None&#39;</span><span class="p">:</span>
+                <span class="n">kwds</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">kwds</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="n">spawn_main</span><span class="p">(</span><span class="o">**</span><span class="n">kwds</span><span class="p">)</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="get_command_line"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.spawn.get_command_line">[docs]</a><span class="k">def</span> <span class="nf">get_command_line</span><span class="p">(</span><span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns prefix of command line used for spawning a child process</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">sys</span><span class="p">,</span> <span class="s">&#39;frozen&#39;</span><span class="p">,</span> <span class="bp">False</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">([</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="s">&#39;--multiprocessing-fork&#39;</span><span class="p">]</span> <span class="o">+</span>
+                <span class="p">[</span><span class="s">&#39;</span><span class="si">%s</span><span class="s">=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">kwds</span><span class="o">.</span><span class="n">items</span><span class="p">()])</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">prog</span> <span class="o">=</span> <span class="s">&#39;from multiprocessing.spawn import spawn_main; spawn_main(</span><span class="si">%s</span><span class="s">)&#39;</span>
+        <span class="n">prog</span> <span class="o">%=</span> <span class="s">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s">=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">item</span> <span class="k">for</span> <span class="n">item</span> <span class="ow">in</span> <span class="n">kwds</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+        <span class="n">opts</span> <span class="o">=</span> <span class="n">util</span><span class="o">.</span><span class="n">_args_from_interpreter_flags</span><span class="p">()</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">_python_exe</span><span class="p">]</span> <span class="o">+</span> <span class="n">opts</span> <span class="o">+</span> <span class="p">[</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">prog</span><span class="p">,</span> <span class="s">&#39;--multiprocessing-fork&#39;</span><span class="p">]</span>
+
+</div>
+<span class="k">def</span> <span class="nf">spawn_main</span><span class="p">(</span><span class="n">pipe_handle</span><span class="p">,</span> <span class="n">parent_pid</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">tracker_fd</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Run code specifed by data received over pipe</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">assert</span> <span class="n">is_forking</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+        <span class="kn">import</span> <span class="nn">msvcrt</span>
+        <span class="kn">from</span> <span class="nn">.reduction</span> <span class="kn">import</span> <span class="n">steal_handle</span>
+        <span class="n">new_handle</span> <span class="o">=</span> <span class="n">steal_handle</span><span class="p">(</span><span class="n">parent_pid</span><span class="p">,</span> <span class="n">pipe_handle</span><span class="p">)</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">msvcrt</span><span class="o">.</span><span class="n">open_osfhandle</span><span class="p">(</span><span class="n">new_handle</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">O_RDONLY</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">semaphore_tracker</span>
+        <span class="n">semaphore_tracker</span><span class="o">.</span><span class="n">_semaphore_tracker</span><span class="o">.</span><span class="n">_fd</span> <span class="o">=</span> <span class="n">tracker_fd</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">pipe_handle</span>
+    <span class="n">exitcode</span> <span class="o">=</span> <span class="n">_main</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">exitcode</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_main</span><span class="p">(</span><span class="n">fd</span><span class="p">):</span>
+    <span class="k">with</span> <span class="n">os</span><span class="o">.</span><span class="n">fdopen</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">,</span> <span class="n">closefd</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span> <span class="k">as</span> <span class="n">from_parent</span><span class="p">:</span>
+        <span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">()</span><span class="o">.</span><span class="n">_inheriting</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">preparation_data</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">from_parent</span><span class="p">)</span>
+            <span class="n">prepare</span><span class="p">(</span><span class="n">preparation_data</span><span class="p">)</span>
+            <span class="bp">self</span> <span class="o">=</span> <span class="n">pickle</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">from_parent</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">()</span><span class="o">.</span><span class="n">_inheriting</span>
+    <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bootstrap</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">_check_not_importing_main</span><span class="p">():</span>
+    <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">(),</span> <span class="s">&#39;_inheriting&#39;</span><span class="p">,</span> <span class="bp">False</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;&#39;&#39;</span>
+<span class="s">        An attempt has been made to start a new process before the</span>
+<span class="s">        current process has finished its bootstrapping phase.</span>
+
+<span class="s">        This probably means that you are not using fork to start your</span>
+<span class="s">        child processes and you have forgotten to use the proper idiom</span>
+<span class="s">        in the main module:</span>
+
+<span class="s">            if __name__ == &#39;__main__&#39;:</span>
+<span class="s">                freeze_support()</span>
+<span class="s">                ...</span>
+
+<span class="s">        The &quot;freeze_support()&quot; line can be omitted if the program</span>
+<span class="s">        is not going to be frozen to produce an executable.&#39;&#39;&#39;</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="get_preparation_data"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.spawn.get_preparation_data">[docs]</a><span class="k">def</span> <span class="nf">get_preparation_data</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Return info about parent needed by child to unpickle process object</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">_check_not_importing_main</span><span class="p">()</span>
+    <span class="n">d</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+        <span class="n">log_to_stderr</span><span class="o">=</span><span class="n">util</span><span class="o">.</span><span class="n">_log_to_stderr</span><span class="p">,</span>
+        <span class="n">authkey</span><span class="o">=</span><span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">()</span><span class="o">.</span><span class="n">authkey</span><span class="p">,</span>
+        <span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">util</span><span class="o">.</span><span class="n">_logger</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">d</span><span class="p">[</span><span class="s">&#39;log_level&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">util</span><span class="o">.</span><span class="n">_logger</span><span class="o">.</span><span class="n">getEffectiveLevel</span><span class="p">()</span>
+
+    <span class="n">sys_path</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">sys_path</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">sys_path</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">process</span><span class="o">.</span><span class="n">ORIGINAL_DIR</span>
+
+    <span class="n">d</span><span class="o">.</span><span class="n">update</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span>
+        <span class="n">sys_path</span><span class="o">=</span><span class="n">sys_path</span><span class="p">,</span>
+        <span class="n">sys_argv</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">,</span>
+        <span class="n">orig_dir</span><span class="o">=</span><span class="n">process</span><span class="o">.</span><span class="n">ORIGINAL_DIR</span><span class="p">,</span>
+        <span class="nb">dir</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">getcwd</span><span class="p">(),</span>
+        <span class="n">start_method</span><span class="o">=</span><span class="n">get_start_method</span><span class="p">(),</span>
+        <span class="p">)</span>
+
+    <span class="c"># Figure out whether to initialise main in the subprocess as a module</span>
+    <span class="c"># or through direct execution (or to leave it alone entirely)</span>
+    <span class="n">main_module</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="s">&#39;__main__&#39;</span><span class="p">]</span>
+    <span class="n">main_mod_name</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">main_module</span><span class="o">.</span><span class="n">__spec__</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">main_mod_name</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">d</span><span class="p">[</span><span class="s">&#39;init_main_from_name&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">main_mod_name</span>
+    <span class="k">elif</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">!=</span> <span class="s">&#39;win32&#39;</span> <span class="ow">or</span> <span class="p">(</span><span class="ow">not</span> <span class="n">WINEXE</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">WINSERVICE</span><span class="p">):</span>
+        <span class="n">main_path</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">main_module</span><span class="p">,</span> <span class="s">&#39;__file__&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">main_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isabs</span><span class="p">(</span><span class="n">main_path</span><span class="p">)</span> <span class="ow">and</span>
+                        <span class="n">process</span><span class="o">.</span><span class="n">ORIGINAL_DIR</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">):</span>
+                <span class="n">main_path</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">process</span><span class="o">.</span><span class="n">ORIGINAL_DIR</span><span class="p">,</span> <span class="n">main_path</span><span class="p">)</span>
+            <span class="n">d</span><span class="p">[</span><span class="s">&#39;init_main_from_path&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">main_path</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">d</span>
+
+<span class="c">#</span>
+<span class="c"># Prepare current process</span>
+<span class="c">#</span>
+</div>
+<span class="n">old_main_modules</span> <span class="o">=</span> <span class="p">[]</span>
+
+<span class="k">def</span> <span class="nf">prepare</span><span class="p">(</span><span class="n">data</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Try to get current process ready to unpickle process object</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="s">&#39;name&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">()</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;name&#39;</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="s">&#39;authkey&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">process</span><span class="o">.</span><span class="n">current_process</span><span class="p">()</span><span class="o">.</span><span class="n">authkey</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;authkey&#39;</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="s">&#39;log_to_stderr&#39;</span> <span class="ow">in</span> <span class="n">data</span> <span class="ow">and</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;log_to_stderr&#39;</span><span class="p">]:</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">log_to_stderr</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="s">&#39;log_level&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">get_logger</span><span class="p">()</span><span class="o">.</span><span class="n">setLevel</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s">&#39;log_level&#39;</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="s">&#39;sys_path&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;sys_path&#39;</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="s">&#39;sys_argv&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">argv</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;sys_argv&#39;</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="s">&#39;dir&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">chdir</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s">&#39;dir&#39;</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="s">&#39;orig_dir&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">process</span><span class="o">.</span><span class="n">ORIGINAL_DIR</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="s">&#39;orig_dir&#39;</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="s">&#39;start_method&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">set_start_method</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s">&#39;start_method&#39;</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="s">&#39;init_main_from_name&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">_fixup_main_from_name</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s">&#39;init_main_from_name&#39;</span><span class="p">])</span>
+    <span class="k">elif</span> <span class="s">&#39;init_main_from_path&#39;</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">_fixup_main_from_path</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="s">&#39;init_main_from_path&#39;</span><span class="p">])</span>
+
+<span class="c"># Multiprocessing module helpers to fix up the main module in</span>
+<span class="c"># spawned subprocesses</span>
+<span class="k">def</span> <span class="nf">_fixup_main_from_name</span><span class="p">(</span><span class="n">mod_name</span><span class="p">):</span>
+    <span class="c"># __main__.py files for packages, directories, zip archives, etc, run</span>
+    <span class="c"># their &quot;main only&quot; code unconditionally, so we don&#39;t even try to</span>
+    <span class="c"># populate anything in __main__, nor do we make any changes to</span>
+    <span class="c"># __main__ attributes</span>
+    <span class="n">current_main</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="s">&#39;__main__&#39;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">mod_name</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span> <span class="ow">or</span> <span class="n">mod_name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;.__main__&quot;</span><span class="p">):</span>
+        <span class="k">return</span>
+
+    <span class="c"># If this process was forked, __main__ may already be populated</span>
+    <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">current_main</span><span class="o">.</span><span class="n">__spec__</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span> <span class="o">==</span> <span class="n">mod_name</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c"># Otherwise, __main__ may contain some non-main code where we need to</span>
+    <span class="c"># support unpickling it properly. We rerun it as __mp_main__ and make</span>
+    <span class="c"># the normal __main__ an alias to that</span>
+    <span class="n">old_main_modules</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">current_main</span><span class="p">)</span>
+    <span class="n">main_module</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">ModuleType</span><span class="p">(</span><span class="s">&quot;__mp_main__&quot;</span><span class="p">)</span>
+    <span class="n">main_content</span> <span class="o">=</span> <span class="n">runpy</span><span class="o">.</span><span class="n">run_module</span><span class="p">(</span><span class="n">mod_name</span><span class="p">,</span>
+                                    <span class="n">run_name</span><span class="o">=</span><span class="s">&quot;__mp_main__&quot;</span><span class="p">,</span>
+                                    <span class="n">alter_sys</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+    <span class="n">main_module</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">main_content</span><span class="p">)</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="s">&#39;__main__&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="s">&#39;__mp_main__&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">main_module</span>
+
+
+<span class="k">def</span> <span class="nf">_fixup_main_from_path</span><span class="p">(</span><span class="n">main_path</span><span class="p">):</span>
+    <span class="c"># If this process was forked, __main__ may already be populated</span>
+    <span class="n">current_main</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="s">&#39;__main__&#39;</span><span class="p">]</span>
+
+    <span class="c"># Unfortunately, the main ipython launch script historically had no</span>
+    <span class="c"># &quot;if __name__ == &#39;__main__&#39;&quot; guard, so we work around that</span>
+    <span class="c"># by treating it like a __main__.py file</span>
+    <span class="c"># See https://github.com/ipython/ipython/issues/4698</span>
+    <span class="n">main_name</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">main_path</span><span class="p">))[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">main_name</span> <span class="o">==</span> <span class="s">&#39;ipython&#39;</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c"># Otherwise, if __file__ already has the setting we expect,</span>
+    <span class="c"># there&#39;s nothing more to do</span>
+    <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">current_main</span><span class="p">,</span> <span class="s">&#39;__file__&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span> <span class="o">==</span> <span class="n">main_path</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c"># If the parent process has sent a path through rather than a module</span>
+    <span class="c"># name we assume it is an executable script that may contain</span>
+    <span class="c"># non-main code that needs to be executed</span>
+    <span class="n">old_main_modules</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">current_main</span><span class="p">)</span>
+    <span class="n">main_module</span> <span class="o">=</span> <span class="n">types</span><span class="o">.</span><span class="n">ModuleType</span><span class="p">(</span><span class="s">&quot;__mp_main__&quot;</span><span class="p">)</span>
+    <span class="n">main_content</span> <span class="o">=</span> <span class="n">runpy</span><span class="o">.</span><span class="n">run_path</span><span class="p">(</span><span class="n">main_path</span><span class="p">,</span>
+                                  <span class="n">run_name</span><span class="o">=</span><span class="s">&quot;__mp_main__&quot;</span><span class="p">)</span>
+    <span class="n">main_module</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">main_content</span><span class="p">)</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="s">&#39;__main__&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="s">&#39;__mp_main__&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">main_module</span>
+
+
+<div class="viewcode-block" id="import_main_path"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.spawn.import_main_path">[docs]</a><span class="k">def</span> <span class="nf">import_main_path</span><span class="p">(</span><span class="n">main_path</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Set sys.modules[&#39;__main__&#39;] to module at main_path</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">_fixup_main_from_path</span><span class="p">(</span><span class="n">main_path</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

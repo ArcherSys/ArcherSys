@@ -1,0 +1,277 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>py_compile &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../_static/jquery.js"></script>
+    <script type="text/javascript" src="../_static/underscore.js"></script>
+    <script type="text/javascript" src="../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../index.html" />
+    <link rel="up" title="Module code" href="index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for py_compile</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Routine to &quot;compile&quot; a .py file to a .pyc (or .pyo) file.</span>
+
+<span class="sd">This module has intimate knowledge of the format of .pyc files.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">importlib._bootstrap</span>
+<span class="kn">import</span> <span class="nn">importlib.machinery</span>
+<span class="kn">import</span> <span class="nn">importlib.util</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">os.path</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;compile&quot;</span><span class="p">,</span> <span class="s">&quot;main&quot;</span><span class="p">,</span> <span class="s">&quot;PyCompileError&quot;</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="PyCompileError"><a class="viewcode-back" href="../py_compile.html#py_compile.PyCompileError">[docs]</a><span class="k">class</span> <span class="nc">PyCompileError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Exception raised when an error occurs while attempting to</span>
+<span class="sd">    compile the file.</span>
+
+<span class="sd">    To raise this exception, use</span>
+
+<span class="sd">        raise PyCompileError(exc_type,exc_value,file[,msg])</span>
+
+<span class="sd">    where</span>
+
+<span class="sd">        exc_type:   exception type to be used in error message</span>
+<span class="sd">                    type name can be accesses as class variable</span>
+<span class="sd">                    &#39;exc_type_name&#39;</span>
+
+<span class="sd">        exc_value:  exception value to be used in error message</span>
+<span class="sd">                    can be accesses as class variable &#39;exc_value&#39;</span>
+
+<span class="sd">        file:       name of file being compiled to be used in error message</span>
+<span class="sd">                    can be accesses as class variable &#39;file&#39;</span>
+
+<span class="sd">        msg:        string message to be written as error message</span>
+<span class="sd">                    If no value is given, a default exception message will be</span>
+<span class="sd">                    given, consistent with &#39;standard&#39; py_compile output.</span>
+<span class="sd">                    message (or default) can be accesses as class variable</span>
+<span class="sd">                    &#39;msg&#39;</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="nb">file</span><span class="p">,</span> <span class="n">msg</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+        <span class="n">exc_type_name</span> <span class="o">=</span> <span class="n">exc_type</span><span class="o">.</span><span class="n">__name__</span>
+        <span class="k">if</span> <span class="n">exc_type</span> <span class="ow">is</span> <span class="ne">SyntaxError</span><span class="p">:</span>
+            <span class="n">tbtext</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_exception_only</span><span class="p">(</span>
+                <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">))</span>
+            <span class="n">errmsg</span> <span class="o">=</span> <span class="n">tbtext</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;File &quot;&lt;string&gt;&quot;&#39;</span><span class="p">,</span> <span class="s">&#39;File &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="nb">file</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">errmsg</span> <span class="o">=</span> <span class="s">&quot;Sorry: </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">exc_type_name</span><span class="p">,</span><span class="n">exc_value</span><span class="p">)</span>
+
+        <span class="ne">Exception</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span><span class="n">msg</span> <span class="ow">or</span> <span class="n">errmsg</span><span class="p">,</span><span class="n">exc_type_name</span><span class="p">,</span><span class="n">exc_value</span><span class="p">,</span><span class="nb">file</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">exc_type_name</span> <span class="o">=</span> <span class="n">exc_type_name</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">exc_value</span> <span class="o">=</span> <span class="n">exc_value</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">file</span> <span class="o">=</span> <span class="nb">file</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">msg</span> <span class="o">=</span> <span class="n">msg</span> <span class="ow">or</span> <span class="n">errmsg</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">msg</span>
+
+</div>
+<div class="viewcode-block" id="compile"><a class="viewcode-back" href="../py_compile.html#py_compile.compile">[docs]</a><span class="k">def</span> <span class="nf">compile</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">cfile</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">dfile</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">optimize</span><span class="o">=-</span><span class="mi">1</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Byte-compile one Python source file to Python bytecode.</span>
+
+<span class="sd">    :param file: The source file name.</span>
+<span class="sd">    :param cfile: The target byte compiled file name.  When not given, this</span>
+<span class="sd">        defaults to the PEP 3147 location.</span>
+<span class="sd">    :param dfile: Purported file name, i.e. the file name that shows up in</span>
+<span class="sd">        error messages.  Defaults to the source file name.</span>
+<span class="sd">    :param doraise: Flag indicating whether or not an exception should be</span>
+<span class="sd">        raised when a compile error is found.  If an exception occurs and this</span>
+<span class="sd">        flag is set to False, a string indicating the nature of the exception</span>
+<span class="sd">        will be printed, and the function will return to the caller. If an</span>
+<span class="sd">        exception occurs and this flag is set to True, a PyCompileError</span>
+<span class="sd">        exception will be raised.</span>
+<span class="sd">    :param optimize: The optimization level for the compiler.  Valid values</span>
+<span class="sd">        are -1, 0, 1 and 2.  A value of -1 means to use the optimization</span>
+<span class="sd">        level of the current interpreter, as given by -O command line options.</span>
+
+<span class="sd">    :return: Path to the resulting byte compiled file.</span>
+
+<span class="sd">    Note that it isn&#39;t necessary to byte-compile Python modules for</span>
+<span class="sd">    execution efficiency -- Python itself byte-compiles a module when</span>
+<span class="sd">    it is loaded, and if it can, writes out the bytecode to the</span>
+<span class="sd">    corresponding .pyc (or .pyo) file.</span>
+
+<span class="sd">    However, if a Python installation is shared between users, it is a</span>
+<span class="sd">    good idea to byte-compile all modules upon installation, since</span>
+<span class="sd">    other users may not be able to write in the source directories,</span>
+<span class="sd">    and thus they won&#39;t be able to write the .pyc/.pyo file, and then</span>
+<span class="sd">    they would be byte-compiling every module each time it is loaded.</span>
+<span class="sd">    This can slow down program start-up considerably.</span>
+
+<span class="sd">    See compileall.py for a script/module that uses this module to</span>
+<span class="sd">    byte-compile all installed files (or all files in selected</span>
+<span class="sd">    directories).</span>
+
+<span class="sd">    Do note that FileExistsError is raised if cfile ends up pointing at a</span>
+<span class="sd">    non-regular file or symlink. Because the compilation uses a file renaming,</span>
+<span class="sd">    the resulting file would be regular and thus not the same type of file as</span>
+<span class="sd">    it was previously.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">cfile</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">optimize</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">cfile</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">cache_from_source</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span>
+                                                     <span class="n">debug_override</span><span class="o">=</span><span class="ow">not</span> <span class="n">optimize</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">cfile</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">cache_from_source</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">islink</span><span class="p">(</span><span class="n">cfile</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;{} is a symlink and will be changed into a regular file if &#39;</span>
+               <span class="s">&#39;import writes a byte-compiled file to it&#39;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">FileExistsError</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">cfile</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">cfile</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">cfile</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;{} is a non-regular file and will be changed into a regular &#39;</span>
+               <span class="s">&#39;one if import writes a byte-compiled file to it&#39;</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">FileExistsError</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">cfile</span><span class="p">))</span>
+    <span class="n">loader</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">machinery</span><span class="o">.</span><span class="n">SourceFileLoader</span><span class="p">(</span><span class="s">&#39;&lt;py_compile&gt;&#39;</span><span class="p">,</span> <span class="nb">file</span><span class="p">)</span>
+    <span class="n">source_bytes</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">source_to_code</span><span class="p">(</span><span class="n">source_bytes</span><span class="p">,</span> <span class="n">dfile</span> <span class="ow">or</span> <span class="nb">file</span><span class="p">,</span>
+                                     <span class="n">_optimize</span><span class="o">=</span><span class="n">optimize</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+        <span class="n">py_exc</span> <span class="o">=</span> <span class="n">PyCompileError</span><span class="p">(</span><span class="n">err</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="n">err</span><span class="p">,</span> <span class="n">dfile</span> <span class="ow">or</span> <span class="nb">file</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">doraise</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">py_exc</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">py_exc</span><span class="o">.</span><span class="n">msg</span> <span class="o">+</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+            <span class="k">return</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">dirname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">cfile</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">dirname</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">makedirs</span><span class="p">(</span><span class="n">dirname</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">FileExistsError</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="n">source_stats</span> <span class="o">=</span> <span class="n">loader</span><span class="o">.</span><span class="n">path_stats</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+    <span class="n">bytecode</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">_bootstrap</span><span class="o">.</span><span class="n">_code_to_bytecode</span><span class="p">(</span>
+            <span class="n">code</span><span class="p">,</span> <span class="n">source_stats</span><span class="p">[</span><span class="s">&#39;mtime&#39;</span><span class="p">],</span> <span class="n">source_stats</span><span class="p">[</span><span class="s">&#39;size&#39;</span><span class="p">])</span>
+    <span class="n">mode</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">_bootstrap</span><span class="o">.</span><span class="n">_calc_mode</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+    <span class="n">importlib</span><span class="o">.</span><span class="n">_bootstrap</span><span class="o">.</span><span class="n">_write_atomic</span><span class="p">(</span><span class="n">cfile</span><span class="p">,</span> <span class="n">bytecode</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">cfile</span>
+
+</div>
+<div class="viewcode-block" id="main"><a class="viewcode-back" href="../py_compile.html#py_compile.main">[docs]</a><span class="k">def</span> <span class="nf">main</span><span class="p">(</span><span class="n">args</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compile several source files.</span>
+
+<span class="sd">    The files named in &#39;args&#39; (or on the command line, if &#39;args&#39; is</span>
+<span class="sd">    not specified) are compiled and the resulting bytecode is cached</span>
+<span class="sd">    in the normal manner.  This function does not search a directory</span>
+<span class="sd">    structure to locate source files; it only compiles files named</span>
+<span class="sd">    explicitly.  If &#39;-&#39; is the only parameter in args, the list of</span>
+<span class="sd">    files is taken from standard input.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">args</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+    <span class="n">rv</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="n">args</span> <span class="o">==</span> <span class="p">[</span><span class="s">&#39;-&#39;</span><span class="p">]:</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">filename</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">filename</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="n">filename</span> <span class="o">=</span> <span class="n">filename</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="nb">compile</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">PyCompileError</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+                <span class="n">rv</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="se">\n</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">error</span><span class="o">.</span><span class="n">msg</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+                <span class="n">rv</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="se">\n</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">error</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">filename</span> <span class="ow">in</span> <span class="n">args</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="nb">compile</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">PyCompileError</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+                <span class="c"># return value to indicate at least one failure</span>
+                <span class="n">rv</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">error</span><span class="o">.</span><span class="n">msg</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">rv</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">main</span><span class="p">())</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,503 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>asyncio.futures &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for asyncio.futures</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;A Future class similar to the one in PEP 3148.&quot;&quot;&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;CancelledError&#39;</span><span class="p">,</span> <span class="s">&#39;TimeoutError&#39;</span><span class="p">,</span>
+           <span class="s">&#39;InvalidStateError&#39;</span><span class="p">,</span>
+           <span class="s">&#39;Future&#39;</span><span class="p">,</span> <span class="s">&#39;wrap_future&#39;</span><span class="p">,</span>
+           <span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">concurrent.futures._base</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">reprlib</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">events</span>
+
+<span class="c"># States for Future.</span>
+<span class="n">_PENDING</span> <span class="o">=</span> <span class="s">&#39;PENDING&#39;</span>
+<span class="n">_CANCELLED</span> <span class="o">=</span> <span class="s">&#39;CANCELLED&#39;</span>
+<span class="n">_FINISHED</span> <span class="o">=</span> <span class="s">&#39;FINISHED&#39;</span>
+
+<span class="n">_PY34</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">version_info</span> <span class="o">&gt;=</span> <span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+
+<span class="c"># TODO: Do we really want to depend on concurrent.futures internals?</span>
+<span class="n">Error</span> <span class="o">=</span> <span class="n">concurrent</span><span class="o">.</span><span class="n">futures</span><span class="o">.</span><span class="n">_base</span><span class="o">.</span><span class="n">Error</span>
+<span class="n">CancelledError</span> <span class="o">=</span> <span class="n">concurrent</span><span class="o">.</span><span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span>
+<span class="n">TimeoutError</span> <span class="o">=</span> <span class="n">concurrent</span><span class="o">.</span><span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span>
+
+<span class="n">STACK_DEBUG</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span> <span class="o">-</span> <span class="mi">1</span>  <span class="c"># heavy-duty debugging</span>
+
+
+<div class="viewcode-block" id="InvalidStateError"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.InvalidStateError">[docs]</a><span class="k">class</span> <span class="nc">InvalidStateError</span><span class="p">(</span><span class="n">Error</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;The operation is not allowed in this state.&quot;&quot;&quot;</span>
+    <span class="c"># TODO: Show the future, its state, the method, and the required state.</span>
+
+</div>
+<span class="k">class</span> <span class="nc">_TracebackLogger</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Helper to log a traceback upon destruction if not cleared.</span>
+
+<span class="sd">    This solves a nasty problem with Futures and Tasks that have an</span>
+<span class="sd">    exception set: if nobody asks for the exception, the exception is</span>
+<span class="sd">    never logged.  This violates the Zen of Python: &#39;Errors should</span>
+<span class="sd">    never pass silently.  Unless explicitly silenced.&#39;</span>
+
+<span class="sd">    However, we don&#39;t want to log the exception as soon as</span>
+<span class="sd">    set_exception() is called: if the calling code is written</span>
+<span class="sd">    properly, it will get the exception and handle it properly.  But</span>
+<span class="sd">    we *do* want to log it if result() or exception() was never called</span>
+<span class="sd">    -- otherwise developers waste a lot of time wondering why their</span>
+<span class="sd">    buggy code fails silently.</span>
+
+<span class="sd">    An earlier attempt added a __del__() method to the Future class</span>
+<span class="sd">    itself, but this backfired because the presence of __del__()</span>
+<span class="sd">    prevents garbage collection from breaking cycles.  A way out of</span>
+<span class="sd">    this catch-22 is to avoid having a __del__() method on the Future</span>
+<span class="sd">    class itself, but instead to have a reference to a helper object</span>
+<span class="sd">    with a __del__() method that logs the traceback, where we ensure</span>
+<span class="sd">    that the helper object doesn&#39;t participate in cycles, and only the</span>
+<span class="sd">    Future has a reference to it.</span>
+
+<span class="sd">    The helper object is added when set_exception() is called.  When</span>
+<span class="sd">    the Future is collected, and the helper is present, the helper</span>
+<span class="sd">    object is also collected, and its __del__() method will log the</span>
+<span class="sd">    traceback.  When the Future&#39;s result() or exception() method is</span>
+<span class="sd">    called (and a helper object is present), it removes the the helper</span>
+<span class="sd">    object, after calling its clear() method to prevent it from</span>
+<span class="sd">    logging.</span>
+
+<span class="sd">    One downside is that we do a fair amount of work to extract the</span>
+<span class="sd">    traceback from the exception, even when it is never logged.  It</span>
+<span class="sd">    would seem cheaper to just store the exception object, but that</span>
+<span class="sd">    references the traceback, which references stack frames, which may</span>
+<span class="sd">    reference the Future, which references the _TracebackLogger, and</span>
+<span class="sd">    then the _TracebackLogger would be included in a cycle, which is</span>
+<span class="sd">    what we&#39;re trying to avoid!  As an optimization, we don&#39;t</span>
+<span class="sd">    immediately format the exception; we only do the work when</span>
+<span class="sd">    activate() is called, which call is delayed until after all the</span>
+<span class="sd">    Future&#39;s callbacks have run.  Since usually a Future has at least</span>
+<span class="sd">    one callback (typically set by &#39;yield from&#39;) and usually that</span>
+<span class="sd">    callback extracts the callback, thereby removing the need to</span>
+<span class="sd">    format the exception.</span>
+
+<span class="sd">    PS. I don&#39;t claim credit for this solution.  I first heard of it</span>
+<span class="sd">    in a discussion about closing files when they are collected.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;loop&#39;</span><span class="p">,</span> <span class="s">&#39;source_traceback&#39;</span><span class="p">,</span> <span class="s">&#39;exc&#39;</span><span class="p">,</span> <span class="s">&#39;tb&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">future</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">loop</span> <span class="o">=</span> <span class="n">future</span><span class="o">.</span><span class="n">_loop</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">source_traceback</span> <span class="o">=</span> <span class="n">future</span><span class="o">.</span><span class="n">_source_traceback</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">exc</span> <span class="o">=</span> <span class="n">exc</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tb</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">activate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">exc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">exc</span>
+        <span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">exc</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">tb</span> <span class="o">=</span> <span class="n">traceback</span><span class="o">.</span><span class="n">format_exception</span><span class="p">(</span><span class="n">exc</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="n">exc</span><span class="p">,</span>
+                                                 <span class="n">exc</span><span class="o">.</span><span class="n">__traceback__</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">clear</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">exc</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tb</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">tb</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&#39;Future/Task exception was never retrieved&#39;</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">source_traceback</span><span class="p">:</span>
+                <span class="n">msg</span> <span class="o">+=</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">Future/Task created at (most recent call last):</span><span class="se">\n</span><span class="s">&#39;</span>
+                <span class="n">msg</span> <span class="o">+=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">source_traceback</span><span class="p">))</span>
+            <span class="n">msg</span> <span class="o">+=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">tb</span><span class="p">)</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">({</span><span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="n">msg</span><span class="p">})</span>
+
+
+<div class="viewcode-block" id="Future"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future">[docs]</a><span class="k">class</span> <span class="nc">Future</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;This class is *almost* compatible with concurrent.futures.Future.</span>
+
+<span class="sd">    Differences:</span>
+
+<span class="sd">    - result() and exception() do not take a timeout argument and</span>
+<span class="sd">      raise an exception when the future isn&#39;t done yet.</span>
+
+<span class="sd">    - Callbacks registered with add_done_callback() are always called</span>
+<span class="sd">      via the event loop&#39;s call_soon_threadsafe().</span>
+
+<span class="sd">    - This class is not compatible with the wait() and as_completed()</span>
+<span class="sd">      methods in the concurrent.futures package.</span>
+
+<span class="sd">    (In Python 3.4 or later we may be able to unify the implementations.)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c"># Class variables serving as defaults for instance variables.</span>
+    <span class="n">_state</span> <span class="o">=</span> <span class="n">_PENDING</span>
+    <span class="n">_result</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">_exception</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">_loop</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="n">_blocking</span> <span class="o">=</span> <span class="bp">False</span>  <span class="c"># proper use of future (yield vs yield from)</span>
+
+    <span class="n">_log_traceback</span> <span class="o">=</span> <span class="bp">False</span>   <span class="c"># Used for Python 3.4 and later</span>
+    <span class="n">_tb_logger</span> <span class="o">=</span> <span class="bp">None</span>        <span class="c"># Used for Python 3.3 only</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Initialize the future.</span>
+
+<span class="sd">        The optional event_loop argument allows to explicitly set the event</span>
+<span class="sd">        loop object used by the future. If it&#39;s not provided, the future uses</span>
+<span class="sd">        the default event loop.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">loop</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span> <span class="o">=</span> <span class="n">traceback</span><span class="o">.</span><span class="n">extract_stack</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">_getframe</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">_format_callbacks</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">cb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">cb</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">size</span><span class="p">:</span>
+            <span class="n">cb</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+
+        <span class="k">def</span> <span class="nf">format_cb</span><span class="p">(</span><span class="n">callback</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">events</span><span class="o">.</span><span class="n">_format_callback</span><span class="p">(</span><span class="n">callback</span><span class="p">,</span> <span class="p">())</span>
+
+        <span class="k">if</span> <span class="n">size</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">cb</span> <span class="o">=</span> <span class="n">format_cb</span><span class="p">(</span><span class="n">cb</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="n">size</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">cb</span> <span class="o">=</span> <span class="s">&#39;{}, {}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">format_cb</span><span class="p">(</span><span class="n">cb</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="n">format_cb</span><span class="p">(</span><span class="n">cb</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="k">elif</span> <span class="n">size</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">cb</span> <span class="o">=</span> <span class="s">&#39;{}, &lt;{} more&gt;, {}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">format_cb</span><span class="p">(</span><span class="n">cb</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span>
+                                            <span class="n">size</span><span class="o">-</span><span class="mi">2</span><span class="p">,</span>
+                                            <span class="n">format_cb</span><span class="p">(</span><span class="n">cb</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="s">&#39;cb=[</span><span class="si">%s</span><span class="s">]&#39;</span> <span class="o">%</span> <span class="n">cb</span>
+
+    <span class="k">def</span> <span class="nf">_repr_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="o">.</span><span class="n">lower</span><span class="p">()]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">_FINISHED</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;exception={!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_exception</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># use reprlib to limit the length of the output, especially</span>
+                <span class="c"># for very long strings</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">reprlib</span><span class="o">.</span><span class="n">repr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_result</span><span class="p">)</span>
+                <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;result={}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">result</span><span class="p">))</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_format_callbacks</span><span class="p">())</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+            <span class="n">frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;created at </span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">frame</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">frame</span><span class="p">[</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="k">return</span> <span class="n">info</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_repr_info</span><span class="p">()</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">info</span><span class="p">))</span>
+
+    <span class="c"># On Python 3.3 or older, objects with a destructor part of a reference</span>
+    <span class="c"># cycle are never destroyed. It&#39;s not more the case on Python 3.4 thanks to</span>
+    <span class="c"># the PEP 442.</span>
+    <span class="k">if</span> <span class="n">_PY34</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_log_traceback</span><span class="p">:</span>
+                <span class="c"># set_exception() was not called, or result() or exception()</span>
+                <span class="c"># has consumed the exception</span>
+                <span class="k">return</span>
+            <span class="n">exc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span>
+            <span class="n">context</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s"> exception was never retrieved&#39;</span>
+                            <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">),</span>
+                <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                <span class="s">&#39;future&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+                <span class="n">context</span><span class="p">[</span><span class="s">&#39;source_traceback&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Future.cancel"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.cancel">[docs]</a>    <span class="k">def</span> <span class="nf">cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Cancel the future and schedule callbacks.</span>
+
+<span class="sd">        If the future is already done or cancelled, return False.  Otherwise,</span>
+<span class="sd">        change the future&#39;s state to cancelled, schedule the callbacks and</span>
+<span class="sd">        return True.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">_PENDING</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">_CANCELLED</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_schedule_callbacks</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">True</span>
+</div>
+    <span class="k">def</span> <span class="nf">_schedule_callbacks</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Internal: Ask the event loop to call all callbacks.</span>
+
+<span class="sd">        The callbacks are scheduled to be called as soon as possible. Also</span>
+<span class="sd">        clears the callback list.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">callbacks</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span><span class="p">[:]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">callbacks</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">callback</span> <span class="ow">in</span> <span class="n">callbacks</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="n">callback</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Future.cancelled"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.cancelled">[docs]</a>    <span class="k">def</span> <span class="nf">cancelled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return True if the future was cancelled.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">_CANCELLED</span>
+
+    <span class="c"># Don&#39;t implement running(); see http://bugs.python.org/issue18699</span>
+</div>
+<div class="viewcode-block" id="Future.done"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.done">[docs]</a>    <span class="k">def</span> <span class="nf">done</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return True if the future is done.</span>
+
+<span class="sd">        Done means either that a result / exception are available, or that the</span>
+<span class="sd">        future was cancelled.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">_PENDING</span>
+</div>
+<div class="viewcode-block" id="Future.result"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.result">[docs]</a>    <span class="k">def</span> <span class="nf">result</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the result this future represents.</span>
+
+<span class="sd">        If the future has been cancelled, raises CancelledError.  If the</span>
+<span class="sd">        future&#39;s result isn&#39;t yet available, raises InvalidStateError.  If</span>
+<span class="sd">        the future is done and has an exception set, this exception is raised.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">_CANCELLED</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">CancelledError</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">_FINISHED</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">InvalidStateError</span><span class="p">(</span><span class="s">&#39;Result is not ready.&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log_traceback</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tb_logger</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_tb_logger</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_tb_logger</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_result</span>
+</div>
+<div class="viewcode-block" id="Future.exception"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.exception">[docs]</a>    <span class="k">def</span> <span class="nf">exception</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the exception that was set on this future.</span>
+
+<span class="sd">        The exception (or None if no exception was set) is returned only if</span>
+<span class="sd">        the future is done.  If the future has been cancelled, raises</span>
+<span class="sd">        CancelledError.  If the future isn&#39;t done yet, raises</span>
+<span class="sd">        InvalidStateError.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">_CANCELLED</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">CancelledError</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">_FINISHED</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">InvalidStateError</span><span class="p">(</span><span class="s">&#39;Exception is not set.&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log_traceback</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_tb_logger</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_tb_logger</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_tb_logger</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span>
+</div>
+<div class="viewcode-block" id="Future.add_done_callback"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.add_done_callback">[docs]</a>    <span class="k">def</span> <span class="nf">add_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add a callback to be run when the future becomes done.</span>
+
+<span class="sd">        The callback is called with a single argument - the future object. If</span>
+<span class="sd">        the future is already done when this is called, the callback is</span>
+<span class="sd">        scheduled with call_soon.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">_PENDING</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="n">fn</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+
+    <span class="c"># New method not in PEP 3148.</span>
+</div>
+<div class="viewcode-block" id="Future.remove_done_callback"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.remove_done_callback">[docs]</a>    <span class="k">def</span> <span class="nf">remove_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fn</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Remove all instances of a callback from the &quot;call when done&quot; list.</span>
+
+<span class="sd">        Returns the number of callbacks removed.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">filtered_callbacks</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span> <span class="k">if</span> <span class="n">f</span> <span class="o">!=</span> <span class="n">fn</span><span class="p">]</span>
+        <span class="n">removed_count</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span><span class="p">)</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="n">filtered_callbacks</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">removed_count</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_callbacks</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">filtered_callbacks</span>
+        <span class="k">return</span> <span class="n">removed_count</span>
+
+    <span class="c"># So-called internal methods (note: no set_running_or_notify_cancel()).</span>
+</div>
+    <span class="k">def</span> <span class="nf">_set_result_unless_cancelled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Helper setting the result only if the future was not cancelled.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Future.set_result"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.set_result">[docs]</a>    <span class="k">def</span> <span class="nf">set_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Mark the future done and set its result.</span>
+
+<span class="sd">        If the future is already done when this method is called, raises</span>
+<span class="sd">        InvalidStateError.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">_PENDING</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">InvalidStateError</span><span class="p">(</span><span class="s">&#39;{}: {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="bp">self</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_result</span> <span class="o">=</span> <span class="n">result</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">_FINISHED</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_schedule_callbacks</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Future.set_exception"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.Future.set_exception">[docs]</a>    <span class="k">def</span> <span class="nf">set_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exception</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Mark the future done and set an exception.</span>
+
+<span class="sd">        If the future is already done when this method is called, raises</span>
+<span class="sd">        InvalidStateError.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">_PENDING</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">InvalidStateError</span><span class="p">(</span><span class="s">&#39;{}: {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="bp">self</span><span class="p">))</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exception</span><span class="p">,</span> <span class="nb">type</span><span class="p">):</span>
+            <span class="n">exception</span> <span class="o">=</span> <span class="n">exception</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="o">=</span> <span class="n">exception</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">_FINISHED</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_schedule_callbacks</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">_PY34</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_log_traceback</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_tb_logger</span> <span class="o">=</span> <span class="n">_TracebackLogger</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exception</span><span class="p">)</span>
+            <span class="c"># Arrange for the logger to be activated after all callbacks</span>
+            <span class="c"># have had a chance to call result() or exception().</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_tb_logger</span><span class="o">.</span><span class="n">activate</span><span class="p">)</span>
+
+    <span class="c"># Truly internal methods.</span>
+</div>
+    <span class="k">def</span> <span class="nf">_copy_state</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Internal helper to copy state from another Future.</span>
+
+<span class="sd">        The other Future may be a concurrent.futures.Future.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="n">other</span><span class="o">.</span><span class="n">done</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="k">return</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">done</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">other</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">exception</span> <span class="o">=</span> <span class="n">other</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exception</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">other</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_blocking</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">yield</span> <span class="bp">self</span>  <span class="c"># This tells Task to wait for completion.</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">done</span><span class="p">(),</span> <span class="s">&quot;yield from wasn&#39;t used with future&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>  <span class="c"># May raise too.</span>
+
+</div>
+<div class="viewcode-block" id="wrap_future"><a class="viewcode-back" href="../../asyncio.html#asyncio.futures.wrap_future">[docs]</a><span class="k">def</span> <span class="nf">wrap_future</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Wrap concurrent.futures.Future object.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="n">Future</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">fut</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="n">concurrent</span><span class="o">.</span><span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">),</span> \
+        <span class="s">&#39;concurrent.futures.Future is expected, got {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">fut</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+    <span class="n">new_future</span> <span class="o">=</span> <span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_cancel_other</span><span class="p">(</span><span class="n">f</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+    <span class="n">new_future</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_check_cancel_other</span><span class="p">)</span>
+    <span class="n">fut</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span>
+        <span class="k">lambda</span> <span class="n">future</span><span class="p">:</span> <span class="n">loop</span><span class="o">.</span><span class="n">call_soon_threadsafe</span><span class="p">(</span>
+            <span class="n">new_future</span><span class="o">.</span><span class="n">_copy_state</span><span class="p">,</span> <span class="n">fut</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">new_future</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,783 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>test.test_runpy &mdash; ArcherBashPy 1.0.0.01 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     '1.0.0.01',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="ArcherBashPy 1.0.0.01 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9">
+
+  </head>
+  <body role="document">
+    <div class="related" role="navigation" aria-label="related navigation">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="nav-item nav-item-0"><a href="../../index.html">ArcherBashPy 1.0.0.01 documentation</a> &raquo;</li>
+          <li class="nav-item nav-item-1"><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <h1>Source code for test.test_runpy</h1><div class="highlight"><pre>
+<span class="c"># Test the runpy module</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">os.path</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">importlib</span><span class="o">,</span> <span class="nn">importlib.machinery</span><span class="o">,</span> <span class="nn">importlib.util</span>
+<span class="kn">import</span> <span class="nn">py_compile</span>
+<span class="kn">from</span> <span class="nn">test.support</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">forget</span><span class="p">,</span> <span class="n">make_legacy_pyc</span><span class="p">,</span> <span class="n">run_unittest</span><span class="p">,</span> <span class="n">unload</span><span class="p">,</span> <span class="n">verbose</span><span class="p">,</span> <span class="n">no_tracing</span><span class="p">,</span>
+    <span class="n">create_empty_file</span><span class="p">)</span>
+<span class="kn">from</span> <span class="nn">test.script_helper</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">make_pkg</span><span class="p">,</span> <span class="n">make_script</span><span class="p">,</span> <span class="n">make_zip_pkg</span><span class="p">,</span> <span class="n">make_zip_script</span><span class="p">,</span> <span class="n">temp_dir</span><span class="p">)</span>
+
+
+<span class="kn">import</span> <span class="nn">runpy</span>
+<span class="kn">from</span> <span class="nn">runpy</span> <span class="kn">import</span> <span class="n">_run_code</span><span class="p">,</span> <span class="n">_run_module_code</span><span class="p">,</span> <span class="n">run_module</span><span class="p">,</span> <span class="n">run_path</span>
+<span class="c"># Note: This module can&#39;t safely test _run_module_as_main as it</span>
+<span class="c"># runs its tests in the current process, which would mess with the</span>
+<span class="c"># real __main__ module (usually test.regrtest)</span>
+<span class="c"># See test_cmd_line_script for a test that executes that code path</span>
+
+
+<span class="c"># Set up the test code and expected results</span>
+<span class="n">example_source</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s"># Check basic code execution</span>
+<span class="s">result = [&#39;Top level assignment&#39;]</span>
+<span class="s">def f():</span>
+<span class="s">    result.append(&#39;Lower level reference&#39;)</span>
+<span class="s">f()</span>
+<span class="s">del f</span>
+<span class="s"># Check the sys module</span>
+<span class="s">import sys</span>
+<span class="s">run_argv0 = sys.argv[0]</span>
+<span class="s">run_name_in_sys_modules = __name__ in sys.modules</span>
+<span class="s">module_in_sys_modules = (run_name_in_sys_modules and</span>
+<span class="s">                         globals() is sys.modules[__name__].__dict__)</span>
+<span class="s"># Check nested operation</span>
+<span class="s">import runpy</span>
+<span class="s">nested = runpy._run_module_code(&#39;x=1</span><span class="se">\\</span><span class="s">n&#39;, mod_name=&#39;&lt;run&gt;&#39;)</span>
+<span class="s">&quot;&quot;&quot;</span>
+
+<span class="n">implicit_namespace</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&quot;__name__&quot;</span><span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="s">&quot;__file__&quot;</span><span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="s">&quot;__cached__&quot;</span><span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="s">&quot;__package__&quot;</span><span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="s">&quot;__doc__&quot;</span><span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+    <span class="s">&quot;__spec__&quot;</span><span class="p">:</span> <span class="bp">None</span>
+<span class="p">}</span>
+<span class="n">example_namespace</span> <span class="o">=</span>  <span class="p">{</span>
+    <span class="s">&quot;sys&quot;</span><span class="p">:</span> <span class="n">sys</span><span class="p">,</span>
+    <span class="s">&quot;runpy&quot;</span><span class="p">:</span> <span class="n">runpy</span><span class="p">,</span>
+    <span class="s">&quot;result&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s">&quot;Top level assignment&quot;</span><span class="p">,</span> <span class="s">&quot;Lower level reference&quot;</span><span class="p">],</span>
+    <span class="s">&quot;run_argv0&quot;</span><span class="p">:</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+    <span class="s">&quot;run_name_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+    <span class="s">&quot;module_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+    <span class="s">&quot;nested&quot;</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="n">implicit_namespace</span><span class="p">,</span>
+                   <span class="n">x</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">__name__</span><span class="o">=</span><span class="s">&quot;&lt;run&gt;&quot;</span><span class="p">,</span> <span class="n">__loader__</span><span class="o">=</span><span class="bp">None</span><span class="p">),</span>
+<span class="p">}</span>
+<span class="n">example_namespace</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">implicit_namespace</span><span class="p">)</span>
+
+<div class="viewcode-block" id="CodeExecutionMixin"><a class="viewcode-back" href="../../test.html#test.test_runpy.CodeExecutionMixin">[docs]</a><span class="k">class</span> <span class="nc">CodeExecutionMixin</span><span class="p">:</span>
+    <span class="c"># Issue #15230 (run_path not handling run_name correctly) highlighted a</span>
+    <span class="c"># problem with the way arguments were being passed from higher level APIs</span>
+    <span class="c"># down to lower level code. This mixin makes it easier to ensure full</span>
+    <span class="c"># testing occurs at those upper layers as well, not just at the utility</span>
+    <span class="c"># layer</span>
+
+    <span class="c"># Figuring out the loader details in advance is hard to do, so we skip</span>
+    <span class="c"># checking the full details of loader and loader_state</span>
+    <span class="n">CHECKED_SPEC_ATTRIBUTES</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;name&quot;</span><span class="p">,</span> <span class="s">&quot;parent&quot;</span><span class="p">,</span> <span class="s">&quot;origin&quot;</span><span class="p">,</span> <span class="s">&quot;cached&quot;</span><span class="p">,</span>
+                               <span class="s">&quot;has_location&quot;</span><span class="p">,</span> <span class="s">&quot;submodule_search_locations&quot;</span><span class="p">]</span>
+
+<div class="viewcode-block" id="CodeExecutionMixin.assertNamespaceMatches"><a class="viewcode-back" href="../../test.html#test.test_runpy.CodeExecutionMixin.assertNamespaceMatches">[docs]</a>    <span class="k">def</span> <span class="nf">assertNamespaceMatches</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Check two namespaces match.</span>
+
+<span class="sd">           Ignores any unspecified interpreter created names</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Avoid side effects</span>
+        <span class="n">result_ns</span> <span class="o">=</span> <span class="n">result_ns</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">expected_ns</span> <span class="o">=</span> <span class="n">expected_ns</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="c"># Impls are permitted to add extra names, so filter them out</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">result_ns</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;__&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">k</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;__&quot;</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">expected_ns</span><span class="p">:</span>
+                    <span class="n">result_ns</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">expected_ns</span><span class="p">[</span><span class="s">&quot;nested&quot;</span><span class="p">]:</span>
+                    <span class="n">result_ns</span><span class="p">[</span><span class="s">&quot;nested&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+        <span class="c"># Spec equality includes the loader, so we take the spec out of the</span>
+        <span class="c"># result namespace and check that separately</span>
+        <span class="n">result_spec</span> <span class="o">=</span> <span class="n">result_ns</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&quot;__spec__&quot;</span><span class="p">)</span>
+        <span class="n">expected_spec</span> <span class="o">=</span> <span class="n">expected_ns</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="s">&quot;__spec__&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">expected_spec</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">result_spec</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># If an expected loader is set, we just check we got the right</span>
+            <span class="c"># type, rather than checking for full equality</span>
+            <span class="k">if</span> <span class="n">expected_spec</span><span class="o">.</span><span class="n">loader</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">type</span><span class="p">(</span><span class="n">result_spec</span><span class="o">.</span><span class="n">loader</span><span class="p">),</span>
+                                 <span class="nb">type</span><span class="p">(</span><span class="n">expected_spec</span><span class="o">.</span><span class="n">loader</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">CHECKED_SPEC_ATTRIBUTES</span><span class="p">:</span>
+                <span class="n">k</span> <span class="o">=</span> <span class="s">&quot;__spec__.&quot;</span> <span class="o">+</span> <span class="n">attr</span>
+                <span class="n">actual</span> <span class="o">=</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">result_spec</span><span class="p">,</span> <span class="n">attr</span><span class="p">))</span>
+                <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">expected_spec</span><span class="p">,</span> <span class="n">attr</span><span class="p">))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="c"># For the rest, we still don&#39;t use direct dict comparison on the</span>
+        <span class="c"># namespace, as the diffs are too hard to debug if anything breaks</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">result_ns</span><span class="p">),</span> <span class="nb">set</span><span class="p">(</span><span class="n">expected_ns</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">result_ns</span><span class="p">:</span>
+            <span class="n">actual</span> <span class="o">=</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">result_ns</span><span class="p">[</span><span class="n">k</span><span class="p">])</span>
+            <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">[</span><span class="n">k</span><span class="p">])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">actual</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CodeExecutionMixin.check_code_execution"><a class="viewcode-back" href="../../test.html#test.test_runpy.CodeExecutionMixin.check_code_execution">[docs]</a>    <span class="k">def</span> <span class="nf">check_code_execution</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">create_namespace</span><span class="p">,</span> <span class="n">expected_namespace</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Check that an interface runs the example code correctly</span>
+
+<span class="sd">           First argument is a callable accepting the initial globals and</span>
+<span class="sd">           using them to create the actual namespace</span>
+<span class="sd">           Second argument is the expected result</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">sentinel</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+        <span class="n">expected_ns</span> <span class="o">=</span> <span class="n">expected_namespace</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">run_name</span> <span class="o">=</span> <span class="n">expected_ns</span><span class="p">[</span><span class="s">&quot;__name__&quot;</span><span class="p">]</span>
+        <span class="n">saved_argv0</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">saved_mod</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">run_name</span><span class="p">,</span> <span class="n">sentinel</span><span class="p">)</span>
+        <span class="c"># Check without initial globals</span>
+        <span class="n">result_ns</span> <span class="o">=</span> <span class="n">create_namespace</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNamespaceMatches</span><span class="p">(</span><span class="n">result_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">saved_argv0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">run_name</span><span class="p">,</span> <span class="n">sentinel</span><span class="p">),</span> <span class="n">saved_mod</span><span class="p">)</span>
+        <span class="c"># And then with initial globals</span>
+        <span class="n">initial_ns</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;sentinel&quot;</span><span class="p">:</span> <span class="n">sentinel</span><span class="p">}</span>
+        <span class="n">expected_ns</span><span class="p">[</span><span class="s">&quot;sentinel&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">sentinel</span>
+        <span class="n">result_ns</span> <span class="o">=</span> <span class="n">create_namespace</span><span class="p">(</span><span class="n">initial_ns</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNot</span><span class="p">(</span><span class="n">result_ns</span><span class="p">,</span> <span class="n">initial_ns</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNamespaceMatches</span><span class="p">(</span><span class="n">result_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">saved_argv0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">run_name</span><span class="p">,</span> <span class="n">sentinel</span><span class="p">),</span> <span class="n">saved_mod</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ExecutionLayerTestCase"><a class="viewcode-back" href="../../test.html#test.test_runpy.ExecutionLayerTestCase">[docs]</a><span class="k">class</span> <span class="nc">ExecutionLayerTestCase</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">,</span> <span class="n">CodeExecutionMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Unit tests for runpy._run_code and runpy._run_module_code&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ExecutionLayerTestCase.test_run_code"><a class="viewcode-back" href="../../test.html#test.test_runpy.ExecutionLayerTestCase.test_run_code">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_code</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">expected_ns</span> <span class="o">=</span> <span class="n">example_namespace</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">expected_ns</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+            <span class="s">&quot;__loader__&quot;</span><span class="p">:</span> <span class="bp">None</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="k">def</span> <span class="nf">create_ns</span><span class="p">(</span><span class="n">init_globals</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">_run_code</span><span class="p">(</span><span class="n">example_source</span><span class="p">,</span> <span class="p">{},</span> <span class="n">init_globals</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExecutionLayerTestCase.test_run_module_code"><a class="viewcode-back" href="../../test.html#test.test_runpy.ExecutionLayerTestCase.test_run_module_code">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_module_code</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&quot;&lt;Nonsense&gt;&quot;</span>
+        <span class="n">mod_fname</span> <span class="o">=</span> <span class="s">&quot;Some other nonsense&quot;</span>
+        <span class="n">mod_loader</span> <span class="o">=</span> <span class="s">&quot;Now you&#39;re just being silly&quot;</span>
+        <span class="n">mod_package</span> <span class="o">=</span> <span class="s">&#39;&#39;</span> <span class="c"># Treat as a top level module</span>
+        <span class="n">mod_spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">machinery</span><span class="o">.</span><span class="n">ModuleSpec</span><span class="p">(</span><span class="n">mod_name</span><span class="p">,</span>
+                                                  <span class="n">origin</span><span class="o">=</span><span class="n">mod_fname</span><span class="p">,</span>
+                                                  <span class="n">loader</span><span class="o">=</span><span class="n">mod_loader</span><span class="p">)</span>
+        <span class="n">expected_ns</span> <span class="o">=</span> <span class="n">example_namespace</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">expected_ns</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+            <span class="s">&quot;__name__&quot;</span><span class="p">:</span> <span class="n">mod_name</span><span class="p">,</span>
+            <span class="s">&quot;__file__&quot;</span><span class="p">:</span> <span class="n">mod_fname</span><span class="p">,</span>
+            <span class="s">&quot;__loader__&quot;</span><span class="p">:</span> <span class="n">mod_loader</span><span class="p">,</span>
+            <span class="s">&quot;__package__&quot;</span><span class="p">:</span> <span class="n">mod_package</span><span class="p">,</span>
+            <span class="s">&quot;__spec__&quot;</span><span class="p">:</span> <span class="n">mod_spec</span><span class="p">,</span>
+            <span class="s">&quot;run_argv0&quot;</span><span class="p">:</span> <span class="n">mod_fname</span><span class="p">,</span>
+            <span class="s">&quot;run_name_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+            <span class="s">&quot;module_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="k">def</span> <span class="nf">create_ns</span><span class="p">(</span><span class="n">init_globals</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">_run_module_code</span><span class="p">(</span><span class="n">example_source</span><span class="p">,</span>
+                                    <span class="n">init_globals</span><span class="p">,</span>
+                                    <span class="n">mod_name</span><span class="p">,</span>
+                                    <span class="n">mod_spec</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+
+<span class="c"># TODO: Use self.addCleanup to get rid of a lot of try-finally blocks</span></div></div>
+<div class="viewcode-block" id="RunModuleTestCase"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase">[docs]</a><span class="k">class</span> <span class="nc">RunModuleTestCase</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">,</span> <span class="n">CodeExecutionMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Unit tests for runpy.run_module&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="RunModuleTestCase.expect_import_error"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.expect_import_error">[docs]</a>    <span class="k">def</span> <span class="nf">expect_import_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">run_module</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;Expected import error for &quot;</span> <span class="o">+</span> <span class="n">mod_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_invalid_names"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_invalid_names">[docs]</a>    <span class="k">def</span> <span class="nf">test_invalid_names</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Builtin module</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expect_import_error</span><span class="p">(</span><span class="s">&quot;sys&quot;</span><span class="p">)</span>
+        <span class="c"># Non-existent modules</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expect_import_error</span><span class="p">(</span><span class="s">&quot;sys.imp.eric&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expect_import_error</span><span class="p">(</span><span class="s">&quot;os.path.half&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expect_import_error</span><span class="p">(</span><span class="s">&quot;a.bee&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expect_import_error</span><span class="p">(</span><span class="s">&quot;.howard&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expect_import_error</span><span class="p">(</span><span class="s">&quot;..eaten&quot;</span><span class="p">)</span>
+        <span class="c"># Package without __main__.py</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">expect_import_error</span><span class="p">(</span><span class="s">&quot;multiprocessing&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_library_module"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_library_module">[docs]</a>    <span class="k">def</span> <span class="nf">test_library_module</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">run_module</span><span class="p">(</span><span class="s">&quot;runpy&quot;</span><span class="p">)[</span><span class="s">&quot;__name__&quot;</span><span class="p">],</span> <span class="s">&quot;runpy&quot;</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_add_pkg_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pkg_dir</span><span class="p">,</span> <span class="n">namespace</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">namespace</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+        <span class="n">pkg_fname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="s">&quot;__init__.py&quot;</span><span class="p">)</span>
+        <span class="n">create_empty_file</span><span class="p">(</span><span class="n">pkg_fname</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">pkg_fname</span>
+
+    <span class="k">def</span> <span class="nf">_make_pkg</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">mod_base</span><span class="o">=</span><span class="s">&quot;runpy_test&quot;</span><span class="p">,</span>
+                     <span class="o">*</span><span class="p">,</span> <span class="n">namespace</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">parent_namespaces</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="c"># Enforce a couple of internal sanity checks on test cases</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">namespace</span> <span class="ow">or</span> <span class="n">parent_namespaces</span><span class="p">)</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">depth</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;Can&#39;t mark top level module as a &quot;</span>
+                               <span class="s">&quot;namespace package&quot;</span><span class="p">)</span>
+        <span class="n">pkg_name</span> <span class="o">=</span> <span class="s">&quot;__runpy_pkg__&quot;</span>
+        <span class="n">test_fname</span> <span class="o">=</span> <span class="n">mod_base</span><span class="o">+</span><span class="n">os</span><span class="o">.</span><span class="n">extsep</span><span class="o">+</span><span class="s">&quot;py&quot;</span>
+        <span class="n">pkg_dir</span> <span class="o">=</span> <span class="n">sub_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">realpath</span><span class="p">(</span><span class="n">tempfile</span><span class="o">.</span><span class="n">mkdtemp</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Package tree in:&quot;</span><span class="p">,</span> <span class="n">sub_dir</span><span class="p">)</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">pkg_dir</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Updated sys.path:&quot;</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">depth</span><span class="p">:</span>
+            <span class="n">namespace_flags</span> <span class="o">=</span> <span class="p">[</span><span class="n">parent_namespaces</span><span class="p">]</span> <span class="o">*</span> <span class="n">depth</span>
+            <span class="n">namespace_flags</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">namespace</span>
+            <span class="k">for</span> <span class="n">namespace_flag</span> <span class="ow">in</span> <span class="n">namespace_flags</span><span class="p">:</span>
+                <span class="n">sub_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sub_dir</span><span class="p">,</span> <span class="n">pkg_name</span><span class="p">)</span>
+                <span class="n">pkg_fname</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_add_pkg_dir</span><span class="p">(</span><span class="n">sub_dir</span><span class="p">,</span> <span class="n">namespace_flag</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Next level in:&quot;</span><span class="p">,</span> <span class="n">sub_dir</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Created:&quot;</span><span class="p">,</span> <span class="n">pkg_fname</span><span class="p">)</span>
+        <span class="n">mod_fname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">sub_dir</span><span class="p">,</span> <span class="n">test_fname</span><span class="p">)</span>
+        <span class="n">mod_file</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">)</span>
+        <span class="n">mod_file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+        <span class="n">mod_file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Created:&quot;</span><span class="p">,</span> <span class="n">mod_fname</span><span class="p">)</span>
+        <span class="n">mod_name</span> <span class="o">=</span> <span class="p">(</span><span class="n">pkg_name</span><span class="o">+</span><span class="s">&quot;.&quot;</span><span class="p">)</span><span class="o">*</span><span class="n">depth</span> <span class="o">+</span> <span class="n">mod_base</span>
+        <span class="n">mod_spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">spec_from_file_location</span><span class="p">(</span><span class="n">mod_name</span><span class="p">,</span>
+                                                          <span class="n">mod_fname</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">pkg_dir</span><span class="p">,</span> <span class="n">mod_fname</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span> <span class="n">mod_spec</span>
+
+    <span class="k">def</span> <span class="nf">_del_pkg</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">top</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">entry</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">entry</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;__runpy_pkg__&quot;</span><span class="p">):</span>
+                <span class="k">del</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="n">entry</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Removed sys.modules entries&quot;</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Removed sys.path entry&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">root</span><span class="p">,</span> <span class="n">dirs</span><span class="p">,</span> <span class="n">files</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="n">top</span><span class="p">,</span> <span class="n">topdown</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">files</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">name</span><span class="p">))</span>
+                <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span> <span class="c"># Persist with cleaning up</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">dirs</span><span class="p">:</span>
+                <span class="n">fullname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">root</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">os</span><span class="o">.</span><span class="n">rmdir</span><span class="p">(</span><span class="n">fullname</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span> <span class="c"># Persist with cleaning up</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">rmdir</span><span class="p">(</span><span class="n">top</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Removed package tree&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">ex</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="n">ex</span><span class="p">)</span> <span class="c"># Persist with cleaning up</span>
+
+    <span class="k">def</span> <span class="nf">_fix_ns_for_legacy_pyc</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ns</span><span class="p">,</span> <span class="n">alter_sys</span><span class="p">):</span>
+        <span class="n">char_to_add</span> <span class="o">=</span> <span class="s">&quot;c&quot;</span> <span class="k">if</span> <span class="n">__debug__</span> <span class="k">else</span> <span class="s">&quot;o&quot;</span>
+        <span class="n">ns</span><span class="p">[</span><span class="s">&quot;__file__&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="n">char_to_add</span>
+        <span class="n">ns</span><span class="p">[</span><span class="s">&quot;__cached__&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ns</span><span class="p">[</span><span class="s">&quot;__file__&quot;</span><span class="p">]</span>
+        <span class="n">spec</span> <span class="o">=</span> <span class="n">ns</span><span class="p">[</span><span class="s">&quot;__spec__&quot;</span><span class="p">]</span>
+        <span class="n">new_spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">spec_from_file_location</span><span class="p">(</span><span class="n">spec</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                                                          <span class="n">ns</span><span class="p">[</span><span class="s">&quot;__file__&quot;</span><span class="p">])</span>
+        <span class="n">ns</span><span class="p">[</span><span class="s">&quot;__spec__&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">new_spec</span>
+        <span class="k">if</span> <span class="n">alter_sys</span><span class="p">:</span>
+            <span class="n">ns</span><span class="p">[</span><span class="s">&quot;run_argv0&quot;</span><span class="p">]</span> <span class="o">+=</span> <span class="n">char_to_add</span>
+
+
+    <span class="k">def</span> <span class="nf">_check_module</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">alter_sys</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                         <span class="o">*</span><span class="p">,</span> <span class="n">namespace</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">parent_namespaces</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="n">pkg_dir</span><span class="p">,</span> <span class="n">mod_fname</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span> <span class="n">mod_spec</span> <span class="o">=</span> <span class="p">(</span>
+               <span class="bp">self</span><span class="o">.</span><span class="n">_make_pkg</span><span class="p">(</span><span class="n">example_source</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span>
+                              <span class="n">namespace</span><span class="o">=</span><span class="n">namespace</span><span class="p">,</span>
+                              <span class="n">parent_namespaces</span><span class="o">=</span><span class="n">parent_namespaces</span><span class="p">))</span>
+        <span class="n">forget</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+        <span class="n">expected_ns</span> <span class="o">=</span> <span class="n">example_namespace</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">expected_ns</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+            <span class="s">&quot;__name__&quot;</span><span class="p">:</span> <span class="n">mod_name</span><span class="p">,</span>
+            <span class="s">&quot;__file__&quot;</span><span class="p">:</span> <span class="n">mod_fname</span><span class="p">,</span>
+            <span class="s">&quot;__cached__&quot;</span><span class="p">:</span> <span class="n">mod_spec</span><span class="o">.</span><span class="n">cached</span><span class="p">,</span>
+            <span class="s">&quot;__package__&quot;</span><span class="p">:</span> <span class="n">mod_name</span><span class="o">.</span><span class="n">rpartition</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="s">&quot;__spec__&quot;</span><span class="p">:</span> <span class="n">mod_spec</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="k">if</span> <span class="n">alter_sys</span><span class="p">:</span>
+            <span class="n">expected_ns</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+                <span class="s">&quot;run_argv0&quot;</span><span class="p">:</span> <span class="n">mod_fname</span><span class="p">,</span>
+                <span class="s">&quot;run_name_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+                <span class="s">&quot;module_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+            <span class="p">})</span>
+        <span class="k">def</span> <span class="nf">create_ns</span><span class="p">(</span><span class="n">init_globals</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">run_module</span><span class="p">(</span><span class="n">mod_name</span><span class="p">,</span> <span class="n">init_globals</span><span class="p">,</span> <span class="n">alter_sys</span><span class="o">=</span><span class="n">alter_sys</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Running from source:&quot;</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+            <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+            <span class="nb">__import__</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">sys</span><span class="o">.</span><span class="n">dont_write_bytecode</span><span class="p">:</span>
+                <span class="n">make_legacy_pyc</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">)</span>
+                <span class="n">unload</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>  <span class="c"># In case loader caches paths</span>
+                <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Running from compiled:&quot;</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fix_ns_for_legacy_pyc</span><span class="p">(</span><span class="n">expected_ns</span><span class="p">,</span> <span class="n">alter_sys</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_del_pkg</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Module executed successfully&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_package</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">alter_sys</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                          <span class="o">*</span><span class="p">,</span> <span class="n">namespace</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">parent_namespaces</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="n">pkg_dir</span><span class="p">,</span> <span class="n">mod_fname</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span> <span class="n">mod_spec</span> <span class="o">=</span> <span class="p">(</span>
+               <span class="bp">self</span><span class="o">.</span><span class="n">_make_pkg</span><span class="p">(</span><span class="n">example_source</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="s">&quot;__main__&quot;</span><span class="p">,</span>
+                              <span class="n">namespace</span><span class="o">=</span><span class="n">namespace</span><span class="p">,</span>
+                              <span class="n">parent_namespaces</span><span class="o">=</span><span class="n">parent_namespaces</span><span class="p">))</span>
+        <span class="n">pkg_name</span> <span class="o">=</span> <span class="n">mod_name</span><span class="o">.</span><span class="n">rpartition</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">forget</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+        <span class="n">expected_ns</span> <span class="o">=</span> <span class="n">example_namespace</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">expected_ns</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+            <span class="s">&quot;__name__&quot;</span><span class="p">:</span> <span class="n">mod_name</span><span class="p">,</span>
+            <span class="s">&quot;__file__&quot;</span><span class="p">:</span> <span class="n">mod_fname</span><span class="p">,</span>
+            <span class="s">&quot;__cached__&quot;</span><span class="p">:</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">cache_from_source</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">),</span>
+            <span class="s">&quot;__package__&quot;</span><span class="p">:</span> <span class="n">pkg_name</span><span class="p">,</span>
+            <span class="s">&quot;__spec__&quot;</span><span class="p">:</span> <span class="n">mod_spec</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="k">if</span> <span class="n">alter_sys</span><span class="p">:</span>
+            <span class="n">expected_ns</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+                <span class="s">&quot;run_argv0&quot;</span><span class="p">:</span> <span class="n">mod_fname</span><span class="p">,</span>
+                <span class="s">&quot;run_name_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+                <span class="s">&quot;module_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+            <span class="p">})</span>
+        <span class="k">def</span> <span class="nf">create_ns</span><span class="p">(</span><span class="n">init_globals</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">run_module</span><span class="p">(</span><span class="n">pkg_name</span><span class="p">,</span> <span class="n">init_globals</span><span class="p">,</span> <span class="n">alter_sys</span><span class="o">=</span><span class="n">alter_sys</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Running from source:&quot;</span><span class="p">,</span> <span class="n">pkg_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+            <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+            <span class="nb">__import__</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">sys</span><span class="o">.</span><span class="n">dont_write_bytecode</span><span class="p">:</span>
+                <span class="n">make_legacy_pyc</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">)</span>
+                <span class="n">unload</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>  <span class="c"># In case loader caches paths</span>
+                <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Running from compiled:&quot;</span><span class="p">,</span> <span class="n">pkg_name</span><span class="p">)</span>
+                <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_fix_ns_for_legacy_pyc</span><span class="p">(</span><span class="n">expected_ns</span><span class="p">,</span> <span class="n">alter_sys</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_del_pkg</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">pkg_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Package executed successfully&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_add_relative_modules</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base_dir</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">depth</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">depth</span> <span class="o">&lt;=</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Relative module test needs depth &gt; 1&quot;</span><span class="p">)</span>
+        <span class="n">pkg_name</span> <span class="o">=</span> <span class="s">&quot;__runpy_pkg__&quot;</span>
+        <span class="n">module_dir</span> <span class="o">=</span> <span class="n">base_dir</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">depth</span><span class="p">):</span>
+            <span class="n">parent_dir</span> <span class="o">=</span> <span class="n">module_dir</span>
+            <span class="n">module_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">module_dir</span><span class="p">,</span> <span class="n">pkg_name</span><span class="p">)</span>
+        <span class="c"># Add sibling module</span>
+        <span class="n">sibling_fname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">module_dir</span><span class="p">,</span> <span class="s">&quot;sibling.py&quot;</span><span class="p">)</span>
+        <span class="n">create_empty_file</span><span class="p">(</span><span class="n">sibling_fname</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Added sibling module:&quot;</span><span class="p">,</span> <span class="n">sibling_fname</span><span class="p">)</span>
+        <span class="c"># Add nephew module</span>
+        <span class="n">uncle_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parent_dir</span><span class="p">,</span> <span class="s">&quot;uncle&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_add_pkg_dir</span><span class="p">(</span><span class="n">uncle_dir</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Added uncle package:&quot;</span><span class="p">,</span> <span class="n">uncle_dir</span><span class="p">)</span>
+        <span class="n">cousin_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">uncle_dir</span><span class="p">,</span> <span class="s">&quot;cousin&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_add_pkg_dir</span><span class="p">(</span><span class="n">cousin_dir</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Added cousin package:&quot;</span><span class="p">,</span> <span class="n">cousin_dir</span><span class="p">)</span>
+        <span class="n">nephew_fname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">cousin_dir</span><span class="p">,</span> <span class="s">&quot;nephew.py&quot;</span><span class="p">)</span>
+        <span class="n">create_empty_file</span><span class="p">(</span><span class="n">nephew_fname</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;  Added nephew module:&quot;</span><span class="p">,</span> <span class="n">nephew_fname</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_relative_imports</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">run_name</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">contents</span> <span class="o">=</span> <span class="s">r&quot;&quot;&quot;\</span>
+<span class="s">from __future__ import absolute_import</span>
+<span class="s">from . import sibling</span>
+<span class="s">from ..uncle.cousin import nephew</span>
+<span class="s">&quot;&quot;&quot;</span>
+        <span class="n">pkg_dir</span><span class="p">,</span> <span class="n">mod_fname</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span> <span class="n">mod_spec</span> <span class="o">=</span> <span class="p">(</span>
+               <span class="bp">self</span><span class="o">.</span><span class="n">_make_pkg</span><span class="p">(</span><span class="n">contents</span><span class="p">,</span> <span class="n">depth</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">run_name</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">expected_name</span> <span class="o">=</span> <span class="n">mod_name</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">expected_name</span> <span class="o">=</span> <span class="n">run_name</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_add_relative_modules</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="n">contents</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="n">pkg_name</span> <span class="o">=</span> <span class="n">mod_name</span><span class="o">.</span><span class="n">rpartition</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Running from source:&quot;</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">d1</span> <span class="o">=</span> <span class="n">run_module</span><span class="p">(</span><span class="n">mod_name</span><span class="p">,</span> <span class="n">run_name</span><span class="o">=</span><span class="n">run_name</span><span class="p">)</span> <span class="c"># Read from source</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">d1</span><span class="p">[</span><span class="s">&quot;__name__&quot;</span><span class="p">],</span> <span class="n">expected_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">d1</span><span class="p">[</span><span class="s">&quot;__package__&quot;</span><span class="p">],</span> <span class="n">pkg_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&quot;sibling&quot;</span><span class="p">,</span> <span class="n">d1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&quot;nephew&quot;</span><span class="p">,</span> <span class="n">d1</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">d1</span> <span class="c"># Ensure __loader__ entry doesn&#39;t keep file open</span>
+            <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+            <span class="nb">__import__</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">sys</span><span class="o">.</span><span class="n">dont_write_bytecode</span><span class="p">:</span>
+                <span class="n">make_legacy_pyc</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">)</span>
+                <span class="n">unload</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>  <span class="c"># In case the loader caches paths</span>
+                <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Running from compiled:&quot;</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+                <span class="n">importlib</span><span class="o">.</span><span class="n">invalidate_caches</span><span class="p">()</span>
+                <span class="n">d2</span> <span class="o">=</span> <span class="n">run_module</span><span class="p">(</span><span class="n">mod_name</span><span class="p">,</span> <span class="n">run_name</span><span class="o">=</span><span class="n">run_name</span><span class="p">)</span> <span class="c"># Read from bytecode</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">d2</span><span class="p">[</span><span class="s">&quot;__name__&quot;</span><span class="p">],</span> <span class="n">expected_name</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">d2</span><span class="p">[</span><span class="s">&quot;__package__&quot;</span><span class="p">],</span> <span class="n">pkg_name</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&quot;sibling&quot;</span><span class="p">,</span> <span class="n">d2</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&quot;nephew&quot;</span><span class="p">,</span> <span class="n">d2</span><span class="p">)</span>
+                <span class="k">del</span> <span class="n">d2</span> <span class="c"># Ensure __loader__ entry doesn&#39;t keep file open</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_del_pkg</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Module executed successfully&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="RunModuleTestCase.test_run_module"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_module">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_module</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing package depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_module</span><span class="p">(</span><span class="n">depth</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_run_module_in_namespace_package"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_module_in_namespace_package">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_module_in_namespace_package</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing package depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_module</span><span class="p">(</span><span class="n">depth</span><span class="p">,</span> <span class="n">namespace</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">parent_namespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_run_package"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_package">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_package</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing package depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_package</span><span class="p">(</span><span class="n">depth</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_run_package_in_namespace_package"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_package_in_namespace_package">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_package_in_namespace_package</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing package depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_package</span><span class="p">(</span><span class="n">depth</span><span class="p">,</span> <span class="n">parent_namespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_run_namespace_package"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_namespace_package">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_namespace_package</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing package depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_package</span><span class="p">(</span><span class="n">depth</span><span class="p">,</span> <span class="n">namespace</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_run_namespace_package_in_namespace_package"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_namespace_package_in_namespace_package">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_namespace_package_in_namespace_package</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing package depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_package</span><span class="p">(</span><span class="n">depth</span><span class="p">,</span> <span class="n">namespace</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">parent_namespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_run_module_alter_sys"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_module_alter_sys">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_module_alter_sys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing package depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_module</span><span class="p">(</span><span class="n">depth</span><span class="p">,</span> <span class="n">alter_sys</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_run_package_alter_sys"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_package_alter_sys">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_package_alter_sys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing package depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_package</span><span class="p">(</span><span class="n">depth</span><span class="p">,</span> <span class="n">alter_sys</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_explicit_relative_import"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_explicit_relative_import">[docs]</a>    <span class="k">def</span> <span class="nf">test_explicit_relative_import</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing relative imports at depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_relative_imports</span><span class="p">(</span><span class="n">depth</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_main_relative_import"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_main_relative_import">[docs]</a>    <span class="k">def</span> <span class="nf">test_main_relative_import</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">verbose</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span> <span class="k">print</span><span class="p">(</span><span class="s">&quot;Testing main relative imports at depth:&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_relative_imports</span><span class="p">(</span><span class="n">depth</span><span class="p">,</span> <span class="s">&quot;__main__&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_run_name"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_run_name">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_name</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">depth</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="n">run_name</span> <span class="o">=</span> <span class="s">&quot;And now for something completely different&quot;</span>
+        <span class="n">pkg_dir</span><span class="p">,</span> <span class="n">mod_fname</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span> <span class="n">mod_spec</span> <span class="o">=</span> <span class="p">(</span>
+               <span class="bp">self</span><span class="o">.</span><span class="n">_make_pkg</span><span class="p">(</span><span class="n">example_source</span><span class="p">,</span> <span class="n">depth</span><span class="p">))</span>
+        <span class="n">forget</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+        <span class="n">expected_ns</span> <span class="o">=</span> <span class="n">example_namespace</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">expected_ns</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+            <span class="s">&quot;__name__&quot;</span><span class="p">:</span> <span class="n">run_name</span><span class="p">,</span>
+            <span class="s">&quot;__file__&quot;</span><span class="p">:</span> <span class="n">mod_fname</span><span class="p">,</span>
+            <span class="s">&quot;__cached__&quot;</span><span class="p">:</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">cache_from_source</span><span class="p">(</span><span class="n">mod_fname</span><span class="p">),</span>
+            <span class="s">&quot;__package__&quot;</span><span class="p">:</span> <span class="n">mod_name</span><span class="o">.</span><span class="n">rpartition</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span>
+            <span class="s">&quot;__spec__&quot;</span><span class="p">:</span> <span class="n">mod_spec</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="k">def</span> <span class="nf">create_ns</span><span class="p">(</span><span class="n">init_globals</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">run_module</span><span class="p">(</span><span class="n">mod_name</span><span class="p">,</span> <span class="n">init_globals</span><span class="p">,</span> <span class="n">run_name</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_del_pkg</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="n">depth</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunModuleTestCase.test_pkgutil_walk_packages"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunModuleTestCase.test_pkgutil_walk_packages">[docs]</a>    <span class="k">def</span> <span class="nf">test_pkgutil_walk_packages</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># This is a dodgy hack to use the test_runpy infrastructure to test</span>
+        <span class="c"># issue #15343. Issue #15348 declares this is indeed a dodgy hack ;)</span>
+        <span class="kn">import</span> <span class="nn">pkgutil</span>
+        <span class="n">max_depth</span> <span class="o">=</span> <span class="mi">4</span>
+        <span class="n">base_name</span> <span class="o">=</span> <span class="s">&quot;__runpy_pkg__&quot;</span>
+        <span class="n">package_suffixes</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;uncle&quot;</span><span class="p">,</span> <span class="s">&quot;uncle.cousin&quot;</span><span class="p">]</span>
+        <span class="n">module_suffixes</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;uncle.cousin.nephew&quot;</span><span class="p">,</span> <span class="n">base_name</span> <span class="o">+</span> <span class="s">&quot;.sibling&quot;</span><span class="p">]</span>
+        <span class="n">expected_packages</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="n">expected_modules</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">max_depth</span><span class="p">):</span>
+            <span class="n">pkg_name</span> <span class="o">=</span> <span class="s">&quot;.&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">base_name</span><span class="p">]</span> <span class="o">*</span> <span class="n">depth</span><span class="p">)</span>
+            <span class="n">expected_packages</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pkg_name</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">package_suffixes</span><span class="p">:</span>
+                <span class="n">expected_packages</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pkg_name</span> <span class="o">+</span> <span class="s">&quot;.&quot;</span> <span class="o">+</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">module_suffixes</span><span class="p">:</span>
+                <span class="n">expected_modules</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pkg_name</span> <span class="o">+</span> <span class="s">&quot;.&quot;</span> <span class="o">+</span> <span class="n">name</span><span class="p">)</span>
+        <span class="n">pkg_name</span> <span class="o">=</span> <span class="s">&quot;.&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">base_name</span><span class="p">]</span> <span class="o">*</span> <span class="n">max_depth</span><span class="p">)</span>
+        <span class="n">expected_packages</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pkg_name</span><span class="p">)</span>
+        <span class="n">expected_modules</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pkg_name</span> <span class="o">+</span> <span class="s">&quot;.runpy_test&quot;</span><span class="p">)</span>
+        <span class="n">pkg_dir</span><span class="p">,</span> <span class="n">mod_fname</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span> <span class="n">mod_spec</span> <span class="o">=</span> <span class="p">(</span>
+               <span class="bp">self</span><span class="o">.</span><span class="n">_make_pkg</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="p">,</span> <span class="n">max_depth</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_del_pkg</span><span class="p">,</span> <span class="n">pkg_dir</span><span class="p">,</span> <span class="n">max_depth</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">depth</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="n">max_depth</span><span class="o">+</span><span class="mi">1</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_add_relative_modules</span><span class="p">(</span><span class="n">pkg_dir</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">,</span> <span class="n">depth</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">finder</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span> <span class="n">ispkg</span> <span class="ow">in</span> <span class="n">pkgutil</span><span class="o">.</span><span class="n">walk_packages</span><span class="p">([</span><span class="n">pkg_dir</span><span class="p">]):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIsInstance</span><span class="p">(</span><span class="n">finder</span><span class="p">,</span>
+                                  <span class="n">importlib</span><span class="o">.</span><span class="n">machinery</span><span class="o">.</span><span class="n">FileFinder</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ispkg</span><span class="p">:</span>
+                <span class="n">expected_packages</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">expected_modules</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">mod_name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">expected_packages</span><span class="p">),</span> <span class="mi">0</span><span class="p">,</span> <span class="n">expected_packages</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">expected_modules</span><span class="p">),</span> <span class="mi">0</span><span class="p">,</span> <span class="n">expected_modules</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="RunPathTestCase"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase">[docs]</a><span class="k">class</span> <span class="nc">RunPathTestCase</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">,</span> <span class="n">CodeExecutionMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Unit tests for runpy.run_path&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_make_test_script</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">script_dir</span><span class="p">,</span> <span class="n">script_basename</span><span class="p">,</span>
+                          <span class="n">source</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">omit_suffix</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">source</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">source</span> <span class="o">=</span> <span class="n">example_source</span>
+        <span class="k">return</span> <span class="n">make_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">script_basename</span><span class="p">,</span>
+                           <span class="n">source</span><span class="p">,</span> <span class="n">omit_suffix</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_script</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">script_name</span><span class="p">,</span> <span class="n">expected_name</span><span class="p">,</span> <span class="n">expected_file</span><span class="p">,</span>
+                            <span class="n">expected_argv0</span><span class="p">,</span> <span class="n">mod_name</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                            <span class="n">expect_spec</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">check_loader</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="c"># First check is without run_name</span>
+        <span class="k">def</span> <span class="nf">create_ns</span><span class="p">(</span><span class="n">init_globals</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">run_path</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">init_globals</span><span class="p">)</span>
+        <span class="n">expected_ns</span> <span class="o">=</span> <span class="n">example_namespace</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">mod_name</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">spec_name</span> <span class="o">=</span> <span class="n">expected_name</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">spec_name</span> <span class="o">=</span> <span class="n">mod_name</span>
+        <span class="k">if</span> <span class="n">expect_spec</span><span class="p">:</span>
+            <span class="n">mod_spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">spec_from_file_location</span><span class="p">(</span><span class="n">spec_name</span><span class="p">,</span>
+                                                              <span class="n">expected_file</span><span class="p">)</span>
+            <span class="n">mod_cached</span> <span class="o">=</span> <span class="n">mod_spec</span><span class="o">.</span><span class="n">cached</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">check_loader</span><span class="p">:</span>
+                <span class="n">mod_spec</span><span class="o">.</span><span class="n">loader</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">mod_spec</span> <span class="o">=</span> <span class="n">mod_cached</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="n">expected_ns</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+            <span class="s">&quot;__name__&quot;</span><span class="p">:</span> <span class="n">expected_name</span><span class="p">,</span>
+            <span class="s">&quot;__file__&quot;</span><span class="p">:</span> <span class="n">expected_file</span><span class="p">,</span>
+            <span class="s">&quot;__cached__&quot;</span><span class="p">:</span> <span class="n">mod_cached</span><span class="p">,</span>
+            <span class="s">&quot;__package__&quot;</span><span class="p">:</span> <span class="s">&quot;&quot;</span><span class="p">,</span>
+            <span class="s">&quot;__spec__&quot;</span><span class="p">:</span> <span class="n">mod_spec</span><span class="p">,</span>
+            <span class="s">&quot;run_argv0&quot;</span><span class="p">:</span> <span class="n">expected_argv0</span><span class="p">,</span>
+            <span class="s">&quot;run_name_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+            <span class="s">&quot;module_in_sys_modules&quot;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+        <span class="p">})</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+        <span class="c"># Second check makes sure run_name works in all cases</span>
+        <span class="n">run_name</span> <span class="o">=</span> <span class="s">&quot;prove.issue15230.is.fixed&quot;</span>
+        <span class="k">def</span> <span class="nf">create_ns</span><span class="p">(</span><span class="n">init_globals</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">run_path</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">init_globals</span><span class="p">,</span> <span class="n">run_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">expect_spec</span> <span class="ow">and</span> <span class="n">mod_name</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">mod_spec</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">util</span><span class="o">.</span><span class="n">spec_from_file_location</span><span class="p">(</span><span class="n">run_name</span><span class="p">,</span>
+                                                              <span class="n">expected_file</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">check_loader</span><span class="p">:</span>
+                <span class="n">mod_spec</span><span class="o">.</span><span class="n">loader</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="n">expected_ns</span><span class="p">[</span><span class="s">&quot;__spec__&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">mod_spec</span>
+        <span class="n">expected_ns</span><span class="p">[</span><span class="s">&quot;__name__&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">run_name</span>
+        <span class="n">expected_ns</span><span class="p">[</span><span class="s">&quot;__package__&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">run_name</span><span class="o">.</span><span class="n">rpartition</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_code_execution</span><span class="p">(</span><span class="n">create_ns</span><span class="p">,</span> <span class="n">expected_ns</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_import_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">script_name</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">escape</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaisesRegex</span><span class="p">(</span><span class="ne">ImportError</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="n">run_path</span><span class="p">,</span> <span class="n">script_name</span><span class="p">)</span>
+
+<div class="viewcode-block" id="RunPathTestCase.test_basic_script"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_basic_script">[docs]</a>    <span class="k">def</span> <span class="nf">test_basic_script</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;script&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="s">&quot;&lt;run_path&gt;&quot;</span><span class="p">,</span> <span class="n">script_name</span><span class="p">,</span>
+                               <span class="n">script_name</span><span class="p">,</span> <span class="n">expect_spec</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_basic_script_no_suffix"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_basic_script_no_suffix">[docs]</a>    <span class="k">def</span> <span class="nf">test_basic_script_no_suffix</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;script&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span>
+                                                 <span class="n">omit_suffix</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="s">&quot;&lt;run_path&gt;&quot;</span><span class="p">,</span> <span class="n">script_name</span><span class="p">,</span>
+                               <span class="n">script_name</span><span class="p">,</span> <span class="n">expect_spec</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_script_compiled"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_script_compiled">[docs]</a>    <span class="k">def</span> <span class="nf">test_script_compiled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;script&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">compiled_name</span> <span class="o">=</span> <span class="n">py_compile</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">compiled_name</span><span class="p">,</span> <span class="s">&quot;&lt;run_path&gt;&quot;</span><span class="p">,</span> <span class="n">compiled_name</span><span class="p">,</span>
+                               <span class="n">compiled_name</span><span class="p">,</span> <span class="n">expect_spec</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_directory"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_directory">[docs]</a>    <span class="k">def</span> <span class="nf">test_directory</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;__main__&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&quot;&lt;run_path&gt;&quot;</span><span class="p">,</span> <span class="n">script_name</span><span class="p">,</span>
+                               <span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="o">=</span><span class="n">mod_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_directory_compiled"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_directory_compiled">[docs]</a>    <span class="k">def</span> <span class="nf">test_directory_compiled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;__main__&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">compiled_name</span> <span class="o">=</span> <span class="n">py_compile</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">sys</span><span class="o">.</span><span class="n">dont_write_bytecode</span><span class="p">:</span>
+                <span class="n">legacy_pyc</span> <span class="o">=</span> <span class="n">make_legacy_pyc</span><span class="p">(</span><span class="n">script_name</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&quot;&lt;run_path&gt;&quot;</span><span class="p">,</span> <span class="n">legacy_pyc</span><span class="p">,</span>
+                                   <span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="o">=</span><span class="n">mod_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_directory_error"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_directory_error">[docs]</a>    <span class="k">def</span> <span class="nf">test_directory_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;not_main&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;can&#39;t find &#39;__main__&#39; module in </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">script_dir</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_import_error</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_zipfile"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_zipfile">[docs]</a>    <span class="k">def</span> <span class="nf">test_zipfile</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;__main__&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">zip_name</span><span class="p">,</span> <span class="n">fname</span> <span class="o">=</span> <span class="n">make_zip_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_zip&#39;</span><span class="p">,</span> <span class="n">script_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">zip_name</span><span class="p">,</span> <span class="s">&quot;&lt;run_path&gt;&quot;</span><span class="p">,</span> <span class="n">fname</span><span class="p">,</span> <span class="n">zip_name</span><span class="p">,</span>
+                               <span class="n">mod_name</span><span class="o">=</span><span class="n">mod_name</span><span class="p">,</span> <span class="n">check_loader</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_zipfile_compiled"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_zipfile_compiled">[docs]</a>    <span class="k">def</span> <span class="nf">test_zipfile_compiled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;__main__&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">compiled_name</span> <span class="o">=</span> <span class="n">py_compile</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="n">script_name</span><span class="p">,</span> <span class="n">doraise</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">zip_name</span><span class="p">,</span> <span class="n">fname</span> <span class="o">=</span> <span class="n">make_zip_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_zip&#39;</span><span class="p">,</span>
+                                              <span class="n">compiled_name</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_script</span><span class="p">(</span><span class="n">zip_name</span><span class="p">,</span> <span class="s">&quot;&lt;run_path&gt;&quot;</span><span class="p">,</span> <span class="n">fname</span><span class="p">,</span> <span class="n">zip_name</span><span class="p">,</span>
+                               <span class="n">mod_name</span><span class="o">=</span><span class="n">mod_name</span><span class="p">,</span> <span class="n">check_loader</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_zipfile_error"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_zipfile_error">[docs]</a>    <span class="k">def</span> <span class="nf">test_zipfile_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;not_main&#39;</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">)</span>
+            <span class="n">zip_name</span><span class="p">,</span> <span class="n">fname</span> <span class="o">=</span> <span class="n">make_zip_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_zip&#39;</span><span class="p">,</span> <span class="n">script_name</span><span class="p">)</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;can&#39;t find &#39;__main__&#39; module in </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">zip_name</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_check_import_error</span><span class="p">(</span><span class="n">zip_name</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+</div>
+    <span class="nd">@no_tracing</span>
+<div class="viewcode-block" id="RunPathTestCase.test_main_recursion_error"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_main_recursion_error">[docs]</a>    <span class="k">def</span> <span class="nf">test_main_recursion_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">,</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">dummy_dir</span><span class="p">:</span>
+            <span class="n">mod_name</span> <span class="o">=</span> <span class="s">&#39;__main__&#39;</span>
+            <span class="n">source</span> <span class="o">=</span> <span class="p">(</span><span class="s">&quot;import runpy</span><span class="se">\n</span><span class="s">&quot;</span>
+                      <span class="s">&quot;runpy.run_path(</span><span class="si">%r</span><span class="s">)</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span> <span class="o">%</span> <span class="n">dummy_dir</span>
+            <span class="n">script_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_test_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="n">mod_name</span><span class="p">,</span> <span class="n">source</span><span class="p">)</span>
+            <span class="n">zip_name</span><span class="p">,</span> <span class="n">fname</span> <span class="o">=</span> <span class="n">make_zip_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;test_zip&#39;</span><span class="p">,</span> <span class="n">script_name</span><span class="p">)</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;recursion depth exceeded&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaisesRegex</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="n">run_path</span><span class="p">,</span> <span class="n">zip_name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RunPathTestCase.test_encoding"><a class="viewcode-back" href="../../test.html#test.test_runpy.RunPathTestCase.test_encoding">[docs]</a>    <span class="k">def</span> <span class="nf">test_encoding</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">filename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;script.py&#39;</span><span class="p">)</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s">&#39;latin1&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span>
+<span class="s">#coding:latin1</span>
+<span class="s">s = &quot;non-ASCII: h</span><span class="se">\xe9</span><span class="s">&quot;</span>
+<span class="s">&quot;&quot;&quot;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">run_path</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">result</span><span class="p">[</span><span class="s">&#39;s&#39;</span><span class="p">],</span> <span class="s">&quot;non-ASCII: h</span><span class="se">\xe9</span><span class="s">&quot;</span><span class="p">)</span>
+
+</div></div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">unittest</span><span class="o">.</span><span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2015, Welon H.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.1</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.3</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>
