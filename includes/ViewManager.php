@@ -21,5 +21,13 @@ class ViewManager{
     static function addReCAPTCHA(){
         echo '<div class="g-recaptcha" data-sitekey="6Le2XAMTAAAAAAikuUTjtmxheTdJxn0cebzQ2MQI"></div>';
     }
+    
+    static function addProductForum($forum){
+      switch($forum):
+        case "main":
+          echo '<iframe id="forum_embed" src=https://groups.google.com/forum/embed/?place=forum/archersys-os-forum&showsearch=true&showpopout=true&showtabs=false" scrolling="no" frameborder="0" width="900" height="700"></iframe>';
+        break;
+    endswitch;
+    }
 }
 ?>
