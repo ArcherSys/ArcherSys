@@ -1,10 +1,10 @@
-.. ArcherBashPy documentation master file, created by
-   sphinx-quickstart on Mon Mar 23 13:23:12 2015.
+.. ArcherBashPYDocs documentation master file, created by
+   sphinx-quickstart on Wed Mar 25 13:15:27 2015.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to ArcherBashPy's documentation!
-========================================
+Welcome to ArcherBashPYDocs's documentation!
+============================================
 
 Contents:
 
