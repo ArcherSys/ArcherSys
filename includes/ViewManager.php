@@ -29,5 +29,28 @@ class ViewManager{
         break;
     endswitch;
     }
+  
+  
+
+    
+    static function addHeaderPanels(){
+      echo '<link rel="import" href="/settings/components/core-header-panel/core-header-panel.html">
+';
+}
+static function addPolymer(){
+  echo '<link rel="import" href="/settings/components/polymer/polymer.html">
+';
+}
+static function addToolbar(){
+  echo '<link rel="import" href="/settings/components/core-toolbar/core-toolbar.html">';
+}
+static function addCoreButtons(){
+ echo '<link rel="import" href="/settings/components/core-icon-button/core-icon-button.html">';
+
+    }
+    static function addTabs(){
+      echo '<link rel="import" href="/settings/components/paper-tabs/paper-tabs.html">';
+        echo '<link rel="import" href="/settings/components/paper-tabs/paper-tab.html">';
+    }
 }
 ?>

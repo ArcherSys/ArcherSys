@@ -1,16 +1,16 @@
 ; <?php exit; ?> DO NOT REMOVE THIS LINE
 ; file automatically generated or modified by Piwik; you can manually override the default values in global.ini.php by redefining them in this file.
 [database]
-host = "localhost"
+host = "127.0.0.1"
 username = "root"
 password = "aco1234"
-dbname = "acoserver_acoserver"
+dbname = "acoserver_admin"
 tables_prefix = "piwik_"
 charset = "utf8"
 
 [General]
-salt = "1eef2b1c264f62b5efe9a0609bfc7a71"
-trusted_hosts[] = "localhost"
+salt = "9b836785d2529082d1d0aa6ecaeeacf5"
+installation_in_progress = 1
 
 [PluginsInstalled]
 PluginsInstalled[] = "Login"

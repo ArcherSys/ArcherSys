@@ -3,13 +3,15 @@
   require_once "config.php";
   require_once "includes/component-functions.php";
   require_once "includes/ViewManager.php";
+  require_once "includes/DataManager.php";
   use ArcherSys\Viewer\ViewManager;
+  use ArcherSys\Data\DataManager;
   
  // Connects to your Database
 @ini_set("max_execution_time", 300);
- mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or die(mysql_error());
-
- mysql_select_db("acoserver_acoserver") or die(mysql_error());
+   mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or DataManager::notify();
+   
+ mysql_select_db( "acoserver_acoserver") or DataManager::notify();
 
  
  //checks cookies to make sure they are logged in
@@ -25,7 +27,7 @@ if(isset($_COOKIE['ID_my_site']))
 
  	$pass = $_COOKIE['Key_my_site'];
 
- 	 	$check = mysql_query("SELECT * FROM users WHERE username = '$username'")or die(mysql_error());
+ 	 	$check = mysql_query("SELECT * FROM users WHERE username = '$username'")or DataManager::notify();
 
  	while($info = mysql_fetch_array( $check ))
 
