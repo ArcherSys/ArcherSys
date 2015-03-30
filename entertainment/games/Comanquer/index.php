@@ -4,19 +4,24 @@
 	
 <head>
 	
-	<meta charset="utf-8">
+	
 		
-<title>Command and Conquer - Tiberian Dawn - HTML5</title>
+
 	
 	<?php
+	  
 	  require_once $_SERVER["DOCUMENT_ROOT"]."/includes/ViewManager.php";
   require_once $_SERVER["DOCUMENT_ROOT"]."/includes/LogicManager.php";
+    require_once "includes/ComanquerLogicManager.php";
   require_once $_SERVER["DOCUMENT_ROOT"]."/includes/ConfigManager.php";
   use ArcherSys\Viewer\ViewManager;
   use ArcherSys\Data\DataManager;
   use ArcherSys\Config\ConfigManager;
    use ArcherSys\Viewer\LogicManager;
    use ArcherSys\Viewer\FontManager;
+   use ArcherSys\Comanquer\ComanquerLogicManager;
+     ConfigManager::SpecifyCharset("utf-8");
+     ViewManager::setTitle("Command and Conquer - Tiberian Dawn - HTML5");
 	   ConfigManager::addFavicon();
   LogicManager::addPolymerWebComponentsScript();
   ViewManager::addPolymer();
@@ -25,11 +30,12 @@ ViewManager::addToolbar();
 ViewManager::addCoreButtons();
 ViewManager::addTabs();
  LogicManager::addTracking();
+ LogicManager::addJquery();
+ComanquerLogicManager::addGameLogic();
   ?>
 
-<script src="/core/js/jquery.js"></script>
-<script src="js/cnc.js"	 type="text/javascript" charset="utf-8">
-		</script>
+
+
 	
 </head>
 	

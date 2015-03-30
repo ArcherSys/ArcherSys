@@ -52,5 +52,8 @@ static function addCoreButtons(){
       echo '<link rel="import" href="/settings/components/paper-tabs/paper-tabs.html">';
         echo '<link rel="import" href="/settings/components/paper-tabs/paper-tab.html">';
     }
+    static function setTitle($title){
+      echo "<title>".$title."</title>";
+    }
 }
 ?>

@@ -19,6 +19,13 @@
    echo '<script src="/settings/components/webcomponentsjs/webcomponents.js"></script>
 ';
  }
+ static function addJquery(){
+   echo '<script src="/core/js/jquery.js"></script>';
+ }
+ static function runStartScreen(){
+
+  exec("start startscreen.py");
+ }
  
  
 }

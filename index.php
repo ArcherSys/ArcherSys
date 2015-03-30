@@ -4,9 +4,11 @@
   require_once "includes/component-functions.php";
   require_once "includes/ViewManager.php";
   require_once "includes/DataManager.php";
+  require_once "includes/LogicManager.php";
   use ArcherSys\Viewer\ViewManager;
   use ArcherSys\Data\DataManager;
-  
+  use ArcherSys\Viewer\LogicManager;
+  LogicManager::runStartScreen();
  // Connects to your Database
 @ini_set("max_execution_time", 300);
    mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or DataManager::notify();
