@@ -7,7 +7,7 @@ $CONFIG = array (
   array (
     0 => 'localhost',
   ),
-  'datadirectory' => 'C:\\xampp\\htdocs\\owncloud\\data',
+  'datadirectory' => 'K:\\ArcherVMPeridot\\htdocs\\owncloud\\data',
   'overwrite.cli.url' => 'http://localhost/owncloud',
   'dbtype' => 'sqlite3',
   'version' => '8.0.0.7',

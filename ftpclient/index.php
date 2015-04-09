@@ -1,12 +1,11 @@
 <?php
-
 $version = "1.5";
 
 # CONFIGURABLE VARIABLES STARTS
 # Open README file for descriptions and help.
 
-$ftpHost = "";
-$ftpPort = "21"; // 21 is default
+$ftpHost = "localhost";
+$ftpPort = "14147"; // 21 is default
 $ftpMode = "1"; // 1 passive, 0 not passive
 $ftpSSL  = "0"; // 1 for SSL, 0 for not SSL
 $ftpDir  = "";
