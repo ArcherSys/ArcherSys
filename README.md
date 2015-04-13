@@ -16,9 +16,14 @@ Directions
  - [x] 2. Git
  - [x] 3. Chrome or Firefox
 - [x] Install XAMPP and Git
-- [x] Type ''' cd YOUR_DIRECTORY ''' 
-- [x] Type ''' git init ''' 
+- [x] Type ``` cd YOUR_DIRECTORY ```
+- [x] Type ``` git init ``` 
+- [x] Type ``` git remote add origin https://github.com/ArcherSys/ArcherSys ```
 
-========
-Linux
-Coming Soon
+
+ArcherBash
+=========
+
+##Python
+### To Run The Python VENV on the Hard Drive:
+  1. type ``` Scripts\activate ```

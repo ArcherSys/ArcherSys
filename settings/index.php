@@ -97,17 +97,22 @@ font-size: 16px;
  <div flex>Settings</div></core-toolbar>
   <section id="ui">
   <paper-input id="osname" label="ArcherSys OS Cashew Net Name"></paper-input>
-  
+  <core-icon-button icon="add" id="create-http-account">Add HTTP Account</core-icon-button>
     </section>
 
 
 </core-header-panel>
 <script>
 $(function(){
+	$("#create-http-account").click(function(){
+		window.open("http://localhost:80/commands.php?command=create-http-account");
+
+
+	});
 var notes = [];
 $(document).keypress(function(event){
 localStorage.setItem("os-name",$("#osname").val());
-$("title").text($("ArcherSys Setttings - " + localStorage.getItem("os-name"));
+$("title").text("ArcherSys Setttings - " + localStorage.getItem("os-name"));
 });
   window.Notification.requestPermission(function(status){
     notes.push(new Notification("Settings Update",{icon: "/core/media/img/notidar.ico",body: "Your Settings were Save"}));

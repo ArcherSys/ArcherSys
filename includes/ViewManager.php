@@ -56,4 +56,17 @@ static function addCoreButtons(){
       echo "<title>".$title."</title>";
     }
 }
+class BootstrapViewManager extends ViewManager{
+
+static function addXwordSearch(){
+?>
+	<form class="navbar-form navbar-left" action="<?php echo $_SERVER["PHP_SELF"]; ?>" role="search">
+<div class="form-group">
+<input type="text" class="form-control" placeholder="Search">
+</div>
+<button type="submit" class="btn btn-default">Submit</button>
+</form>
+<?php
+}
+}
 ?>

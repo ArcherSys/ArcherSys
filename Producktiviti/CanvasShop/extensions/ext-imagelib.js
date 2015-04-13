@@ -248,7 +248,7 @@ svgEditor.addExtension("imagelib", function() {
 				overflow: 'auto'
 			}).insertAfter('#lib_framewrap');
 			
-			submit = $('<button disabled>Import selected</button>')
+			submit = $('<core-icon-button disabled>Import selected</core-icon-button>')
 				.appendTo('#imgbrowse')
 				.on("click touchend", function() {
 				$.each(multi_arr, function(i) {

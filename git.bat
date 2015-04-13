@@ -1,0 +1,3 @@
+@echo off
+gitbin\Git1.9.4\cmd\git
+
