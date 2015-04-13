@@ -1,3 +1,4 @@
+module ArcherSysOS
 require 'optparse'
 require 'optparse/time'
 require 'ostruct'
@@ -104,4 +105,4 @@ class ArcherSysOSOptionsParser
   end  # parse()
 
 end  # class ArcherSysOSOptionsParser
-
+end

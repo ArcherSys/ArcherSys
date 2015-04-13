@@ -2,7 +2,7 @@ require "htdocs/version"
 
 
 
-module Htdocs
+module ArcherSysOS
 
   # Your code goes here...
 

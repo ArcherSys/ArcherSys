@@ -1,4 +1,4 @@
-
+module ArcherSysOS
 require "observer"
 
 class Ticker          ### Periodically fetch a stock price.
@@ -60,4 +60,4 @@ ticker = Ticker.new("MSFT")
 WarnLow.new(ticker, 80)
 WarnHigh.new(ticker, 120)
 ticker.run
-
+end

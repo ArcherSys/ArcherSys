@@ -1,3 +1,4 @@
+module ArcherSysOS
 require 'drb/drb'
 
 # The URI for the server to connect to
@@ -19,4 +20,4 @@ $SAFE = 1   # disable eval() and friends
 DRb.start_service(URI, FRONT_OBJECT)
 # Wait for the drb server thread to finish before exiting.
 DRb.thread.join
-
+end

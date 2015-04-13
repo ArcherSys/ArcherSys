@@ -383,7 +383,33 @@ var levels = [{'name': 'SELECT *',
                                      ['John Wilkes Booth', '.44 caliber derringer'],
                                      ['Zorro', 'Sword of Zorro'],
                                      ['Innocent Bystander', null]]},
-               'prompt': '<code>COALESCE</code> takes a list of columns, and returns the value of the first column that is not null. <br/><br/>Suppose we wanted to find the most powerful weapon that a combatant has on hand.  If value of <em>gun</em> is not null, that is the value returned.  Otherwise, the value of <em>sword</em> is returned.  Then you would run: <br/> <code>SELECT name, COALESCE(gun, sword) as weapon FROM fighters;</code> <br/><br/> Suppose that a fighter\'s tank could count as a weapon, and it would take precedence over the gun and the sword.  Could you find each fighter\'s weapon in that scenario?'}
+               'prompt': '<code>COALESCE</code> takes a list of columns, and returns the value of the first column that is not null. <br/><br/>Suppose we wanted to find the most powerful weapon that a combatant has on hand.  If value of <em>gun</em> is not null, that is the value returned.  Otherwise, the value of <em>sword</em> is returned.  Then you would run: <br/> <code>SELECT name, COALESCE(gun, sword) as weapon FROM fighters;</code> <br/><br/> Suppose that a fighter\'s tank could count as a weapon, and it would take precedence over the gun and the sword.  Could you find each fighter\'s weapon in that scenario?'},
+{
+    'name': 'The INSERT Statement ',
+    'short_name':'insert-query',
+     'database_type':'family',
+'answer': {'columns': ['id', 'name', 'gender', 'species', 'salary'],
+                          'values': [[1, 'Dave', 'male', 'human', 60000],
+                                     [2, 'Mary', 'female', 'human', 55000],
+                                     [3, 'Pickles', 'male', 'dog', 0],
+[4, 'Bob', 'male', 'parrot', 0]]},
+     'prompt':'<code>INSERT</code> Allows you to Insert records into your database tables. Suppose you introduced a cat to the family. The family member could be inserted like this <blockquote><code>INSERT INTO family_members VALUES(4, \'Jim\',  \'male\', \'cat\', 0)</code>.</blockquote> The key to inserting the records is to always insert the records with the required data ,but also with simplicity in mind. Oh, and by the way, you have made it to Part II of the SQLPilot Course Application. <br> <strong>Prompt:</strong> Can You insert the newest family member, Bob the parrot inside of the family_members table, while returning the result using the select statement?'
+},
+{
+    'name': 'The INSERT Statement with column names',
+    'short_name':'insert-with-column-names-query',
+     'database_type':'family',
+'answer': {'columns': ['id', 'name', 'gender', 'species', 'salary'],
+                          'values': [[1, 'Dave', 'male', 'human', 60000],
+                                     [2, 'Mary', 'female', 'human', 55000],
+                                     [3, 'Pickles', 'male', 'dog', 0],
+[4, 'Bob', 'male', 'human', null]]},
+     'prompt':'<code>INSERT</code> Allows you to Insert records into your database tables. Suppose you introduced a cat to the family. The family member could be inserted like this: <blockquote><code>INSERT INTO family_members VALUES(4, \'Jim\',  \'male\', \'cat\', 0)</code>.</blockquote> or like this: <blockquote><code>INSERT INTO family_members (id,name,gender, species) VALUES (4, \'Jim\',  \'male\', \'cat\')</code>.</blockquote> The Method of data aggregation you just saw uses only 4 of the five required fields for family_members. Keeps it simple for when you don\'t know their salary<br> <strong>Prompt:</strong> Can You insert the newest family member, Bob the human inside of the family_members table, this time asserting that he is <strong>unemployed</strong>? (and remember to <em>Return</em> The SQLite Table Contents!)'
+}
+
+
+
+ 
               ];
 
 
