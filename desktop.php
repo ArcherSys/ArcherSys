@@ -1,3 +1,63 @@
+
+
+
+
+<?php
+
+ 
+
+
+  require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
+  require_once $_SERVER["DOCUMENT_ROOT"]."/includes/component-functions.php";
+
+ // Connects to your Database
+@ini_set("max_execution_time", 300);
+ mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or die(mysql_error());
+
+ mysql_select_db("acoserver_acoserver") or die(mysql_error());
+
+ 
+ //checks cookies to make sure they are logged in
+
+
+
+ 
+if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
+
+ {
+
+ 	$username = $_COOKIE['ID_ARCHERVMCASHEW'];
+
+ 	$pass = $_COOKIE['Key_ARCHERVMCASHEW'];
+
+ 	 	$check = mysql_query("SELECT * FROM users WHERE username = '$username'")or die(mysql_error());
+
+ 	while($info = mysql_fetch_array( $check ))
+
+ 		{
+
+ 
+
+ //if the cookie has the wrong password, they are taken to the login page
+
+ 		if ($pass != $info['password'])
+
+ 			{ 			header("Location: login.php");
+
+ 			}
+
+ 
+
+ //otherwise they are shown the admin area
+
+ 	else
+
+ 			{
+
+
+  
+?>
+
 <!DOCTYPE HTML>
 <html>
   <head>
@@ -23,6 +83,7 @@ var TogetherJSConfig_toolName = "BIRD";
 var  TogetherJSConfig_hubBase = "https://bird-acosf.c9.io";
 // Spotlight toggles
 $(function() {
+$("#mainmenu").menu();
   $('.results').hide();
    
 
@@ -216,7 +277,10 @@ function updateClock ( ) {
 </div>
 
 <div class="demo">
-
+<ul id="mainmenu">
+   <li><a href="Productiviti">Producktiviti</a>
+</li>
+</ul>
 
  <a href="https://codeclimate.com/github/ArcherSys/ArcherSys"><img src="https://codeclimate.com/github/ArcherSys/ArcherSys/badges/gpa.svg" /></a>
 </div>
@@ -224,3 +288,23 @@ function updateClock ( ) {
 
 </body>
 </html>
+
+
+<?php
+  
+ 			}
+
+ 		}
+
+ 		}
+
+else {
+  
+header("Location: http://localhost/login.php?redirect_uri=http://localhost".$_SERVER["PHP_SELF"]);
+
+ }
+
+  
+
+		
+		?>

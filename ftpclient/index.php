@@ -4,10 +4,10 @@ $version = "1.5";
 # CONFIGURABLE VARIABLES STARTS
 # Open README file for descriptions and help.
 
-$ftpHost = "localhost";
+$ftpHost = "127.0.0.1";
 $ftpPort = "14147"; // 21 is default
 $ftpMode = "1"; // 1 passive, 0 not passive
-$ftpSSL  = "0"; // 1 for SSL, 0 for not SSL
+$ftpSSL  = "1"; // 1 for SSL, 0 for not SSL
 $ftpDir  = "";
 $serverTmp = "/tmp";
 $editableExts = "asp,ashx,asmx,aspx,asx,axd,cfm,cgi,css,html,htm,jhtml,js,php,phtml,pl,txt,xhtml";

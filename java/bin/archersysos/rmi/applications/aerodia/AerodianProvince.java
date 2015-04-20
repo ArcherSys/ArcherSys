@@ -1,4 +1,8 @@
-
+.// This example is from _Java Examples in a Nutshell_. (http://www.oreilly.com)
+// Copyright (c) 1997 by David Flanagan
+// This example is provided WITHOUT ANY WARRANTY either expressed or implied.
+// You may study, use, modify, and distribute it for non-commercial purposes.
+// For any commercial use, see http://www.davidflanagan.com/javaexamples
 
 import java.rmi.*;
 import java.rmi.server.*;
@@ -8,18 +12,18 @@ import java.util.*;
 import Aerodia.*;
 
 /** 
- * This class implements the RemoteAerodianProvince interface and exports a
+ * This class implements the RemoteAerodiaPlace interface and exports a
  * bunch of remote methods that are at the heart of the Aerodia.  The
  * AerodiaClient interacts primarily with these methods.  See the comment
- * for RemoteAerodianProvince for an overview.
- * The AerodianProvince class is Serializable so that places can be saved to disk
+ * for RemoteAerodiaPlace for an overview.
+ * The AerodiaPlace class is Serializable so that places can be saved to disk
  * along with the AerodiaServer that contains them.  Note, however that the
  * names and aerodians fields are marked transient, so they are not serialized
  * along with the place (because it wouldn't make sense to try to save
  * RemoteAerodian objects, even if they could be serialized).
  **/
-public class AerodiaProvince extends UnicastRemoteObject 
-                       implements RemoteAerodianProvince, Serializable {
+public class AerodiaPlace extends UnicastRemoteObject 
+                       implements RemoteAerodiaPlace, Serializable {
   String placename, description;          // information about the place itself
   Vector exits = new Vector();            // names of exits from this place
   Vector destinations = new Vector();     // where the exits go to
@@ -30,13 +34,14 @@ public class AerodiaProvince extends UnicastRemoteObject
   AerodiaServer server;                       // the server for this place
 
   /** A no-arg constructor for de-serialization only.  Do not call it */
-  public AerodianProvince() throws RemoteException {  }
+  public AerodiaPlace() throws RemoteException { super(); }
 
   /**
    * This constructor creates a place, and calls a server method
    * to register the object so that it will be accessible by name
    **/
-  public AerodianProvince(AerodiaServer server, String placename, String description) throws RemoteException, ProvinceAlreadyExists {
+  public AerodiaPlace(AerodiaServer server, String placename, String description) 
+       throws RemoteException, ProvinceAlreadyExists {
     this.server = server;
     this.placename = placename; 
     this.description = description;
@@ -92,7 +97,7 @@ public class AerodiaProvince extends UnicastRemoteObject
    * or if the exit doesn't exist, or if the exit links to another Aerodia server
    * and the server is not functioning.
    **/
-  public RemoteAerodianProvince go(RemoteAerodian who, String direction) 
+  public RemoteAerodiaPlace go(RemoteAerodian who, String direction) 
        throws RemoteException, NotThere, AlreadyThere, NoSuchExit, LinkFailed {
     // Make sure the direction is valid, and get destination if it is
     Object destination;
@@ -105,7 +110,7 @@ public class AerodiaProvince extends UnicastRemoteObject
     // If destination is a string, it is a place on another server, so connect 
     // to that server.  Otherwise, it is a place already on this server.  
     // Throw an exception if we can't connect to the server.
-    RemoteAerodianProvince newplace;
+    RemoteAerodiaPlace newplace;
     if (destination instanceof String) {
       try { 
         String t = (String) destination;
@@ -118,7 +123,7 @@ public class AerodiaProvince extends UnicastRemoteObject
       catch (Exception e) { throw new LinkFailed(); } 
     }
     // If the destination is not a string, then it is a Place
-    else newplace = (RemoteAerodianProvince) destination;
+    else newplace = (RemoteAerodiaPlace) destination;
 
     // Make sure the person is here and get their name.  
     // Throw an exception if they are not here
@@ -130,13 +135,13 @@ public class AerodiaProvince extends UnicastRemoteObject
     // Put the person into the new place.  
     // Send a message to everyone already in that new place
     String fromwhere;
-    if (newplace instanceof AerodianProvince) // going to a local place
+    if (newplace instanceof AerodiaPlace) // going to a local place
       fromwhere = placename;
     else
       fromwhere = server.getAerodiaName() + "." + placename;
     newplace.enter(who, name, name + " has arrived from: " + fromwhere);
 
-    // Return the new RemoteAerodianProvince object to the client so they
+    // Return the new RemoteAerodiaPlace object to the client so they
     // know where they are now at.
     return newplace;
   }
@@ -219,7 +224,7 @@ public class AerodiaProvince extends UnicastRemoteObject
       // Check that the exit doesn't already exist.
       if (exits.indexOf(exit) != -1) throw new ExitAlreadyExists();
       // Create the new place, registering its name with the server
-      AerodianProvince destination = new AerodianProvince(server, name, description);
+      AerodiaPlace destination = new AerodiaPlace(server, name, description);
       // Link from there back to here
       destination.exits.addElement(entrance);
       destination.destinations.addElement(this);
@@ -249,7 +254,7 @@ public class AerodiaProvince extends UnicastRemoteObject
     String url = "rmi://" + hostname + '/' + Aerodia.AerodiaPrefix + Aerodianame;
     try {
       RemoteAerodiaServer s = (RemoteAerodiaServer) Naming.lookup(url);
-      RemoteAerodianProvince destination = s.getNamedPlace(placename);
+      RemoteAerodiaPlace destination = s.getNamedPlace(placename);
     }
     catch (Exception e) { throw new NoSuchProvince(); }
     
@@ -259,9 +264,9 @@ public class AerodiaProvince extends UnicastRemoteObject
       // Add the exit, to the list of exit names
       exits.addElement(exit);
       // And add the destination to the list of destinations.  Note that
-      // the destination is stored as a string rather than as a RemoteAerodianProvince.
+      // the destination is stored as a string rather than as a RemoteAerodiaPlace.
       // This is because if the remote server goes down then comes back up
-      // again, a RemoteAerodianProvince is not valid, but the string still is.
+      // again, a RemoteAerodiaPlace is not valid, but the string still is.
       destinations.addElement(url + '@' + placename);
     }
     // Let everyone know about the new exit and where it leads
@@ -369,7 +374,7 @@ public class AerodiaProvince extends UnicastRemoteObject
           // If it fails, assume that that person's client or network has
           // failed, and silently remove them from this place.
           catch (RemoteException e) { 
-            try { AerodianProvince.this.exit(person, null); } 
+            try { AerodiaPlace.this.exit(person, null); } 
             catch (Exception ex) {} 
           }
         }

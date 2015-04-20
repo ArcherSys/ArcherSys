@@ -40,7 +40,7 @@ $config['db_dsnw'] = 'mysql://root:aco1234@localhost/roundcubemail';
 // For example %n = mail.domain.tld, %t = domain.tld
 $config['default_host'] = 'ssl://imap.gmail.com';
 $config['default_port'] = 993;
-$config['default_user'] = 'weldon23.henson23@gmail.com';
+$config['default_user'] = 'acosf2014.pdflint@gmail.com';
 $config['default_pass'] = 'WH102397';
 // IMAP AUTH type (DIGEST-MD5, CRAM-MD5, LOGIN, PLAIN or empty to use
 // best server supported one)
@@ -99,15 +99,15 @@ $config['messages_cache'] = false;
 // %d - domain (http hostname $_SERVER['HTTP_HOST'] without the first part)
 // %z - IMAP domain (IMAP hostname without the first part)
 // For example %n = mail.domain.tld, %t = domain.tld
-$config['smtp_server'] = 'ssl://smtp.gmail.com';
+$config['smtp_server'] = 'tls://smtp.gmail.com';
 
 // SMTP port (default is 25; use 587 for STARTTLS or 465 for the
 // deprecated SSL over SMTP (aka SMTPS))
-$config['smtp_port'] = 465;
+$config['smtp_port'] = 587;
 
 // SMTP username (if required) if you use %u as the username Roundcube
 // will use the current username for login
-$config['smtp_user'] = 'weldon23.henson23@gmail.com';
+$config['smtp_user'] = 'acosf2014.pdflint@gmail.com';
 
 // SMTP password (if required) if you use %p as the password Roundcube
 // will use the current user's password for login
@@ -130,6 +130,6 @@ $config['plugins'] = array(
     'archive',
     'zipdownload',
 );
-
+$config['enable_instaler'] = true;
 // skin name: folder from skins/
 $config['skin'] = 'larry';

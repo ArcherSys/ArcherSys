@@ -95,11 +95,29 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
         var condition = (window.navigator.onLine) ? "online" : "offline";
         if (condition === "online") {
            
-            Notidar.pushOnlineNotification();
+		Notidar.pushOnlineNotification(;
+		$.ajax({
+			url: 'notifications-gateway.php',
+				dataType: 'json'
+				data:{
+					notification-type: "online",
+				      }
+			    type: "POST"
+		});
 
         }
         else if (condition === "online") {
-            Notidar.pushfflineNotification();
+		Notidar.pushfflineNotification();
+		
+		Notidar.pushOnlineNotification(;
+		$.ajax({
+			url: 'notifications-gateway.php',
+				dataType: 'json'
+				data:{
+					notification-type: "online",
+				      }
+			    type: "POST"
+		});
         }
 
         $(window).bind('online', function() {
@@ -224,7 +242,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 					<div class="module yellow double img not">
 						<p class="title">Notifications</p>
 						<div class="img msg">
-							<p class="sub-heading"> your notifications:<span id="notnumber">0</span></p>
+						<p class="sub-pheading"> your notifications:<span id="notnumber"><?php echo $_SESSION["notifications"]; ?></span></p>
 						</div>
 					</div></li>
 <li>

@@ -60,7 +60,7 @@ public class Aerodia {
    **/
   public interface RemoteAerodianProvince extends Remote {
     /** Look up the name of this place */
-    public String getProvinceName() throws RemoteException;
+    public String getPlaceName() throws RemoteException;
 
     /** Get a description of this place */
     public String getDescription() throws RemoteException;
