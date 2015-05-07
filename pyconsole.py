@@ -1,4 +1,5 @@
 import code
+from Lib import *
 
 def __start__():
   
