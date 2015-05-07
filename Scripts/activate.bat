@@ -1,5 +1,5 @@
 @echo off
-set "VIRTUAL_ENV=C:\xampp\htdocs"
+set "VIRTUAL_ENV=c:\xampp\htdocs"
 
 if not defined PROMPT (
     set "PROMPT=$P$G"
