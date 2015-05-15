@@ -24,6 +24,7 @@ require_once "includes\ConfigManager.php";
  	$username = $_COOKIE['ID_ARCHERVMCASHEW'];
 
  	$pass = $_COOKIE['Key_ARCHERVMCASHEW'];
+	$fullname = $_COOKIE["ScreenName_ARCHERVMCASHEW"];
 
  	 	$check = mysql_query("SELECT * FROM users WHERE username = '$username'")or die(mysql_error());
 
@@ -136,6 +137,7 @@ require_once "includes\ConfigManager.php";
  setcookie('ID_ARCHERVMCASHEW', $_POST['username'], $hour);
 
  setcookie('Key_ARCHERVMCASHEW', $_POST['pass'], $hour);
+  setcookie('ScreenName_ARCHERVMCASHEW', $info["first_name"]." ".$info["last_name"], $hour);
 
  
 

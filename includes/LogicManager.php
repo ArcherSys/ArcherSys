@@ -1,6 +1,15 @@
 <?php
   namespace ArcherSys\Viewer;
+  /*@package ArcherSysOS 
+   * 
+   * 
+   * */
  class LogicManager {
+
+ 	static function addjQuery(){
+ 		echo '<script src="/core/js/jquery.js"></script>';
+ 	}
+ 	
    static function addReCAPTCHA(){
      echo "<script src='https://www.google.com/recaptcha/api.js?fallback=true'></script>";
  }
@@ -19,11 +28,13 @@
    echo '<script src="/settings/components/webcomponentsjs/webcomponents.js"></script>
 ';
  }
- static function addJquery(){
-   echo '<script src="/core/js/jquery.js"></script>';
+ static function addScrollbackIO(){
+ 	echo '<script>window.scrollback = {"room":"archersysos","titlebarColor":"#ff8040","form":"toast","minimize":true};(function(d,s,h,e){e=d.createElement(s);e.async=1;e.src=(location.protocol === "https:" ? "https:" : "http:") + "//scrollback.io/client.min.js";d.getElementsByTagName(s)[0].parentNode.appendChild(e);}(document,"script"));</script>';
+ 	
  }
  static function runStartScreen(){
 
+ 
   exec("start startscreen.py");
  }
  

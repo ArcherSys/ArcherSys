@@ -1,6 +1,17 @@
 <?php
 namespace ArcherSys\Viewer;
 class ViewManager{
+static  function displayLoginInfo($info){
+         echo "<div class=\"header\">";
+		echo "<h1>Start</h1>";
+                
+
+		echo " <div class=\"profile\">";
+				echo"	<p class=\"name\">".$_COOKIE['ScreenName_ARCHERVMCASHEW']."</p>";
+					echo "<p class=\"status\">Hello :)</p>";
+				echo"</div>";
+echo "</div>";
+}
     static function addMSAppConfig(){
         include "/includes/viewssi/msappconfig.php";
     }

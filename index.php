@@ -203,7 +203,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 	<div class="container" >
                 
 
-<?php  displayLoginInfo($info); ?>
+<?php  ViewManager::displayLoginInfo($info); ?>
 		<div class="slider">
 			<ul class="screen">
 				<li>
@@ -242,7 +242,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 					<div class="module yellow double img not">
 						<p class="title">Notifications</p>
 						<div class="img msg">
-						<p class="sub-pheading"> your notifications:<span id="notnumber"><?php echo $_SESSION["notifications"]; ?></span></p>
+						<p class="sub-pheading"> your notifications:<span id="notnumber"></span></p>
 						</div>
 					</div></li>
 <li>
