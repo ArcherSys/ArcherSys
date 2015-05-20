@@ -1,0 +1,15 @@
+import turtle
+'''
+Created on May 20, 2015
+
+@author: Weldon Henson
+'''
+
+class AbstractThreadedTurtle(turtle.Turtle):
+    '''
+    classdocs
+    '''
+
+
+    def runThread(self,thread_func):
+        
