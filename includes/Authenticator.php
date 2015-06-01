@@ -9,9 +9,6 @@ class Authenticator{
 	static function getID(){
 		return $_COOKIE['ID_ARCHERVMCASHEW'];
 	}
-	static function getFullName(){
-	  return $_COOKIE["ScreenName_ARCHERVMCASHEW"];
-	}
 	static function getKey(){
 		return $_COOKIE['Key_ARCHERVMCASHEW'];
 	}

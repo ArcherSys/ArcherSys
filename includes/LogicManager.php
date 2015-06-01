@@ -5,7 +5,9 @@
    * 
    * */
  class LogicManager {
-
+    static function addJSModule($module){
+    	echo '<script src="'.$module.'.js"></script>';
+    }
  	static function addjQuery(){
  		echo '<script src="/core/js/jquery.js"></script>';
  	}
@@ -38,5 +40,7 @@
   exec("start startscreen.py");
  }
  
- 
+ static function addPubNub(){
+ 	echo '<script src="http://cdn.pubnub.com/pubnub.min.js"></script>';
+ }
 }

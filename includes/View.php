@@ -32,6 +32,7 @@ class View implements Browsable{
 }
 class LoginView extends View {
 	
+	
     public $title;
 
 	
