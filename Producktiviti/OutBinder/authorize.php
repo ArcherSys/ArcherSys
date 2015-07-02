@@ -4,13 +4,13 @@
   require_once('oauth.php');
   $auth_code = $_GET['code'];
 
-  $tokens = oAuthService::getTokenFromAuthCode($auth_code, 'http://localhost/php-tutorial/authorize.php');
+  $tokens = oAuthService::getTokenFromAuthCode($auth_code, 'http://localhost/Producktiviti/OutBinder/authorize.php');
 
   if ($tokens['access_token']) {
     $_SESSION['access_token'] = $tokens['access_token'];
 
     // Redirect back to home page
-    header("Location: http://localhost/php-tutorial/home.php");
+    header("Location: http://localhost/Producktiviti/OutBinder/home.php");
   }
   else
   {

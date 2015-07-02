@@ -109,7 +109,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
         else if (condition === "online") {
 		Notidar.pushfflineNotification();
 		
-		Notidar.pushOnlineNotification(;
+		Notidar.pushOnlineNotification({
 		$.ajax({
 			url: 'notifications-gateway.php',
 				dataType: 'json'
@@ -233,8 +233,11 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
     </a>
     </div>
   <div class="module red single img birds">
-<a href="http://localhost/entertainment/games/index.php"><p class="title">Games</p></a>
-					</div>
+<a href="http://localhost/entertainment/games/index.php"><p class="title">Games</p></a></div>
+
+<
+					
+					
 
 
 </li>
@@ -244,8 +247,11 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 						<div class="img msg">
 						<p class="sub-pheading"> your notifications:<span id="notnumber"></span></p>
 						</div>
-					</div></li>
+					</div>
+				</li>
 <li>
+    <div class="module red single img birds">
+<a href="jar:http://localhost/Minecraft/Mineshafter-launcher.jar"><p class="title">Play Minecraft</p></a></div>
 <div class="module blue double img ps">
 <p class="title">CanvasShoppe</p>
 </div>

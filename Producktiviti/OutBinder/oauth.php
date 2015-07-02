@@ -1,10 +1,9 @@
 <!-- Copyright (c) Microsoft. All rights reserved. Licensed under the MIT license. See full license at the bottom of this file. -->
 <?php
  
-  session_start();
   class oAuthService {
-    private static $clientId = "6d972984-9166-4430-a2c6-c4230e2e69a1";
-    private static $clientSecret = "W80+N8Xo9dqn+97IZHO2AKSRwow8i2nApnXPnIKDiCE=";
+    private static $clientId = "de10c221-3394-4f24-ab58-27b60e80865a";
+    private static $clientSecret = "4Xrbq1xRHVPv1weTqwgRG4vDZUTkkRNOra+EAZCi90c=";
     private static $authority = "https://login.microsoftonline.com";
     private static $authorizeUrl = '/common/oauth2/authorize?client_id=%1$s&redirect_uri=%2$s&response_type=code';
     private static $tokenUrl = "/common/oauth2/token";
