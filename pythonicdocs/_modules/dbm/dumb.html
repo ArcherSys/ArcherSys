@@ -1,0 +1,454 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>dbm.dumb &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="dbm" href="../dbm.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+          <li><a href="../dbm.html">dbm</a> &raquo;</li>
+      
+    <li>dbm.dumb</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for dbm.dumb</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;A dumb and slow but simple dbm clone.</span>
+
+<span class="sd">For database spam, spam.dir contains the index (a text file),</span>
+<span class="sd">spam.bak *may* contain a backup of the index (also a text file),</span>
+<span class="sd">while spam.dat contains the data (a binary file).</span>
+
+<span class="sd">XXX TO DO:</span>
+
+<span class="sd">- seems to contain a bug when updating...</span>
+
+<span class="sd">- reclaim free space (currently, space once occupied by deleted or expanded</span>
+<span class="sd">items is never reused)</span>
+
+<span class="sd">- support concurrent access (currently, if two processes take turns making</span>
+<span class="sd">updates, they can mess up the index)</span>
+
+<span class="sd">- support efficient access to large databases (currently, the whole index</span>
+<span class="sd">is read when the database is opened, and some updates rewrite the whole index)</span>
+
+<span class="sd">- support opening for read-only (flag = &#39;m&#39;)</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">io</span> <span class="kn">as</span> <span class="nn">_io</span>
+<span class="kn">import</span> <span class="nn">os</span> <span class="kn">as</span> <span class="nn">_os</span>
+<span class="kn">import</span> <span class="nn">collections</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;error&quot;</span><span class="p">,</span> <span class="s">&quot;open&quot;</span><span class="p">]</span>
+
+<span class="n">_BLOCKSIZE</span> <span class="o">=</span> <span class="mi">512</span>
+
+<span class="n">error</span> <span class="o">=</span> <span class="ne">OSError</span>
+
+<span class="k">class</span> <span class="nc">_Database</span><span class="p">(</span><span class="n">collections</span><span class="o">.</span><span class="n">MutableMapping</span><span class="p">):</span>
+
+    <span class="c"># The on-disk directory and data files can remain in mutually</span>
+    <span class="c"># inconsistent states for an arbitrarily long time (see comments</span>
+    <span class="c"># at the end of __setitem__).  This is only repaired when _commit()</span>
+    <span class="c"># gets called.  One place _commit() gets called is from __del__(),</span>
+    <span class="c"># and if that occurs at program shutdown time, module globals may</span>
+    <span class="c"># already have gotten rebound to None.  Since it&#39;s crucial that</span>
+    <span class="c"># _commit() finish successfully, we can&#39;t ignore shutdown races</span>
+    <span class="c"># here, and _commit() must not reference any globals.</span>
+    <span class="n">_os</span> <span class="o">=</span> <span class="n">_os</span>       <span class="c"># for _commit()</span>
+    <span class="n">_io</span> <span class="o">=</span> <span class="n">_io</span>       <span class="c"># for _commit()</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filebasename</span><span class="p">,</span> <span class="n">mode</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span> <span class="o">=</span> <span class="n">mode</span>
+
+        <span class="c"># The directory file is a text file.  Each line looks like</span>
+        <span class="c">#    &quot;%r, (%d, %d)\n&quot; % (key, pos, siz)</span>
+        <span class="c"># where key is the string key, pos is the offset into the dat</span>
+        <span class="c"># file of the associated value&#39;s first byte, and siz is the number</span>
+        <span class="c"># of bytes in the associated value.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_dirfile</span> <span class="o">=</span> <span class="n">filebasename</span> <span class="o">+</span> <span class="s">&#39;.dir&#39;</span>
+
+        <span class="c"># The data file is a binary file pointed into by the directory</span>
+        <span class="c"># file, and holds the values associated with keys.  Each value</span>
+        <span class="c"># begins at a _BLOCKSIZE-aligned byte offset, and is a raw</span>
+        <span class="c"># binary 8-bit string value.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_datfile</span> <span class="o">=</span> <span class="n">filebasename</span> <span class="o">+</span> <span class="s">&#39;.dat&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_bakfile</span> <span class="o">=</span> <span class="n">filebasename</span> <span class="o">+</span> <span class="s">&#39;.bak&#39;</span>
+
+        <span class="c"># The index is an in-memory dict, mirroring the directory file.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">=</span> <span class="bp">None</span>  <span class="c"># maps keys to (pos, siz) pairs</span>
+
+        <span class="c"># Mod by Jack: create data file if needed</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">_io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_datfile</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s">&quot;Latin-1&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">_io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_datfile</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s">&quot;Latin-1&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_chmod</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_datfile</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_update</span><span class="p">()</span>
+
+    <span class="c"># Read directory file into the in-memory index dict.</span>
+    <span class="k">def</span> <span class="nf">_update</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">_io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_dirfile</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s">&quot;Latin-1&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">f</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+                    <span class="n">key</span><span class="p">,</span> <span class="n">pos_and_siz_pair</span> <span class="o">=</span> <span class="nb">eval</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+                    <span class="n">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;Latin-1&#39;</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">pos_and_siz_pair</span>
+
+    <span class="c"># Write the index dict to the directory file.  The original directory</span>
+    <span class="c"># file (if any) is renamed with a .bak extension first.  If a .bak</span>
+    <span class="c"># file currently exists, it&#39;s deleted.</span>
+    <span class="k">def</span> <span class="nf">_commit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># CAUTION:  It&#39;s vital that _commit() succeed, and _commit() can</span>
+        <span class="c"># be called from __del__().  Therefore we must never reference a</span>
+        <span class="c"># global in this routine.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span>  <span class="c"># nothing to do</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_os</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_bakfile</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_os</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_dirfile</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bakfile</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">_io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_dirfile</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s">&quot;Latin-1&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_chmod</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_dirfile</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">pos_and_siz_pair</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="c"># Use Latin-1 since it has no qualms with any value in any</span>
+                <span class="c"># position; UTF-8, though, does care sometimes.</span>
+                <span class="n">entry</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%r</span><span class="s">, </span><span class="si">%r</span><span class="se">\n</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;Latin-1&#39;</span><span class="p">),</span> <span class="n">pos_and_siz_pair</span><span class="p">)</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">entry</span><span class="p">)</span>
+
+    <span class="n">sync</span> <span class="o">=</span> <span class="n">_commit</span>
+
+    <span class="k">def</span> <span class="nf">_verify_open</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error</span><span class="p">(</span><span class="s">&#39;DBM object has already been closed&#39;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_verify_open</span><span class="p">()</span>
+        <span class="n">pos</span><span class="p">,</span> <span class="n">siz</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>     <span class="c"># may raise KeyError</span>
+        <span class="k">with</span> <span class="n">_io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_datfile</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span>
+            <span class="n">dat</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">siz</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">dat</span>
+
+    <span class="c"># Append val to the data file, starting at a _BLOCKSIZE-aligned</span>
+    <span class="c"># offset.  The data file is first padded with NUL bytes (if needed)</span>
+    <span class="c"># to get to an aligned offset.  Return pair</span>
+    <span class="c">#     (starting offset of val, len(val))</span>
+    <span class="k">def</span> <span class="nf">_addval</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">_io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_datfile</span><span class="p">,</span> <span class="s">&#39;rb+&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+            <span class="n">pos</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">tell</span><span class="p">())</span>
+            <span class="n">npos</span> <span class="o">=</span> <span class="p">((</span><span class="n">pos</span> <span class="o">+</span> <span class="n">_BLOCKSIZE</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">_BLOCKSIZE</span><span class="p">)</span> <span class="o">*</span> <span class="n">_BLOCKSIZE</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\0</span><span class="s">&#39;</span><span class="o">*</span><span class="p">(</span><span class="n">npos</span><span class="o">-</span><span class="n">pos</span><span class="p">))</span>
+            <span class="n">pos</span> <span class="o">=</span> <span class="n">npos</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">val</span><span class="p">))</span>
+
+    <span class="c"># Write val to the data file, starting at offset pos.  The caller</span>
+    <span class="c"># is responsible for ensuring that there&#39;s enough room starting at</span>
+    <span class="c"># pos to hold val, without overwriting some other value.  Return</span>
+    <span class="c"># pair (pos, len(val)).</span>
+    <span class="k">def</span> <span class="nf">_setval</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pos</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">_io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_datfile</span><span class="p">,</span> <span class="s">&#39;rb+&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="n">pos</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">val</span><span class="p">))</span>
+
+    <span class="c"># key is a new key whose associated value starts in the data file</span>
+    <span class="c"># at offset pos and with length siz.  Add an index record to</span>
+    <span class="c"># the in-memory index dict, and append one to the directory file.</span>
+    <span class="k">def</span> <span class="nf">_addkey</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">pos_and_siz_pair</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="n">pos_and_siz_pair</span>
+        <span class="k">with</span> <span class="n">_io</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_dirfile</span><span class="p">,</span> <span class="s">&#39;a&#39;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s">&quot;Latin-1&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_chmod</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_dirfile</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%r</span><span class="s">, </span><span class="si">%r</span><span class="se">\n</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">key</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&quot;Latin-1&quot;</span><span class="p">),</span> <span class="n">pos_and_siz_pair</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">val</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;keys must be bytes or strings&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="n">val</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;values must be bytes or strings&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_verify_open</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_addkey</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_addval</span><span class="p">(</span><span class="n">val</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># See whether the new value is small enough to fit in the</span>
+            <span class="c"># (padded) space currently occupied by the old value.</span>
+            <span class="n">pos</span><span class="p">,</span> <span class="n">siz</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+            <span class="n">oldblocks</span> <span class="o">=</span> <span class="p">(</span><span class="n">siz</span> <span class="o">+</span> <span class="n">_BLOCKSIZE</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">_BLOCKSIZE</span>
+            <span class="n">newblocks</span> <span class="o">=</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">val</span><span class="p">)</span> <span class="o">+</span> <span class="n">_BLOCKSIZE</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="n">_BLOCKSIZE</span>
+            <span class="k">if</span> <span class="n">newblocks</span> <span class="o">&lt;=</span> <span class="n">oldblocks</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_setval</span><span class="p">(</span><span class="n">pos</span><span class="p">,</span> <span class="n">val</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># The new value doesn&#39;t fit in the (padded) space used</span>
+                <span class="c"># by the old value.  The blocks used by the old value are</span>
+                <span class="c"># forever lost.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">[</span><span class="n">key</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_addval</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+
+            <span class="c"># Note that _index may be out of synch with the directory</span>
+            <span class="c"># file now:  _setval() and _addval() don&#39;t update the directory</span>
+            <span class="c"># file.  This also means that the on-disk directory and data</span>
+            <span class="c"># files are in a mutually inconsistent state, and they&#39;ll</span>
+            <span class="c"># remain that way until _commit() is called.  Note that this</span>
+            <span class="c"># is a disaster (for the database) if the program crashes</span>
+            <span class="c"># (so that _commit() never gets called).</span>
+
+    <span class="k">def</span> <span class="nf">__delitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_verify_open</span><span class="p">()</span>
+        <span class="c"># The blocks used by the associated value are lost.</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+        <span class="c"># XXX It&#39;s unclear why we do a _commit() here (the code always</span>
+        <span class="c"># XXX has, so I&#39;m not changing it).  __setitem__ doesn&#39;t try to</span>
+        <span class="c"># XXX keep the directory file in synch.  Why should we?  Or</span>
+        <span class="c"># XXX why shouldn&#39;t __setitem__?</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_commit</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">keys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error</span><span class="p">(</span><span class="s">&#39;DBM object has already been closed&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">items</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_verify_open</span><span class="p">()</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">key</span><span class="p">,</span> <span class="bp">self</span><span class="p">[</span><span class="n">key</span><span class="p">])</span> <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="o">.</span><span class="n">keys</span><span class="p">()]</span>
+
+    <span class="k">def</span> <span class="nf">__contains__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">key</span> <span class="o">=</span> <span class="n">key</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">error</span><span class="p">(</span><span class="s">&#39;DBM object has already been closed&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span>
+
+    <span class="k">def</span> <span class="nf">iterkeys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error</span><span class="p">(</span><span class="s">&#39;DBM object has already been closed&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+    <span class="n">__iter__</span> <span class="o">=</span> <span class="n">iterkeys</span>
+
+    <span class="k">def</span> <span class="nf">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_index</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">error</span><span class="p">(</span><span class="s">&#39;DBM object has already been closed&#39;</span><span class="p">)</span> <span class="kn">from</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_commit</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_index</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_datfile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dirfile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_bakfile</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="n">__del__</span> <span class="o">=</span> <span class="n">close</span>
+
+    <span class="k">def</span> <span class="nf">_chmod</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_os</span><span class="p">,</span> <span class="s">&#39;chmod&#39;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_os</span><span class="o">.</span><span class="n">chmod</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_mode</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="open"><a class="viewcode-back" href="../../dbm.html#dbm.dumb.open">[docs]</a><span class="k">def</span> <span class="nf">open</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">flag</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="mi">0</span><span class="n">o666</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Open the database file, filename, and return corresponding object.</span>
+
+<span class="sd">    The flag argument, used to control how the database is opened in the</span>
+<span class="sd">    other DBM implementations, is ignored in the dbm.dumb module; the</span>
+<span class="sd">    database is always opened for update, and will be created if it does</span>
+<span class="sd">    not exist.</span>
+
+<span class="sd">    The optional mode argument is the UNIX mode of the file, used only when</span>
+<span class="sd">    the database has to be created.  It defaults to octal code 0o666 (and</span>
+<span class="sd">    will be modified by the prevailing umask).</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># flag argument is currently ignored</span>
+
+    <span class="c"># Modify mode depending on the umask</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">um</span> <span class="o">=</span> <span class="n">_os</span><span class="o">.</span><span class="n">umask</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">_os</span><span class="o">.</span><span class="n">umask</span><span class="p">(</span><span class="n">um</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c"># Turn off any bits that are set in the umask</span>
+        <span class="n">mode</span> <span class="o">=</span> <span class="n">mode</span> <span class="o">&amp;</span> <span class="p">(</span><span class="o">~</span><span class="n">um</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">_Database</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">mode</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

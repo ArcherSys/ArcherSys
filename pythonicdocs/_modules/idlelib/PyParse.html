@@ -1,0 +1,779 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>idlelib.PyParse &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>idlelib.PyParse</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for idlelib.PyParse</h1><div class="highlight"><pre>
+import re
+import sys
+from collections import Mapping
+from functools import partial
+
+# Reason last stmt is continued (or C_NONE if it&#39;s not).
+(C_NONE, C_BACKSLASH, C_STRING_FIRST_LINE,
+ C_STRING_NEXT_LINES, C_BRACKET) = range(5)
+
+if 0:   # for throwaway debugging output
+    def dump(*stuff):
+        sys.__stdout__.write(&quot; &quot;.join(map(str, stuff)) + &quot;\n&quot;)
+
+# Find what looks like the start of a popular stmt.
+
+_synchre = re.compile(r&quot;&quot;&quot;
+    ^
+    [ \t]*
+    (?: while
+    |   else
+    |   def
+    |   return
+    |   assert
+    |   break
+    |   class
+    |   continue
+    |   elif
+    |   try
+    |   except
+    |   raise
+    |   import
+    |   yield
+    )
+    \b
+&quot;&quot;&quot;, re.VERBOSE | re.MULTILINE).search
+
+# Match blank line or non-indenting comment line.
+
+_junkre = re.compile(r&quot;&quot;&quot;
+    [ \t]*
+    (?: \# \S .* )?
+    \n
+&quot;&quot;&quot;, re.VERBOSE).match
+
+# Match any flavor of string; the terminating quote is optional
+# so that we&#39;re robust in the face of incomplete program text.
+
+_match_stringre = re.compile(r&quot;&quot;&quot;
+    \&quot;&quot;&quot; [^&quot;\\]* (?:
+                     (?: \\. | &quot;(?!&quot;&quot;) )
+                     [^&quot;\\]*
+                 )*
+    (?: \&quot;&quot;&quot; )?
+
+|   &quot; [^&quot;\\\n]* (?: \\. [^&quot;\\\n]* )* &quot;?
+
+|   &#39;&#39;&#39; [^&#39;\\]* (?:
+                   (?: \\. | &#39;(?!&#39;&#39;) )
+                   [^&#39;\\]*
+                )*
+    (?: &#39;&#39;&#39; )?
+
+|   &#39; [^&#39;\\\n]* (?: \\. [^&#39;\\\n]* )* &#39;?
+&quot;&quot;&quot;, re.VERBOSE | re.DOTALL).match
+
+# Match a line that starts with something interesting;
+# used to find the first item of a bracket structure.
+
+_itemre = re.compile(r&quot;&quot;&quot;
+    [ \t]*
+    [^\s#\\]    # if we match, m.end()-1 is the interesting char
+&quot;&quot;&quot;, re.VERBOSE).match
+
+# Match start of stmts that should be followed by a dedent.
+
+_closere = re.compile(r&quot;&quot;&quot;
+    \s*
+    (?: return
+    |   break
+    |   continue
+    |   raise
+    |   pass
+    )
+    \b
+&quot;&quot;&quot;, re.VERBOSE).match
+
+# Chew up non-special chars as quickly as possible.  If match is
+# successful, m.end() less 1 is the index of the last boring char
+# matched.  If match is unsuccessful, the string starts with an
+# interesting char.
+
+_chew_ordinaryre = re.compile(r&quot;&quot;&quot;
+    [^[\](){}#&#39;&quot;\\]+
+&quot;&quot;&quot;, re.VERBOSE).match
+
+
+<div class="viewcode-block" id="StringTranslatePseudoMapping"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.StringTranslatePseudoMapping">[docs]</a>class StringTranslatePseudoMapping(Mapping):
+    r&quot;&quot;&quot;Utility class to be used with str.translate()
+
+    This Mapping class wraps a given dict. When a value for a key is
+    requested via __getitem__() or get(), the key is looked up in the
+    given dict. If found there, the value from the dict is returned.
+    Otherwise, the default value given upon initialization is returned.
+
+    This allows using str.translate() to make some replacements, and to
+    replace all characters for which no replacement was specified with
+    a given character instead of leaving them as-is.
+
+    For example, to replace everything except whitespace with &#39;x&#39;:
+
+    &gt;&gt;&gt; whitespace_chars = &#39; \t\n\r&#39;
+    &gt;&gt;&gt; preserve_dict = {ord(c): ord(c) for c in whitespace_chars}
+    &gt;&gt;&gt; mapping = StringTranslatePseudoMapping(preserve_dict, ord(&#39;x&#39;))
+    &gt;&gt;&gt; text = &quot;a + b\tc\nd&quot;
+    &gt;&gt;&gt; text.translate(mapping)
+    &#39;x x x\tx\nx&#39;
+    &quot;&quot;&quot;
+    def __init__(self, non_defaults, default_value):
+        self._non_defaults = non_defaults
+        self._default_value = default_value
+
+        def _get(key, _get=non_defaults.get, _default=default_value):
+            return _get(key, _default)
+        self._get = _get
+
+    def __getitem__(self, item):
+        return self._get(item)
+
+    def __len__(self):
+        return len(self._non_defaults)
+
+    def __iter__(self):
+        return iter(self._non_defaults)
+
+<div class="viewcode-block" id="StringTranslatePseudoMapping.get"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.StringTranslatePseudoMapping.get">[docs]</a>    def get(self, key, default=None):
+        return self._get(key)
+
+</div></div>
+<div class="viewcode-block" id="Parser"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser">[docs]</a>class Parser:
+
+    def __init__(self, indentwidth, tabwidth):
+        self.indentwidth = indentwidth
+        self.tabwidth = tabwidth
+
+<div class="viewcode-block" id="Parser.set_str"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.set_str">[docs]</a>    def set_str(self, s):
+        assert len(s) == 0 or s[-1] == &#39;\n&#39;
+        self.str = s
+        self.study_level = 0
+
+    # Return index of a good place to begin parsing, as close to the
+    # end of the string as possible.  This will be the start of some
+    # popular stmt like &quot;if&quot; or &quot;def&quot;.  Return None if none found:
+    # the caller should pass more prior context then, if possible, or
+    # if not (the entire program text up until the point of interest
+    # has already been tried) pass 0 to set_lo.
+    #
+    # This will be reliable iff given a reliable is_char_in_string
+    # function, meaning that when it says &quot;no&quot;, it&#39;s absolutely
+    # guaranteed that the char is not in a string.
+</div>
+<div class="viewcode-block" id="Parser.find_good_parse_start"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.find_good_parse_start">[docs]</a>    def find_good_parse_start(self, is_char_in_string=None,
+                              _synchre=_synchre):
+        str, pos = self.str, None
+
+        if not is_char_in_string:
+            # no clue -- make the caller pass everything
+            return None
+
+        # Peek back from the end for a good place to start,
+        # but don&#39;t try too often; pos will be left None, or
+        # bumped to a legitimate synch point.
+        limit = len(str)
+        for tries in range(5):
+            i = str.rfind(&quot;:\n&quot;, 0, limit)
+            if i &lt; 0:
+                break
+            i = str.rfind(&#39;\n&#39;, 0, i) + 1  # start of colon line
+            m = _synchre(str, i, limit)
+            if m and not is_char_in_string(m.start()):
+                pos = m.start()
+                break
+            limit = i
+        if pos is None:
+            # Nothing looks like a block-opener, or stuff does
+            # but is_char_in_string keeps returning true; most likely
+            # we&#39;re in or near a giant string, the colorizer hasn&#39;t
+            # caught up enough to be helpful, or there simply *aren&#39;t*
+            # any interesting stmts.  In any of these cases we&#39;re
+            # going to have to parse the whole thing to be sure, so
+            # give it one last try from the start, but stop wasting
+            # time here regardless of the outcome.
+            m = _synchre(str)
+            if m and not is_char_in_string(m.start()):
+                pos = m.start()
+            return pos
+
+        # Peeking back worked; look forward until _synchre no longer
+        # matches.
+        i = pos + 1
+        while 1:
+            m = _synchre(str, i)
+            if m:
+                s, i = m.span()
+                if not is_char_in_string(s):
+                    pos = s
+            else:
+                break
+        return pos
+
+    # Throw away the start of the string.  Intended to be called with
+    # find_good_parse_start&#39;s result.
+</div>
+<div class="viewcode-block" id="Parser.set_lo"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.set_lo">[docs]</a>    def set_lo(self, lo):
+        assert lo == 0 or self.str[lo-1] == &#39;\n&#39;
+        if lo &gt; 0:
+            self.str = self.str[lo:]
+
+    # Build a translation table to map uninteresting chars to &#39;x&#39;, open
+    # brackets to &#39;(&#39;, close brackets to &#39;)&#39; while preserving quotes,
+    # backslashes, newlines and hashes. This is to be passed to
+    # str.translate() in _study1().</div>
+    _tran = {}
+    _tran.update((ord(c), ord(&#39;(&#39;)) for c in &quot;({[&quot;)
+    _tran.update((ord(c), ord(&#39;)&#39;)) for c in &quot;)}]&quot;)
+    _tran.update((ord(c), ord(c)) for c in &quot;\&quot;&#39;\\\n#&quot;)
+    _tran = StringTranslatePseudoMapping(_tran, default_value=ord(&#39;x&#39;))
+
+    # As quickly as humanly possible &lt;wink&gt;, find the line numbers (0-
+    # based) of the non-continuation lines.
+    # Creates self.{goodlines, continuation}.
+
+    def _study1(self):
+        if self.study_level &gt;= 1:
+            return
+        self.study_level = 1
+
+        # Map all uninteresting characters to &quot;x&quot;, all open brackets
+        # to &quot;(&quot;, all close brackets to &quot;)&quot;, then collapse runs of
+        # uninteresting characters.  This can cut the number of chars
+        # by a factor of 10-40, and so greatly speed the following loop.
+        str = self.str
+        str = str.translate(self._tran)
+        str = str.replace(&#39;xxxxxxxx&#39;, &#39;x&#39;)
+        str = str.replace(&#39;xxxx&#39;, &#39;x&#39;)
+        str = str.replace(&#39;xx&#39;, &#39;x&#39;)
+        str = str.replace(&#39;xx&#39;, &#39;x&#39;)
+        str = str.replace(&#39;\nx&#39;, &#39;\n&#39;)
+        # note that replacing x\n with \n would be incorrect, because
+        # x may be preceded by a backslash
+
+        # March over the squashed version of the program, accumulating
+        # the line numbers of non-continued stmts, and determining
+        # whether &amp; why the last stmt is a continuation.
+        continuation = C_NONE
+        level = lno = 0     # level is nesting level; lno is line number
+        self.goodlines = goodlines = [0]
+        push_good = goodlines.append
+        i, n = 0, len(str)
+        while i &lt; n:
+            ch = str[i]
+            i = i+1
+
+            # cases are checked in decreasing order of frequency
+            if ch == &#39;x&#39;:
+                continue
+
+            if ch == &#39;\n&#39;:
+                lno = lno + 1
+                if level == 0:
+                    push_good(lno)
+                    # else we&#39;re in an unclosed bracket structure
+                continue
+
+            if ch == &#39;(&#39;:
+                level = level + 1
+                continue
+
+            if ch == &#39;)&#39;:
+                if level:
+                    level = level - 1
+                    # else the program is invalid, but we can&#39;t complain
+                continue
+
+            if ch == &#39;&quot;&#39; or ch == &quot;&#39;&quot;:
+                # consume the string
+                quote = ch
+                if str[i-1:i+2] == quote * 3:
+                    quote = quote * 3
+                firstlno = lno
+                w = len(quote) - 1
+                i = i+w
+                while i &lt; n:
+                    ch = str[i]
+                    i = i+1
+
+                    if ch == &#39;x&#39;:
+                        continue
+
+                    if str[i-1:i+w] == quote:
+                        i = i+w
+                        break
+
+                    if ch == &#39;\n&#39;:
+                        lno = lno + 1
+                        if w == 0:
+                            # unterminated single-quoted string
+                            if level == 0:
+                                push_good(lno)
+                            break
+                        continue
+
+                    if ch == &#39;\\&#39;:
+                        assert i &lt; n
+                        if str[i] == &#39;\n&#39;:
+                            lno = lno + 1
+                        i = i+1
+                        continue
+
+                    # else comment char or paren inside string
+
+                else:
+                    # didn&#39;t break out of the loop, so we&#39;re still
+                    # inside a string
+                    if (lno - 1) == firstlno:
+                        # before the previous \n in str, we were in the first
+                        # line of the string
+                        continuation = C_STRING_FIRST_LINE
+                    else:
+                        continuation = C_STRING_NEXT_LINES
+                continue    # with outer loop
+
+            if ch == &#39;#&#39;:
+                # consume the comment
+                i = str.find(&#39;\n&#39;, i)
+                assert i &gt;= 0
+                continue
+
+            assert ch == &#39;\\&#39;
+            assert i &lt; n
+            if str[i] == &#39;\n&#39;:
+                lno = lno + 1
+                if i+1 == n:
+                    continuation = C_BACKSLASH
+            i = i+1
+
+        # The last stmt may be continued for all 3 reasons.
+        # String continuation takes precedence over bracket
+        # continuation, which beats backslash continuation.
+        if (continuation != C_STRING_FIRST_LINE
+            and continuation != C_STRING_NEXT_LINES and level &gt; 0):
+            continuation = C_BRACKET
+        self.continuation = continuation
+
+        # Push the final line number as a sentinel value, regardless of
+        # whether it&#39;s continued.
+        assert (continuation == C_NONE) == (goodlines[-1] == lno)
+        if goodlines[-1] != lno:
+            push_good(lno)
+
+<div class="viewcode-block" id="Parser.get_continuation_type"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.get_continuation_type">[docs]</a>    def get_continuation_type(self):
+        self._study1()
+        return self.continuation
+
+    # study1 was sufficient to determine the continuation status,
+    # but doing more requires looking at every character.  study2
+    # does this for the last interesting statement in the block.
+    # Creates:
+    #     self.stmt_start, stmt_end
+    #         slice indices of last interesting stmt
+    #     self.stmt_bracketing
+    #         the bracketing structure of the last interesting stmt;
+    #         for example, for the statement &quot;say(boo) or die&quot;, stmt_bracketing
+    #         will be [(0, 0), (3, 1), (8, 0)]. Strings and comments are
+    #         treated as brackets, for the matter.
+    #     self.lastch
+    #         last non-whitespace character before optional trailing
+    #         comment
+    #     self.lastopenbracketpos
+    #         if continuation is C_BRACKET, index of last open bracket
+</div>
+    def _study2(self):
+        if self.study_level &gt;= 2:
+            return
+        self._study1()
+        self.study_level = 2
+
+        # Set p and q to slice indices of last interesting stmt.
+        str, goodlines = self.str, self.goodlines
+        i = len(goodlines) - 1
+        p = len(str)    # index of newest line
+        while i:
+            assert p
+            # p is the index of the stmt at line number goodlines[i].
+            # Move p back to the stmt at line number goodlines[i-1].
+            q = p
+            for nothing in range(goodlines[i-1], goodlines[i]):
+                # tricky: sets p to 0 if no preceding newline
+                p = str.rfind(&#39;\n&#39;, 0, p-1) + 1
+            # The stmt str[p:q] isn&#39;t a continuation, but may be blank
+            # or a non-indenting comment line.
+            if  _junkre(str, p):
+                i = i-1
+            else:
+                break
+        if i == 0:
+            # nothing but junk!
+            assert p == 0
+            q = p
+        self.stmt_start, self.stmt_end = p, q
+
+        # Analyze this stmt, to find the last open bracket (if any)
+        # and last interesting character (if any).
+        lastch = &quot;&quot;
+        stack = []  # stack of open bracket indices
+        push_stack = stack.append
+        bracketing = [(p, 0)]
+        while p &lt; q:
+            # suck up all except ()[]{}&#39;&quot;#\\
+            m = _chew_ordinaryre(str, p, q)
+            if m:
+                # we skipped at least one boring char
+                newp = m.end()
+                # back up over totally boring whitespace
+                i = newp - 1    # index of last boring char
+                while i &gt;= p and str[i] in &quot; \t\n&quot;:
+                    i = i-1
+                if i &gt;= p:
+                    lastch = str[i]
+                p = newp
+                if p &gt;= q:
+                    break
+
+            ch = str[p]
+
+            if ch in &quot;([{&quot;:
+                push_stack(p)
+                bracketing.append((p, len(stack)))
+                lastch = ch
+                p = p+1
+                continue
+
+            if ch in &quot;)]}&quot;:
+                if stack:
+                    del stack[-1]
+                lastch = ch
+                p = p+1
+                bracketing.append((p, len(stack)))
+                continue
+
+            if ch == &#39;&quot;&#39; or ch == &quot;&#39;&quot;:
+                # consume string
+                # Note that study1 did this with a Python loop, but
+                # we use a regexp here; the reason is speed in both
+                # cases; the string may be huge, but study1 pre-squashed
+                # strings to a couple of characters per line.  study1
+                # also needed to keep track of newlines, and we don&#39;t
+                # have to.
+                bracketing.append((p, len(stack)+1))
+                lastch = ch
+                p = _match_stringre(str, p, q).end()
+                bracketing.append((p, len(stack)))
+                continue
+
+            if ch == &#39;#&#39;:
+                # consume comment and trailing newline
+                bracketing.append((p, len(stack)+1))
+                p = str.find(&#39;\n&#39;, p, q) + 1
+                assert p &gt; 0
+                bracketing.append((p, len(stack)))
+                continue
+
+            assert ch == &#39;\\&#39;
+            p = p+1     # beyond backslash
+            assert p &lt; q
+            if str[p] != &#39;\n&#39;:
+                # the program is invalid, but can&#39;t complain
+                lastch = ch + str[p]
+            p = p+1     # beyond escaped char
+
+        # end while p &lt; q:
+
+        self.lastch = lastch
+        if stack:
+            self.lastopenbracketpos = stack[-1]
+        self.stmt_bracketing = tuple(bracketing)
+
+    # Assuming continuation is C_BRACKET, return the number
+    # of spaces the next line should be indented.
+
+<div class="viewcode-block" id="Parser.compute_bracket_indent"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.compute_bracket_indent">[docs]</a>    def compute_bracket_indent(self):
+        self._study2()
+        assert self.continuation == C_BRACKET
+        j = self.lastopenbracketpos
+        str = self.str
+        n = len(str)
+        origi = i = str.rfind(&#39;\n&#39;, 0, j) + 1
+        j = j+1     # one beyond open bracket
+        # find first list item; set i to start of its line
+        while j &lt; n:
+            m = _itemre(str, j)
+            if m:
+                j = m.end() - 1     # index of first interesting char
+                extra = 0
+                break
+            else:
+                # this line is junk; advance to next line
+                i = j = str.find(&#39;\n&#39;, j) + 1
+        else:
+            # nothing interesting follows the bracket;
+            # reproduce the bracket line&#39;s indentation + a level
+            j = i = origi
+            while str[j] in &quot; \t&quot;:
+                j = j+1
+            extra = self.indentwidth
+        return len(str[i:j].expandtabs(self.tabwidth)) + extra
+
+    # Return number of physical lines in last stmt (whether or not
+    # it&#39;s an interesting stmt!  this is intended to be called when
+    # continuation is C_BACKSLASH).
+</div>
+<div class="viewcode-block" id="Parser.get_num_lines_in_stmt"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.get_num_lines_in_stmt">[docs]</a>    def get_num_lines_in_stmt(self):
+        self._study1()
+        goodlines = self.goodlines
+        return goodlines[-1] - goodlines[-2]
+
+    # Assuming continuation is C_BACKSLASH, return the number of spaces
+    # the next line should be indented.  Also assuming the new line is
+    # the first one following the initial line of the stmt.
+</div>
+<div class="viewcode-block" id="Parser.compute_backslash_indent"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.compute_backslash_indent">[docs]</a>    def compute_backslash_indent(self):
+        self._study2()
+        assert self.continuation == C_BACKSLASH
+        str = self.str
+        i = self.stmt_start
+        while str[i] in &quot; \t&quot;:
+            i = i+1
+        startpos = i
+
+        # See whether the initial line starts an assignment stmt; i.e.,
+        # look for an = operator
+        endpos = str.find(&#39;\n&#39;, startpos) + 1
+        found = level = 0
+        while i &lt; endpos:
+            ch = str[i]
+            if ch in &quot;([{&quot;:
+                level = level + 1
+                i = i+1
+            elif ch in &quot;)]}&quot;:
+                if level:
+                    level = level - 1
+                i = i+1
+            elif ch == &#39;&quot;&#39; or ch == &quot;&#39;&quot;:
+                i = _match_stringre(str, i, endpos).end()
+            elif ch == &#39;#&#39;:
+                break
+            elif level == 0 and ch == &#39;=&#39; and \
+                   (i == 0 or str[i-1] not in &quot;=&lt;&gt;!&quot;) and \
+                   str[i+1] != &#39;=&#39;:
+                found = 1
+                break
+            else:
+                i = i+1
+
+        if found:
+            # found a legit =, but it may be the last interesting
+            # thing on the line
+            i = i+1     # move beyond the =
+            found = re.match(r&quot;\s*\\&quot;, str[i:endpos]) is None
+
+        if not found:
+            # oh well ... settle for moving beyond the first chunk
+            # of non-whitespace chars
+            i = startpos
+            while str[i] not in &quot; \t\n&quot;:
+                i = i+1
+
+        return len(str[self.stmt_start:i].expandtabs(\
+                                     self.tabwidth)) + 1
+
+    # Return the leading whitespace on the initial line of the last
+    # interesting stmt.
+</div>
+<div class="viewcode-block" id="Parser.get_base_indent_string"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.get_base_indent_string">[docs]</a>    def get_base_indent_string(self):
+        self._study2()
+        i, n = self.stmt_start, self.stmt_end
+        j = i
+        str = self.str
+        while j &lt; n and str[j] in &quot; \t&quot;:
+            j = j + 1
+        return str[i:j]
+
+    # Did the last interesting stmt open a block?
+</div>
+<div class="viewcode-block" id="Parser.is_block_opener"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.is_block_opener">[docs]</a>    def is_block_opener(self):
+        self._study2()
+        return self.lastch == &#39;:&#39;
+
+    # Did the last interesting stmt close a block?
+</div>
+<div class="viewcode-block" id="Parser.is_block_closer"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.is_block_closer">[docs]</a>    def is_block_closer(self):
+        self._study2()
+        return _closere(self.str, self.stmt_start) is not None
+
+    # index of last open bracket ({[, or None if none</div>
+    lastopenbracketpos = None
+
+<div class="viewcode-block" id="Parser.get_last_open_bracket_pos"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.get_last_open_bracket_pos">[docs]</a>    def get_last_open_bracket_pos(self):
+        self._study2()
+        return self.lastopenbracketpos
+
+    # the structure of the bracketing of the last interesting statement,
+    # in the format defined in _study2, or None if the text didn&#39;t contain
+    # anything</div>
+    stmt_bracketing = None
+
+<div class="viewcode-block" id="Parser.get_last_stmt_bracketing"><a class="viewcode-back" href="../../idlelib.html#idlelib.PyParse.Parser.get_last_stmt_bracketing">[docs]</a>    def get_last_stmt_bracketing(self):
+        self._study2()
+        return self.stmt_bracketing</div></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

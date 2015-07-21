@@ -16,7 +16,10 @@
   var Node = scope.wrappers.Node;
   var ParentNodeInterface = scope.ParentNodeInterface;
   var SelectorsInterface = scope.SelectorsInterface;
+<<<<<<< HEAD
   var MatchesInterface = scope.MatchesInterface;
+=======
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
   var addWrapNodeListMethod = scope.addWrapNodeListMethod;
   var enqueueMutation = scope.enqueueMutation;
   var mixin = scope.mixin;
@@ -99,6 +102,13 @@
       invalidateRendererBasedOnAttribute(this, name);
     },
 
+<<<<<<< HEAD
+=======
+    matches: function(selector) {
+      return originalMatches.call(unsafeUnwrap(this), selector);
+    },
+
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
     get classList() {
       var list = classListTable.get(this);
       if (!list) {
@@ -143,13 +153,19 @@
   mixin(Element.prototype, GetElementsByInterface);
   mixin(Element.prototype, ParentNodeInterface);
   mixin(Element.prototype, SelectorsInterface);
+<<<<<<< HEAD
   mixin(Element.prototype, MatchesInterface);
+=======
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
 
   registerWrapper(OriginalElement, Element,
                   document.createElementNS(null, 'x'));
 
   scope.invalidateRendererBasedOnAttribute = invalidateRendererBasedOnAttribute;
   scope.matchesNames = matchesNames;
+<<<<<<< HEAD
   scope.originalMatches = originalMatches;
+=======
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
   scope.wrappers.Element = Element;
 })(window.ShadowDOMPolyfill);

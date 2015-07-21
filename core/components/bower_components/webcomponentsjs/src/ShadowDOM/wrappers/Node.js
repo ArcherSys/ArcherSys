@@ -692,7 +692,11 @@
         n = nodes[i];
         if (n.nodeType === Node.TEXT_NODE) {
           if (!modNode && !n.data.length)
+<<<<<<< HEAD
             this.removeChild(n);
+=======
+            this.removeNode(n);
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
           else if (!modNode)
             modNode = n;
           else {

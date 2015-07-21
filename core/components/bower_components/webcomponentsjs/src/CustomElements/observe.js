@@ -289,6 +289,7 @@ function upgradeDocumentTree(doc) {
 }
 
 
+<<<<<<< HEAD
 // Patch `createShadowRoot()` if Shadow DOM is available, otherwise leave
 // undefined to aid feature detection of Shadow DOM.
 var originalCreateShadowRoot = Element.prototype.createShadowRoot;
@@ -300,6 +301,15 @@ if (originalCreateShadowRoot) {
     return root;
   };
 }
+=======
+// ensure that all ShadowRoots watch for CustomElements.
+var originalCreateShadowRoot = Element.prototype.createShadowRoot;
+Element.prototype.createShadowRoot = function() {
+  var root = originalCreateShadowRoot.call(this);
+  CustomElements.watchShadow(this);
+  return root;
+};
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
 
 // exports
 scope.watchShadow = watchShadow;

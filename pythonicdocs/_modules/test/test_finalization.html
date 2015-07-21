@@ -1,0 +1,683 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>test.test_finalization &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>test.test_finalization</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for test.test_finalization</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Tests for object finalization semantics, as outlined in PEP 442.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">contextlib</span>
+<span class="kn">import</span> <span class="nn">gc</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">import</span> <span class="nn">weakref</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">_testcapi</span> <span class="kn">import</span> <span class="n">with_tp_del</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">with_tp_del</span><span class="p">(</span><span class="n">cls</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">C</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">__new__</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;requires _testcapi.with_tp_del&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">C</span>
+
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">support</span>
+
+
+<div class="viewcode-block" id="NonGCSimpleBase"><a class="viewcode-back" href="../../test.html#test.test_finalization.NonGCSimpleBase">[docs]</a><span class="k">class</span> <span class="nc">NonGCSimpleBase</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    The base class for all the objects under test, equipped with various</span>
+<span class="sd">    testing features.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">survivors</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">del_calls</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">tp_del_calls</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">errors</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="n">_cleaning</span> <span class="o">=</span> <span class="bp">False</span>
+
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="p">()</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span> <span class="nf">_cleanup</span><span class="p">(</span><span class="n">cls</span><span class="p">):</span>
+        <span class="n">cls</span><span class="o">.</span><span class="n">survivors</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">cls</span><span class="o">.</span><span class="n">errors</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">cls</span><span class="o">.</span><span class="n">del_calls</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">cls</span><span class="o">.</span><span class="n">tp_del_calls</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="nd">@contextlib.contextmanager</span>
+<div class="viewcode-block" id="NonGCSimpleBase.test"><a class="viewcode-back" href="../../test.html#test.test_finalization.NonGCSimpleBase.test">[docs]</a>    <span class="k">def</span> <span class="nf">test</span><span class="p">(</span><span class="n">cls</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        A context manager to use around all finalization tests.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">with</span> <span class="n">support</span><span class="o">.</span><span class="n">disable_gc</span><span class="p">():</span>
+            <span class="n">cls</span><span class="o">.</span><span class="n">del_calls</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="n">cls</span><span class="o">.</span><span class="n">tp_del_calls</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+            <span class="n">NonGCSimpleBase</span><span class="o">.</span><span class="n">_cleaning</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">yield</span>
+                <span class="k">if</span> <span class="n">cls</span><span class="o">.</span><span class="n">errors</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">cls</span><span class="o">.</span><span class="n">errors</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="n">NonGCSimpleBase</span><span class="o">.</span><span class="n">_cleaning</span> <span class="o">=</span> <span class="bp">True</span>
+                <span class="n">cls</span><span class="o">.</span><span class="n">_cleanup</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="NonGCSimpleBase.check_sanity"><a class="viewcode-back" href="../../test.html#test.test_finalization.NonGCSimpleBase.check_sanity">[docs]</a>    <span class="k">def</span> <span class="nf">check_sanity</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Check the object is sane (non-broken).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+</div>
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        PEP 442 finalizer.  Record that this was called, check the</span>
+<span class="sd">        object is in a sane state, and invoke a side effect.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cleaning</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">del_calls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="bp">self</span><span class="p">))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">check_sanity</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">side_effect</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+
+<div class="viewcode-block" id="NonGCSimpleBase.side_effect"><a class="viewcode-back" href="../../test.html#test.test_finalization.NonGCSimpleBase.side_effect">[docs]</a>    <span class="k">def</span> <span class="nf">side_effect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        A side effect called on destruction.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+</div></div>
+<div class="viewcode-block" id="SimpleBase"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleBase">[docs]</a><span class="k">class</span> <span class="nc">SimpleBase</span><span class="p">(</span><span class="n">NonGCSimpleBase</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">id_</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+<div class="viewcode-block" id="SimpleBase.check_sanity"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleBase.check_sanity">[docs]</a>    <span class="k">def</span> <span class="nf">check_sanity</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">id_</span> <span class="o">==</span> <span class="nb">id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="NonGC"><a class="viewcode-back" href="../../test.html#test.test_finalization.NonGC">[docs]</a><span class="k">class</span> <span class="nc">NonGC</span><span class="p">(</span><span class="n">NonGCSimpleBase</span><span class="p">):</span>
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="p">()</span>
+</div>
+<div class="viewcode-block" id="NonGCResurrector"><a class="viewcode-back" href="../../test.html#test.test_finalization.NonGCResurrector">[docs]</a><span class="k">class</span> <span class="nc">NonGCResurrector</span><span class="p">(</span><span class="n">NonGCSimpleBase</span><span class="p">):</span>
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="p">()</span>
+
+<div class="viewcode-block" id="NonGCResurrector.side_effect"><a class="viewcode-back" href="../../test.html#test.test_finalization.NonGCResurrector.side_effect">[docs]</a>    <span class="k">def</span> <span class="nf">side_effect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Resurrect self by storing self in a class-wide list.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">survivors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="Simple"><a class="viewcode-back" href="../../test.html#test.test_finalization.Simple">[docs]</a><span class="k">class</span> <span class="nc">Simple</span><span class="p">(</span><span class="n">SimpleBase</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="SimpleResurrector"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleResurrector">[docs]</a><span class="k">class</span> <span class="nc">SimpleResurrector</span><span class="p">(</span><span class="n">NonGCResurrector</span><span class="p">,</span> <span class="n">SimpleBase</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+</div>
+<div class="viewcode-block" id="TestBase"><a class="viewcode-back" href="../../test.html#test.test_finalization.TestBase">[docs]</a><span class="k">class</span> <span class="nc">TestBase</span><span class="p">:</span>
+
+<div class="viewcode-block" id="TestBase.setUp"><a class="viewcode-back" href="../../test.html#test.test_finalization.TestBase.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">old_garbage</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">[:]</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[]</span>
+</div>
+<div class="viewcode-block" id="TestBase.tearDown"><a class="viewcode-back" href="../../test.html#test.test_finalization.TestBase.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># None of the tests here should put anything in gc.garbage</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">,</span> <span class="p">[])</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">old_garbage</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="TestBase.assert_del_calls"><a class="viewcode-back" href="../../test.html#test.test_finalization.TestBase.assert_del_calls">[docs]</a>    <span class="k">def</span> <span class="nf">assert_del_calls</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ids</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">SimpleBase</span><span class="o">.</span><span class="n">del_calls</span><span class="p">),</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">ids</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestBase.assert_tp_del_calls"><a class="viewcode-back" href="../../test.html#test.test_finalization.TestBase.assert_tp_del_calls">[docs]</a>    <span class="k">def</span> <span class="nf">assert_tp_del_calls</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ids</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">SimpleBase</span><span class="o">.</span><span class="n">tp_del_calls</span><span class="p">),</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">ids</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestBase.assert_survivors"><a class="viewcode-back" href="../../test.html#test.test_finalization.TestBase.assert_survivors">[docs]</a>    <span class="k">def</span> <span class="nf">assert_survivors</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ids</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">survivors</span><span class="p">),</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">ids</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestBase.assert_garbage"><a class="viewcode-back" href="../../test.html#test.test_finalization.TestBase.assert_garbage">[docs]</a>    <span class="k">def</span> <span class="nf">assert_garbage</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ids</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">),</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">ids</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TestBase.clear_survivors"><a class="viewcode-back" href="../../test.html#test.test_finalization.TestBase.clear_survivors">[docs]</a>    <span class="k">def</span> <span class="nf">clear_survivors</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">SimpleBase</span><span class="o">.</span><span class="n">survivors</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="SimpleFinalizationTest"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleFinalizationTest">[docs]</a><span class="k">class</span> <span class="nc">SimpleFinalizationTest</span><span class="p">(</span><span class="n">TestBase</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Test finalization without refcycles.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="SimpleFinalizationTest.test_simple"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleFinalizationTest.test_simple">[docs]</a>    <span class="k">def</span> <span class="nf">test_simple</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">Simple</span><span class="p">()</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+</div>
+<div class="viewcode-block" id="SimpleFinalizationTest.test_simple_resurrect"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleFinalizationTest.test_simple_resurrect">[docs]</a>    <span class="k">def</span> <span class="nf">test_simple_resurrect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">SimpleResurrector</span><span class="p">()</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNot</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">clear_survivors</span><span class="p">()</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SimpleFinalizationTest.test_non_gc"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleFinalizationTest.test_non_gc">[docs]</a>    <span class="k">def</span> <span class="nf">test_non_gc</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">NonGC</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="n">s</span><span class="p">))</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+</div>
+<div class="viewcode-block" id="SimpleFinalizationTest.test_non_gc_resurrect"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleFinalizationTest.test_non_gc_resurrect">[docs]</a>    <span class="k">def</span> <span class="nf">test_non_gc_resurrect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">NonGCResurrector</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="n">s</span><span class="p">))</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">clear_survivors</span><span class="p">()</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="SelfCycleBase"><a class="viewcode-back" href="../../test.html#test.test_finalization.SelfCycleBase">[docs]</a><span class="k">class</span> <span class="nc">SelfCycleBase</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ref</span> <span class="o">=</span> <span class="bp">self</span>
+
+<div class="viewcode-block" id="SelfCycleBase.check_sanity"><a class="viewcode-back" href="../../test.html#test.test_finalization.SelfCycleBase.check_sanity">[docs]</a>    <span class="k">def</span> <span class="nf">check_sanity</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">check_sanity</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref</span> <span class="ow">is</span> <span class="bp">self</span>
+</div></div>
+<div class="viewcode-block" id="SimpleSelfCycle"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleSelfCycle">[docs]</a><span class="k">class</span> <span class="nc">SimpleSelfCycle</span><span class="p">(</span><span class="n">SelfCycleBase</span><span class="p">,</span> <span class="n">Simple</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="SelfCycleResurrector"><a class="viewcode-back" href="../../test.html#test.test_finalization.SelfCycleResurrector">[docs]</a><span class="k">class</span> <span class="nc">SelfCycleResurrector</span><span class="p">(</span><span class="n">SelfCycleBase</span><span class="p">,</span> <span class="n">SimpleResurrector</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="SuicidalSelfCycle"><a class="viewcode-back" href="../../test.html#test.test_finalization.SuicidalSelfCycle">[docs]</a><span class="k">class</span> <span class="nc">SuicidalSelfCycle</span><span class="p">(</span><span class="n">SelfCycleBase</span><span class="p">,</span> <span class="n">Simple</span><span class="p">):</span>
+
+<div class="viewcode-block" id="SuicidalSelfCycle.side_effect"><a class="viewcode-back" href="../../test.html#test.test_finalization.SuicidalSelfCycle.side_effect">[docs]</a>    <span class="k">def</span> <span class="nf">side_effect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Explicitly break the reference cycle.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ref</span> <span class="o">=</span> <span class="bp">None</span>
+
+</div></div>
+<div class="viewcode-block" id="SelfCycleFinalizationTest"><a class="viewcode-back" href="../../test.html#test.test_finalization.SelfCycleFinalizationTest">[docs]</a><span class="k">class</span> <span class="nc">SelfCycleFinalizationTest</span><span class="p">(</span><span class="n">TestBase</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Test finalization of an object having a single cyclic reference to</span>
+<span class="sd">    itself.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="SelfCycleFinalizationTest.test_simple"><a class="viewcode-back" href="../../test.html#test.test_finalization.SelfCycleFinalizationTest.test_simple">[docs]</a>    <span class="k">def</span> <span class="nf">test_simple</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">SimpleSelfCycle</span><span class="p">()</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+</div>
+<div class="viewcode-block" id="SelfCycleFinalizationTest.test_simple_resurrect"><a class="viewcode-back" href="../../test.html#test.test_finalization.SelfCycleFinalizationTest.test_simple_resurrect">[docs]</a>    <span class="k">def</span> <span class="nf">test_simple_resurrect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test that __del__ can resurrect the object being finalized.</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">SelfCycleResurrector</span><span class="p">()</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="c"># XXX is this desirable?</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="c"># When trying to destroy the object a second time, __del__</span>
+            <span class="c"># isn&#39;t called anymore (and the object isn&#39;t resurrected).</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">clear_survivors</span><span class="p">()</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SelfCycleFinalizationTest.test_simple_suicide"><a class="viewcode-back" href="../../test.html#test.test_finalization.SelfCycleFinalizationTest.test_simple_suicide">[docs]</a>    <span class="k">def</span> <span class="nf">test_simple_suicide</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test the GC is able to deal with an object that kills its last</span>
+        <span class="c"># reference during __del__.</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">SuicidalSelfCycle</span><span class="p">()</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ChainedBase"><a class="viewcode-back" href="../../test.html#test.test_finalization.ChainedBase">[docs]</a><span class="k">class</span> <span class="nc">ChainedBase</span><span class="p">:</span>
+
+<div class="viewcode-block" id="ChainedBase.chain"><a class="viewcode-back" href="../../test.html#test.test_finalization.ChainedBase.chain">[docs]</a>    <span class="k">def</span> <span class="nf">chain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">left</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">suicided</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">left</span> <span class="o">=</span> <span class="n">left</span>
+        <span class="n">left</span><span class="o">.</span><span class="n">right</span> <span class="o">=</span> <span class="bp">self</span>
+</div>
+<div class="viewcode-block" id="ChainedBase.check_sanity"><a class="viewcode-back" href="../../test.html#test.test_finalization.ChainedBase.check_sanity">[docs]</a>    <span class="k">def</span> <span class="nf">check_sanity</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">check_sanity</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">suicided</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">left</span> <span class="ow">is</span> <span class="bp">None</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">right</span> <span class="ow">is</span> <span class="bp">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">left</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">left</span>
+            <span class="k">if</span> <span class="n">left</span><span class="o">.</span><span class="n">suicided</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">left</span><span class="o">.</span><span class="n">right</span> <span class="ow">is</span> <span class="bp">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">left</span><span class="o">.</span><span class="n">right</span> <span class="ow">is</span> <span class="bp">self</span>
+            <span class="n">right</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">right</span>
+            <span class="k">if</span> <span class="n">right</span><span class="o">.</span><span class="n">suicided</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">right</span><span class="o">.</span><span class="n">left</span> <span class="ow">is</span> <span class="bp">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">right</span><span class="o">.</span><span class="n">left</span> <span class="ow">is</span> <span class="bp">self</span>
+</div></div>
+<div class="viewcode-block" id="SimpleChained"><a class="viewcode-back" href="../../test.html#test.test_finalization.SimpleChained">[docs]</a><span class="k">class</span> <span class="nc">SimpleChained</span><span class="p">(</span><span class="n">ChainedBase</span><span class="p">,</span> <span class="n">Simple</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="ChainedResurrector"><a class="viewcode-back" href="../../test.html#test.test_finalization.ChainedResurrector">[docs]</a><span class="k">class</span> <span class="nc">ChainedResurrector</span><span class="p">(</span><span class="n">ChainedBase</span><span class="p">,</span> <span class="n">SimpleResurrector</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="SuicidalChained"><a class="viewcode-back" href="../../test.html#test.test_finalization.SuicidalChained">[docs]</a><span class="k">class</span> <span class="nc">SuicidalChained</span><span class="p">(</span><span class="n">ChainedBase</span><span class="p">,</span> <span class="n">Simple</span><span class="p">):</span>
+
+<div class="viewcode-block" id="SuicidalChained.side_effect"><a class="viewcode-back" href="../../test.html#test.test_finalization.SuicidalChained.side_effect">[docs]</a>    <span class="k">def</span> <span class="nf">side_effect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Explicitly break the reference cycle.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">suicided</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">left</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">right</span> <span class="o">=</span> <span class="bp">None</span>
+
+</div></div>
+<div class="viewcode-block" id="CycleChainFinalizationTest"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest">[docs]</a><span class="k">class</span> <span class="nc">CycleChainFinalizationTest</span><span class="p">(</span><span class="n">TestBase</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Test finalization of a cyclic chain.  These tests are similar in</span>
+<span class="sd">    spirit to the self-cycle tests above, but the collectable object</span>
+<span class="sd">    graph isn&#39;t trivial anymore.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="CycleChainFinalizationTest.build_chain"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.build_chain">[docs]</a>    <span class="k">def</span> <span class="nf">build_chain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">classes</span><span class="p">):</span>
+        <span class="n">nodes</span> <span class="o">=</span> <span class="p">[</span><span class="n">cls</span><span class="p">()</span> <span class="k">for</span> <span class="n">cls</span> <span class="ow">in</span> <span class="n">classes</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">nodes</span><span class="p">)):</span>
+            <span class="n">nodes</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">chain</span><span class="p">(</span><span class="n">nodes</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="n">nodes</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.check_non_resurrecting_chain"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.check_non_resurrecting_chain">[docs]</a>    <span class="k">def</span> <span class="nf">check_non_resurrecting_chain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">classes</span><span class="p">):</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">classes</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">nodes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">build_chain</span><span class="p">(</span><span class="n">classes</span><span class="p">)</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">nodes</span><span class="p">]</span>
+            <span class="n">wrs</span> <span class="o">=</span> <span class="p">[</span><span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">nodes</span><span class="p">]</span>
+            <span class="k">del</span> <span class="n">nodes</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">([</span><span class="n">wr</span><span class="p">()</span> <span class="k">for</span> <span class="n">wr</span> <span class="ow">in</span> <span class="n">wrs</span><span class="p">],</span> <span class="p">[</span><span class="bp">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">N</span><span class="p">)</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.check_resurrecting_chain"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.check_resurrecting_chain">[docs]</a>    <span class="k">def</span> <span class="nf">check_resurrecting_chain</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">classes</span><span class="p">):</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">classes</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">nodes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">build_chain</span><span class="p">(</span><span class="n">classes</span><span class="p">)</span>
+            <span class="n">N</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">nodes</span><span class="p">)</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">nodes</span><span class="p">]</span>
+            <span class="n">survivor_ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">nodes</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">SimpleResurrector</span><span class="p">)]</span>
+            <span class="n">wrs</span> <span class="o">=</span> <span class="p">[</span><span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">nodes</span><span class="p">]</span>
+            <span class="k">del</span> <span class="n">nodes</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">(</span><span class="n">survivor_ids</span><span class="p">)</span>
+            <span class="c"># XXX desirable?</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">([</span><span class="n">wr</span><span class="p">()</span> <span class="k">for</span> <span class="n">wr</span> <span class="ow">in</span> <span class="n">wrs</span><span class="p">],</span> <span class="p">[</span><span class="bp">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">N</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">clear_survivors</span><span class="p">()</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.test_homogenous"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.test_homogenous">[docs]</a>    <span class="k">def</span> <span class="nf">test_homogenous</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_non_resurrecting_chain</span><span class="p">([</span><span class="n">SimpleChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">3</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.test_homogenous_resurrect"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.test_homogenous_resurrect">[docs]</a>    <span class="k">def</span> <span class="nf">test_homogenous_resurrect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_resurrecting_chain</span><span class="p">([</span><span class="n">ChainedResurrector</span><span class="p">]</span> <span class="o">*</span> <span class="mi">3</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.test_homogenous_suicidal"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.test_homogenous_suicidal">[docs]</a>    <span class="k">def</span> <span class="nf">test_homogenous_suicidal</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_non_resurrecting_chain</span><span class="p">([</span><span class="n">SuicidalChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">3</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.test_heterogenous_suicidal_one"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.test_heterogenous_suicidal_one">[docs]</a>    <span class="k">def</span> <span class="nf">test_heterogenous_suicidal_one</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_non_resurrecting_chain</span><span class="p">([</span><span class="n">SuicidalChained</span><span class="p">,</span> <span class="n">SimpleChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.test_heterogenous_suicidal_two"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.test_heterogenous_suicidal_two">[docs]</a>    <span class="k">def</span> <span class="nf">test_heterogenous_suicidal_two</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_non_resurrecting_chain</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">SuicidalChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">+</span> <span class="p">[</span><span class="n">SimpleChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.test_heterogenous_resurrect_one"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.test_heterogenous_resurrect_one">[docs]</a>    <span class="k">def</span> <span class="nf">test_heterogenous_resurrect_one</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_resurrecting_chain</span><span class="p">([</span><span class="n">ChainedResurrector</span><span class="p">,</span> <span class="n">SimpleChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.test_heterogenous_resurrect_two"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.test_heterogenous_resurrect_two">[docs]</a>    <span class="k">def</span> <span class="nf">test_heterogenous_resurrect_two</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_resurrecting_chain</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">ChainedResurrector</span><span class="p">,</span> <span class="n">SimpleChained</span><span class="p">,</span> <span class="n">SuicidalChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CycleChainFinalizationTest.test_heterogenous_resurrect_three"><a class="viewcode-back" href="../../test.html#test.test_finalization.CycleChainFinalizationTest.test_heterogenous_resurrect_three">[docs]</a>    <span class="k">def</span> <span class="nf">test_heterogenous_resurrect_three</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_resurrecting_chain</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">ChainedResurrector</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">+</span> <span class="p">[</span><span class="n">SimpleChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">+</span> <span class="p">[</span><span class="n">SuicidalChained</span><span class="p">]</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+
+
+<span class="c"># NOTE: the tp_del slot isn&#39;t automatically inherited, so we have to call</span>
+<span class="c"># with_tp_del() for each instantiated class.</span>
+</div></div>
+<div class="viewcode-block" id="LegacyBase"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacyBase">[docs]</a><span class="k">class</span> <span class="nc">LegacyBase</span><span class="p">(</span><span class="n">SimpleBase</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c"># Do not invoke side_effect here, since we are now exercising</span>
+            <span class="c"># the tp_del slot.</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cleaning</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">del_calls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="bp">self</span><span class="p">))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">check_sanity</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__tp_del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Legacy (pre-PEP 442) finalizer, mapped to a tp_del slot.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cleaning</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">tp_del_calls</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="bp">self</span><span class="p">))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">check_sanity</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">side_effect</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+</div>
+<span class="nd">@with_tp_del</span>
+<div class="viewcode-block" id="Legacy"><a class="viewcode-back" href="../../test.html#test.test_finalization.Legacy">[docs]</a><span class="k">class</span> <span class="nc">Legacy</span><span class="p">(</span><span class="n">LegacyBase</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<span class="nd">@with_tp_del</span>
+<div class="viewcode-block" id="LegacyResurrector"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacyResurrector">[docs]</a><span class="k">class</span> <span class="nc">LegacyResurrector</span><span class="p">(</span><span class="n">LegacyBase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="LegacyResurrector.side_effect"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacyResurrector.side_effect">[docs]</a>    <span class="k">def</span> <span class="nf">side_effect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Resurrect self by storing self in a class-wide list.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">survivors</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+</div></div>
+<span class="nd">@with_tp_del</span>
+<div class="viewcode-block" id="LegacySelfCycle"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacySelfCycle">[docs]</a><span class="k">class</span> <span class="nc">LegacySelfCycle</span><span class="p">(</span><span class="n">SelfCycleBase</span><span class="p">,</span> <span class="n">LegacyBase</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+</div>
+<span class="nd">@support.cpython_only</span>
+<div class="viewcode-block" id="LegacyFinalizationTest"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacyFinalizationTest">[docs]</a><span class="k">class</span> <span class="nc">LegacyFinalizationTest</span><span class="p">(</span><span class="n">TestBase</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Test finalization of objects with a tp_del.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="LegacyFinalizationTest.tearDown"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacyFinalizationTest.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># These tests need to clean up a bit more, since they create</span>
+        <span class="c"># uncollectable objects.</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">tearDown</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="LegacyFinalizationTest.test_legacy"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacyFinalizationTest.test_legacy">[docs]</a>    <span class="k">def</span> <span class="nf">test_legacy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">Legacy</span><span class="p">()</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_tp_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_tp_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="LegacyFinalizationTest.test_legacy_resurrect"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacyFinalizationTest.test_legacy_resurrect">[docs]</a>    <span class="k">def</span> <span class="nf">test_legacy_resurrect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">LegacyResurrector</span><span class="p">()</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_tp_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="c"># weakrefs are cleared before tp_del is called.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">clear_survivors</span><span class="p">()</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_tp_del_calls</span><span class="p">(</span><span class="n">ids</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="LegacyFinalizationTest.test_legacy_self_cycle"><a class="viewcode-back" href="../../test.html#test.test_finalization.LegacyFinalizationTest.test_legacy_self_cycle">[docs]</a>    <span class="k">def</span> <span class="nf">test_legacy_self_cycle</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Self-cycles with legacy finalizers end up in gc.garbage.</span>
+        <span class="k">with</span> <span class="n">SimpleBase</span><span class="o">.</span><span class="n">test</span><span class="p">():</span>
+            <span class="n">s</span> <span class="o">=</span> <span class="n">LegacySelfCycle</span><span class="p">()</span>
+            <span class="n">ids</span> <span class="o">=</span> <span class="p">[</span><span class="nb">id</span><span class="p">(</span><span class="n">s</span><span class="p">)]</span>
+            <span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">del</span> <span class="n">s</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_del_calls</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_tp_del_calls</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_survivors</span><span class="p">([])</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assert_garbage</span><span class="p">(</span><span class="n">ids</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNot</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="c"># Break the cycle to allow collection</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">ref</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assert_garbage</span><span class="p">([])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIs</span><span class="p">(</span><span class="n">wr</span><span class="p">(),</span> <span class="bp">None</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_finalization.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">():</span>
+    <span class="n">support</span><span class="o">.</span><span class="n">run_unittest</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

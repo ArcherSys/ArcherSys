@@ -100,10 +100,13 @@ function resolveRelativeUrl(baseUrl, url, keepAbsolute) {
   if (url && url[0] === '/') {
     return url;
   }
+<<<<<<< HEAD
   // do not resolve '#' links, they are used for routing
   if (url && url[0] === '#') {
     return url;
   }
+=======
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
   var u = new URL(url, baseUrl);
   return keepAbsolute ? u.href : makeDocumentRelPath(u.href);
 }

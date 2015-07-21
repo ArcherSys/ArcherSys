@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["prelude","A prelude for conveniently writing platform-specific code."]],"trait":[["AsRawHandle","Extract raw handles."],["AsRawSocket","Extract raw sockets."],["OpenOptionsExt",""],["OsStrExt",""],["OsStringExt",""]],"type":[["Handle","Raw HANDLEs."],["Socket","Raw SOCKETs."]]});

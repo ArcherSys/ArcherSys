@@ -49,6 +49,7 @@
   }
 
   function shimSelector(selector) {
+<<<<<<< HEAD
     return String(selector).replace(/\/deep\/|::shadow/g, ' ');
   }
 
@@ -74,6 +75,9 @@
         /\^|\/shadow\/|\/shadow-deep\/|::shadow|\/deep\/|::content/g,
         ' '
       );
+=======
+    return String(selector).replace(/\/deep\//g, ' ');
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
   }
 
   function findOne(node, selector) {
@@ -129,7 +133,11 @@
   }
 
   // find and findAll will only match Simple Selectors,
+<<<<<<< HEAD
   // Structural Pseudo Classes are not guaranteed to be correct
+=======
+  // Structural Pseudo Classes are not guarenteed to be correct
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
   // http://www.w3.org/TR/css3-selectors/#simple-selectors
 
   function querySelectorAllFiltered(p, index, result, selector, deep) {
@@ -208,6 +216,7 @@
     }
   };
 
+<<<<<<< HEAD
   var MatchesInterface = {
     matches: function(selector) {
       selector = shimMatchesSelector(selector);
@@ -215,6 +224,8 @@
     }
   };
 
+=======
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
   function getElementsByTagNameFiltered(p, index, result, localName,
                                         lowercase) {
     var target = unsafeUnwrap(this);
@@ -303,6 +314,9 @@
 
   scope.GetElementsByInterface = GetElementsByInterface;
   scope.SelectorsInterface = SelectorsInterface;
+<<<<<<< HEAD
   scope.MatchesInterface = MatchesInterface;
+=======
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
 
 })(window.ShadowDOMPolyfill);

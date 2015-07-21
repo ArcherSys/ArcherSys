@@ -1,0 +1,1128 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>xml.dom.expatbuilder &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../../index.html"/>
+        <link rel="up" title="xml.dom" href="../dom.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../../index.html">Module code</a> &raquo;</li>
+      
+          <li><a href="../dom.html">xml.dom</a> &raquo;</li>
+      
+    <li>xml.dom.expatbuilder</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for xml.dom.expatbuilder</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Facility to use the Expat parser to load a minidom instance</span>
+<span class="sd">from a string or file.</span>
+
+<span class="sd">This avoids all the overhead of SAX and pulldom to gain performance.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c"># Warning!</span>
+<span class="c">#</span>
+<span class="c"># This module is tightly bound to the implementation details of the</span>
+<span class="c"># minidom DOM and can&#39;t be used with other DOM implementations.  This</span>
+<span class="c"># is due, in part, to a lack of appropriate methods in the DOM (there is</span>
+<span class="c"># no way to create Entity and Notation nodes via the DOM Level 2</span>
+<span class="c"># interface), and for performance.  The later is the cause of some fairly</span>
+<span class="c"># cryptic code.</span>
+<span class="c">#</span>
+<span class="c"># Performance hacks:</span>
+<span class="c">#</span>
+<span class="c">#   -  .character_data_handler() has an extra case in which continuing</span>
+<span class="c">#      data is appended to an existing Text node; this can be a</span>
+<span class="c">#      speedup since pyexpat can break up character data into multiple</span>
+<span class="c">#      callbacks even though we set the buffer_text attribute on the</span>
+<span class="c">#      parser.  This also gives us the advantage that we don&#39;t need a</span>
+<span class="c">#      separate normalization pass.</span>
+<span class="c">#</span>
+<span class="c">#   -  Determining that a node exists is done using an identity comparison</span>
+<span class="c">#      with None rather than a truth test; this avoids searching for and</span>
+<span class="c">#      calling any methods on the node object if it exists.  (A rather</span>
+<span class="c">#      nice speedup is achieved this way as well!)</span>
+
+<span class="kn">from</span> <span class="nn">xml.dom</span> <span class="kn">import</span> <span class="n">xmlbuilder</span><span class="p">,</span> <span class="n">minidom</span><span class="p">,</span> <span class="n">Node</span>
+<span class="kn">from</span> <span class="nn">xml.dom</span> <span class="kn">import</span> <span class="n">EMPTY_NAMESPACE</span><span class="p">,</span> <span class="n">EMPTY_PREFIX</span><span class="p">,</span> <span class="n">XMLNS_NAMESPACE</span>
+<span class="kn">from</span> <span class="nn">xml.parsers</span> <span class="kn">import</span> <span class="n">expat</span>
+<span class="kn">from</span> <span class="nn">xml.dom.minidom</span> <span class="kn">import</span> <span class="n">_append_child</span><span class="p">,</span> <span class="n">_set_attribute_node</span>
+<span class="kn">from</span> <span class="nn">xml.dom.NodeFilter</span> <span class="kn">import</span> <span class="n">NodeFilter</span>
+
+<span class="n">TEXT_NODE</span> <span class="o">=</span> <span class="n">Node</span><span class="o">.</span><span class="n">TEXT_NODE</span>
+<span class="n">CDATA_SECTION_NODE</span> <span class="o">=</span> <span class="n">Node</span><span class="o">.</span><span class="n">CDATA_SECTION_NODE</span>
+<span class="n">DOCUMENT_NODE</span> <span class="o">=</span> <span class="n">Node</span><span class="o">.</span><span class="n">DOCUMENT_NODE</span>
+
+<span class="n">FILTER_ACCEPT</span> <span class="o">=</span> <span class="n">xmlbuilder</span><span class="o">.</span><span class="n">DOMBuilderFilter</span><span class="o">.</span><span class="n">FILTER_ACCEPT</span>
+<span class="n">FILTER_REJECT</span> <span class="o">=</span> <span class="n">xmlbuilder</span><span class="o">.</span><span class="n">DOMBuilderFilter</span><span class="o">.</span><span class="n">FILTER_REJECT</span>
+<span class="n">FILTER_SKIP</span> <span class="o">=</span> <span class="n">xmlbuilder</span><span class="o">.</span><span class="n">DOMBuilderFilter</span><span class="o">.</span><span class="n">FILTER_SKIP</span>
+<span class="n">FILTER_INTERRUPT</span> <span class="o">=</span> <span class="n">xmlbuilder</span><span class="o">.</span><span class="n">DOMBuilderFilter</span><span class="o">.</span><span class="n">FILTER_INTERRUPT</span>
+
+<span class="n">theDOMImplementation</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">getDOMImplementation</span><span class="p">()</span>
+
+<span class="c"># Expat typename -&gt; TypeInfo</span>
+<span class="n">_typeinfo_map</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&quot;CDATA&quot;</span><span class="p">:</span>    <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;cdata&quot;</span><span class="p">),</span>
+    <span class="s">&quot;ENUM&quot;</span><span class="p">:</span>     <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;enumeration&quot;</span><span class="p">),</span>
+    <span class="s">&quot;ENTITY&quot;</span><span class="p">:</span>   <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;entity&quot;</span><span class="p">),</span>
+    <span class="s">&quot;ENTITIES&quot;</span><span class="p">:</span> <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;entities&quot;</span><span class="p">),</span>
+    <span class="s">&quot;ID&quot;</span><span class="p">:</span>       <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;id&quot;</span><span class="p">),</span>
+    <span class="s">&quot;IDREF&quot;</span><span class="p">:</span>    <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;idref&quot;</span><span class="p">),</span>
+    <span class="s">&quot;IDREFS&quot;</span><span class="p">:</span>   <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;idrefs&quot;</span><span class="p">),</span>
+    <span class="s">&quot;NMTOKEN&quot;</span><span class="p">:</span>  <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;nmtoken&quot;</span><span class="p">),</span>
+    <span class="s">&quot;NMTOKENS&quot;</span><span class="p">:</span> <span class="n">minidom</span><span class="o">.</span><span class="n">TypeInfo</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="s">&quot;nmtokens&quot;</span><span class="p">),</span>
+    <span class="p">}</span>
+
+<div class="viewcode-block" id="ElementInfo"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ElementInfo">[docs]</a><span class="k">class</span> <span class="nc">ElementInfo</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="s">&#39;_attr_info&#39;</span><span class="p">,</span> <span class="s">&#39;_model&#39;</span><span class="p">,</span> <span class="s">&#39;tagName&#39;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tagName</span><span class="p">,</span> <span class="n">model</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">tagName</span> <span class="o">=</span> <span class="n">tagName</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_attr_info</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_model</span> <span class="o">=</span> <span class="n">model</span>
+
+    <span class="k">def</span> <span class="nf">__getstate__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_attr_info</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">tagName</span>
+
+    <span class="k">def</span> <span class="nf">__setstate__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">state</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_attr_info</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">tagName</span> <span class="o">=</span> <span class="n">state</span>
+
+<div class="viewcode-block" id="ElementInfo.getAttributeType"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ElementInfo.getAttributeType">[docs]</a>    <span class="k">def</span> <span class="nf">getAttributeType</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">aname</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_attr_info</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">info</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">aname</span><span class="p">:</span>
+                <span class="n">t</span> <span class="o">=</span> <span class="n">info</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">t</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;(&quot;</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">_typeinfo_map</span><span class="p">[</span><span class="s">&quot;ENUM&quot;</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">_typeinfo_map</span><span class="p">[</span><span class="n">info</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]]</span>
+        <span class="k">return</span> <span class="n">minidom</span><span class="o">.</span><span class="n">_no_type</span>
+</div>
+<div class="viewcode-block" id="ElementInfo.getAttributeTypeNS"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ElementInfo.getAttributeTypeNS">[docs]</a>    <span class="k">def</span> <span class="nf">getAttributeTypeNS</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">namespaceURI</span><span class="p">,</span> <span class="n">localName</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">minidom</span><span class="o">.</span><span class="n">_no_type</span>
+</div>
+<div class="viewcode-block" id="ElementInfo.isElementContent"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ElementInfo.isElementContent">[docs]</a>    <span class="k">def</span> <span class="nf">isElementContent</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">:</span>
+            <span class="nb">type</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">return</span> <span class="nb">type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">expat</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">XML_CTYPE_ANY</span><span class="p">,</span>
+                                <span class="n">expat</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">XML_CTYPE_MIXED</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="ElementInfo.isEmpty"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ElementInfo.isEmpty">[docs]</a>    <span class="k">def</span> <span class="nf">isEmpty</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_model</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">expat</span><span class="o">.</span><span class="n">model</span><span class="o">.</span><span class="n">XML_CTYPE_EMPTY</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="ElementInfo.isId"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ElementInfo.isId">[docs]</a>    <span class="k">def</span> <span class="nf">isId</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">aname</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">info</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_attr_info</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">info</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">aname</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">info</span><span class="p">[</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;ID&quot;</span>
+        <span class="k">return</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="ElementInfo.isIdNS"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ElementInfo.isIdNS">[docs]</a>    <span class="k">def</span> <span class="nf">isIdNS</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">euri</span><span class="p">,</span> <span class="n">ename</span><span class="p">,</span> <span class="n">auri</span><span class="p">,</span> <span class="n">aname</span><span class="p">):</span>
+        <span class="c"># not sure this is meaningful</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">isId</span><span class="p">((</span><span class="n">auri</span><span class="p">,</span> <span class="n">aname</span><span class="p">))</span>
+</div></div>
+<span class="k">def</span> <span class="nf">_intern</span><span class="p">(</span><span class="n">builder</span><span class="p">,</span> <span class="n">s</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">_intern_setdefault</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">s</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_parse_ns_name</span><span class="p">(</span><span class="n">builder</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="s">&#39; &#39;</span> <span class="ow">in</span> <span class="n">name</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39; &#39;</span><span class="p">)</span>
+    <span class="nb">intern</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">_intern_setdefault</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="n">uri</span><span class="p">,</span> <span class="n">localname</span><span class="p">,</span> <span class="n">prefix</span> <span class="o">=</span> <span class="n">parts</span>
+        <span class="n">prefix</span> <span class="o">=</span> <span class="nb">intern</span><span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">prefix</span><span class="p">)</span>
+        <span class="n">qname</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">prefix</span><span class="p">,</span> <span class="n">localname</span><span class="p">)</span>
+        <span class="n">qname</span> <span class="o">=</span> <span class="nb">intern</span><span class="p">(</span><span class="n">qname</span><span class="p">,</span> <span class="n">qname</span><span class="p">)</span>
+        <span class="n">localname</span> <span class="o">=</span> <span class="nb">intern</span><span class="p">(</span><span class="n">localname</span><span class="p">,</span> <span class="n">localname</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="n">uri</span><span class="p">,</span> <span class="n">localname</span> <span class="o">=</span> <span class="n">parts</span>
+        <span class="n">prefix</span> <span class="o">=</span> <span class="n">EMPTY_PREFIX</span>
+        <span class="n">qname</span> <span class="o">=</span> <span class="n">localname</span> <span class="o">=</span> <span class="nb">intern</span><span class="p">(</span><span class="n">localname</span><span class="p">,</span> <span class="n">localname</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Unsupported syntax: spaces in URIs not supported: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">name</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">intern</span><span class="p">(</span><span class="n">uri</span><span class="p">,</span> <span class="n">uri</span><span class="p">),</span> <span class="n">localname</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">qname</span>
+
+
+<div class="viewcode-block" id="ExpatBuilder"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder">[docs]</a><span class="k">class</span> <span class="nc">ExpatBuilder</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Document builder that uses Expat to build a ParsedXML.DOM document</span>
+<span class="sd">    instance.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">options</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">options</span> <span class="o">=</span> <span class="n">xmlbuilder</span><span class="o">.</span><span class="n">Options</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_options</span> <span class="o">=</span> <span class="n">options</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">filter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span> <span class="o">=</span> <span class="n">FilterVisibilityController</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">filter</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="c"># This *really* doesn&#39;t do anything in this case, so</span>
+            <span class="c"># override it with something fast &amp; minimal.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_finish_start_element</span> <span class="o">=</span> <span class="nb">id</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+
+<div class="viewcode-block" id="ExpatBuilder.createParser"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.createParser">[docs]</a>    <span class="k">def</span> <span class="nf">createParser</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Create a new parser object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">expat</span><span class="o">.</span><span class="n">ParserCreate</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.getParser"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.getParser">[docs]</a>    <span class="k">def</span> <span class="nf">getParser</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the parser object, creating a new one if needed.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">createParser</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_intern_setdefault</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">intern</span><span class="o">.</span><span class="n">setdefault</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">buffer_text</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">ordered_attributes</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">specified_attributes</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.reset"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.reset">[docs]</a>    <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Free all data structures used during DOM construction.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document</span> <span class="o">=</span> <span class="n">theDOMImplementation</span><span class="o">.</span><span class="n">createDocument</span><span class="p">(</span>
+            <span class="n">EMPTY_NAMESPACE</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_elem_info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">_elem_info</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cdata</span> <span class="o">=</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.install"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.install">[docs]</a>    <span class="k">def</span> <span class="nf">install</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parser</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Install the callbacks needed to build the DOM into the parser.&quot;&quot;&quot;</span>
+        <span class="c"># This creates circular references!</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">StartDoctypeDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_doctype_decl_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">StartElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">first_element_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">EndElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_element_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">ProcessingInstructionHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pi_handler</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">entities</span><span class="p">:</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">EntityDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">entity_decl_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">NotationDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">notation_decl_handler</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">comments</span><span class="p">:</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">CommentHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">comment_handler</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">cdata_sections</span><span class="p">:</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">StartCdataSectionHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_cdata_section_handler</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">EndCdataSectionHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_cdata_section_handler</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">CharacterDataHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">character_data_handler_cdata</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">CharacterDataHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">character_data_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">ExternalEntityRefHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">external_entity_ref_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">XmlDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">xml_decl_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">ElementDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">element_decl_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">AttlistDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">attlist_decl_handler</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.parseFile"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.parseFile">[docs]</a>    <span class="k">def</span> <span class="nf">parseFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parse a document from a file object, returning the document</span>
+<span class="sd">        node.&quot;&quot;&quot;</span>
+        <span class="n">parser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getParser</span><span class="p">()</span>
+        <span class="n">first_buffer</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="nb">buffer</span> <span class="o">=</span> <span class="nb">file</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="mi">16</span><span class="o">*</span><span class="mi">1024</span><span class="p">)</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="nb">buffer</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="n">parser</span><span class="o">.</span><span class="n">Parse</span><span class="p">(</span><span class="nb">buffer</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">first_buffer</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">documentElement</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_setup_subset</span><span class="p">(</span><span class="nb">buffer</span><span class="p">)</span>
+                <span class="n">first_buffer</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">Parse</span><span class="p">(</span><span class="s">&quot;&quot;</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ParseEscape</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="n">doc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">return</span> <span class="n">doc</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.parseString"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.parseString">[docs]</a>    <span class="k">def</span> <span class="nf">parseString</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parse a document from a string, returning the document node.&quot;&quot;&quot;</span>
+        <span class="n">parser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getParser</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">Parse</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_setup_subset</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ParseEscape</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="n">doc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">return</span> <span class="n">doc</span>
+</div>
+    <span class="k">def</span> <span class="nf">_setup_subset</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">buffer</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Load the internal subset if there might be one.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">doctype</span><span class="p">:</span>
+            <span class="n">extractor</span> <span class="o">=</span> <span class="n">InternalSubsetExtractor</span><span class="p">()</span>
+            <span class="n">extractor</span><span class="o">.</span><span class="n">parseString</span><span class="p">(</span><span class="nb">buffer</span><span class="p">)</span>
+            <span class="n">subset</span> <span class="o">=</span> <span class="n">extractor</span><span class="o">.</span><span class="n">getSubset</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">doctype</span><span class="o">.</span><span class="n">internalSubset</span> <span class="o">=</span> <span class="n">subset</span>
+
+<div class="viewcode-block" id="ExpatBuilder.start_doctype_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.start_doctype_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_doctype_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">doctypeName</span><span class="p">,</span> <span class="n">systemId</span><span class="p">,</span> <span class="n">publicId</span><span class="p">,</span>
+                                   <span class="n">has_internal_subset</span><span class="p">):</span>
+        <span class="n">doctype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">implementation</span><span class="o">.</span><span class="n">createDocumentType</span><span class="p">(</span>
+            <span class="n">doctypeName</span><span class="p">,</span> <span class="n">publicId</span><span class="p">,</span> <span class="n">systemId</span><span class="p">)</span>
+        <span class="n">doctype</span><span class="o">.</span><span class="n">ownerDocument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+        <span class="n">_append_child</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="p">,</span> <span class="n">doctype</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">doctype</span> <span class="o">=</span> <span class="n">doctype</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="o">.</span><span class="n">acceptNode</span><span class="p">(</span><span class="n">doctype</span><span class="p">)</span> <span class="o">==</span> <span class="n">FILTER_REJECT</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">doctype</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">childNodes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">doctype</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">EntityDeclHandler</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">NotationDeclHandler</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">has_internal_subset</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">doctype</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">doctype</span><span class="o">.</span><span class="n">entities</span><span class="o">.</span><span class="n">_seq</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="n">doctype</span><span class="o">.</span><span class="n">notations</span><span class="o">.</span><span class="n">_seq</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">CommentHandler</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">ProcessingInstructionHandler</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">EndDoctypeDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_doctype_decl_handler</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.end_doctype_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.end_doctype_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">end_doctype_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">comments</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">CommentHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">comment_handler</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">ProcessingInstructionHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">pi_handler</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_elem_info</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_finish_end_element</span> <span class="o">=</span> <span class="nb">id</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.pi_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.pi_handler">[docs]</a>    <span class="k">def</span> <span class="nf">pi_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">createProcessingInstruction</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+        <span class="n">_append_child</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="p">,</span> <span class="n">node</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="o">.</span><span class="n">acceptNode</span><span class="p">(</span><span class="n">node</span><span class="p">)</span> <span class="o">==</span> <span class="n">FILTER_REJECT</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="o">.</span><span class="n">removeChild</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.character_data_handler_cdata"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.character_data_handler_cdata">[docs]</a>    <span class="k">def</span> <span class="nf">character_data_handler_cdata</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="n">childNodes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="o">.</span><span class="n">childNodes</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cdata</span><span class="p">:</span>
+            <span class="k">if</span> <span class="p">(</span>  <span class="bp">self</span><span class="o">.</span><span class="n">_cdata_continue</span>
+                  <span class="ow">and</span> <span class="n">childNodes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">nodeType</span> <span class="o">==</span> <span class="n">CDATA_SECTION_NODE</span><span class="p">):</span>
+                <span class="n">childNodes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">appendData</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+                <span class="k">return</span>
+            <span class="n">node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">createCDATASection</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cdata_continue</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">elif</span> <span class="n">childNodes</span> <span class="ow">and</span> <span class="n">childNodes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">nodeType</span> <span class="o">==</span> <span class="n">TEXT_NODE</span><span class="p">:</span>
+            <span class="n">node</span> <span class="o">=</span> <span class="n">childNodes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">data</span> <span class="o">+</span> <span class="n">data</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">value</span>
+            <span class="k">return</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">node</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">Text</span><span class="p">()</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">ownerDocument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+        <span class="n">_append_child</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="p">,</span> <span class="n">node</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.character_data_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.character_data_handler">[docs]</a>    <span class="k">def</span> <span class="nf">character_data_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="n">childNodes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="o">.</span><span class="n">childNodes</span>
+        <span class="k">if</span> <span class="n">childNodes</span> <span class="ow">and</span> <span class="n">childNodes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">nodeType</span> <span class="o">==</span> <span class="n">TEXT_NODE</span><span class="p">:</span>
+            <span class="n">node</span> <span class="o">=</span> <span class="n">childNodes</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">data</span> <span class="o">+</span> <span class="n">data</span>
+            <span class="k">return</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">Text</span><span class="p">()</span>
+        <span class="n">node</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">data</span> <span class="o">+</span> <span class="n">data</span>
+        <span class="n">node</span><span class="o">.</span><span class="n">ownerDocument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+        <span class="n">_append_child</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="p">,</span> <span class="n">node</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.entity_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.entity_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">entity_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">entityName</span><span class="p">,</span> <span class="n">is_parameter_entity</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span>
+                            <span class="n">base</span><span class="p">,</span> <span class="n">systemId</span><span class="p">,</span> <span class="n">publicId</span><span class="p">,</span> <span class="n">notationName</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">is_parameter_entity</span><span class="p">:</span>
+            <span class="c"># we don&#39;t care about parameter entities for the DOM</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">entities</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">_create_entity</span><span class="p">(</span><span class="n">entityName</span><span class="p">,</span> <span class="n">publicId</span><span class="p">,</span>
+                                            <span class="n">systemId</span><span class="p">,</span> <span class="n">notationName</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># internal entity</span>
+            <span class="c"># node *should* be readonly, but we&#39;ll cheat</span>
+            <span class="n">child</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">createTextNode</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">childNodes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">doctype</span><span class="o">.</span><span class="n">entities</span><span class="o">.</span><span class="n">_seq</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="o">.</span><span class="n">acceptNode</span><span class="p">(</span><span class="n">node</span><span class="p">)</span> <span class="o">==</span> <span class="n">FILTER_REJECT</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">doctype</span><span class="o">.</span><span class="n">entities</span><span class="o">.</span><span class="n">_seq</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.notation_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.notation_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">notation_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">notationName</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">systemId</span><span class="p">,</span> <span class="n">publicId</span><span class="p">):</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">_create_notation</span><span class="p">(</span><span class="n">notationName</span><span class="p">,</span> <span class="n">publicId</span><span class="p">,</span> <span class="n">systemId</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">doctype</span><span class="o">.</span><span class="n">notations</span><span class="o">.</span><span class="n">_seq</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="o">.</span><span class="n">acceptNode</span><span class="p">(</span><span class="n">node</span><span class="p">)</span> <span class="o">==</span> <span class="n">FILTER_ACCEPT</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">doctype</span><span class="o">.</span><span class="n">notations</span><span class="o">.</span><span class="n">_seq</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.comment_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.comment_handler">[docs]</a>    <span class="k">def</span> <span class="nf">comment_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">createComment</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="n">_append_child</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="p">,</span> <span class="n">node</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="o">.</span><span class="n">acceptNode</span><span class="p">(</span><span class="n">node</span><span class="p">)</span> <span class="o">==</span> <span class="n">FILTER_REJECT</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="o">.</span><span class="n">removeChild</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.start_cdata_section_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.start_cdata_section_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_cdata_section_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cdata</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cdata_continue</span> <span class="o">=</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.end_cdata_section_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.end_cdata_section_handler">[docs]</a>    <span class="k">def</span> <span class="nf">end_cdata_section_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cdata</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cdata_continue</span> <span class="o">=</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.external_entity_ref_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.external_entity_ref_handler">[docs]</a>    <span class="k">def</span> <span class="nf">external_entity_ref_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">systemId</span><span class="p">,</span> <span class="n">publicId</span><span class="p">):</span>
+        <span class="k">return</span> <span class="mi">1</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.first_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.first_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">first_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">attributes</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_elem_info</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_finish_end_element</span> <span class="o">=</span> <span class="nb">id</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">getParser</span><span class="p">()</span><span class="o">.</span><span class="n">StartElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_element_handler</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">start_element_handler</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">attributes</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.start_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.start_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">attributes</span><span class="p">):</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">createElement</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">_append_child</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="p">,</span> <span class="n">node</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span> <span class="o">=</span> <span class="n">node</span>
+
+        <span class="k">if</span> <span class="n">attributes</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">attributes</span><span class="p">),</span> <span class="mi">2</span><span class="p">):</span>
+                <span class="n">a</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">Attr</span><span class="p">(</span><span class="n">attributes</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">EMPTY_NAMESPACE</span><span class="p">,</span>
+                                 <span class="bp">None</span><span class="p">,</span> <span class="n">EMPTY_PREFIX</span><span class="p">)</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">attributes</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">a</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="n">value</span>
+                <span class="n">a</span><span class="o">.</span><span class="n">ownerDocument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+                <span class="n">_set_attribute_node</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">node</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">documentElement</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_finish_start_element</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_finish_start_element</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="p">:</span>
+            <span class="c"># To be general, we&#39;d have to call isSameNode(), but this</span>
+            <span class="c"># is sufficient for minidom:</span>
+            <span class="k">if</span> <span class="n">node</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">documentElement</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="n">filt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="o">.</span><span class="n">startContainer</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">filt</span> <span class="o">==</span> <span class="n">FILTER_REJECT</span><span class="p">:</span>
+                <span class="c"># ignore this node &amp; all descendents</span>
+                <span class="n">Rejecter</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">filt</span> <span class="o">==</span> <span class="n">FILTER_SKIP</span><span class="p">:</span>
+                <span class="c"># ignore this node, but make it&#39;s children become</span>
+                <span class="c"># children of the parent node</span>
+                <span class="n">Skipper</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">parentNode</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">parentNode</span><span class="o">.</span><span class="n">removeChild</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">unlink</span><span class="p">()</span>
+
+    <span class="c"># If this ever changes, Namespaces.end_element_handler() needs to</span>
+    <span class="c"># be changed to match.</span>
+    <span class="c">#</span>
+<div class="viewcode-block" id="ExpatBuilder.end_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.end_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">end_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="n">curNode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span> <span class="o">=</span> <span class="n">curNode</span><span class="o">.</span><span class="n">parentNode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_finish_end_element</span><span class="p">(</span><span class="n">curNode</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_finish_end_element</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">curNode</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_elem_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">curNode</span><span class="o">.</span><span class="n">tagName</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">info</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_handle_white_text_nodes</span><span class="p">(</span><span class="n">curNode</span><span class="p">,</span> <span class="n">info</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">curNode</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">documentElement</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filter</span><span class="o">.</span><span class="n">acceptNode</span><span class="p">(</span><span class="n">curNode</span><span class="p">)</span> <span class="o">==</span> <span class="n">FILTER_REJECT</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="o">.</span><span class="n">removeChild</span><span class="p">(</span><span class="n">curNode</span><span class="p">)</span>
+                <span class="n">curNode</span><span class="o">.</span><span class="n">unlink</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_handle_white_text_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">,</span> <span class="n">info</span><span class="p">):</span>
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">whitespace_in_element_content</span>
+            <span class="ow">or</span> <span class="ow">not</span> <span class="n">info</span><span class="o">.</span><span class="n">isElementContent</span><span class="p">()):</span>
+            <span class="k">return</span>
+
+        <span class="c"># We have element type information and should remove ignorable</span>
+        <span class="c"># whitespace; identify for text nodes which contain only</span>
+        <span class="c"># whitespace.</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">node</span><span class="o">.</span><span class="n">childNodes</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">child</span><span class="o">.</span><span class="n">nodeType</span> <span class="o">==</span> <span class="n">TEXT_NODE</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">child</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">strip</span><span class="p">():</span>
+                <span class="n">L</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+
+        <span class="c"># Remove ignorable whitespace from the tree.</span>
+        <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">L</span><span class="p">:</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">removeChild</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+
+<div class="viewcode-block" id="ExpatBuilder.element_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.element_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">element_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">model</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_elem_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">info</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_elem_info</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">ElementInfo</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">model</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">info</span><span class="o">.</span><span class="n">_model</span> <span class="ow">is</span> <span class="bp">None</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">_model</span> <span class="o">=</span> <span class="n">model</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.attlist_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.attlist_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">attlist_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">elem</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="n">default</span><span class="p">,</span> <span class="n">required</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_elem_info</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">elem</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">info</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">info</span> <span class="o">=</span> <span class="n">ElementInfo</span><span class="p">(</span><span class="n">elem</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_elem_info</span><span class="p">[</span><span class="n">elem</span><span class="p">]</span> <span class="o">=</span> <span class="n">info</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">_attr_info</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+            <span class="p">[</span><span class="bp">None</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">default</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">type</span><span class="p">,</span> <span class="n">required</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="ExpatBuilder.xml_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilder.xml_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">xml_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">version</span><span class="p">,</span> <span class="n">encoding</span><span class="p">,</span> <span class="n">standalone</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">version</span> <span class="o">=</span> <span class="n">version</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">encoding</span> <span class="o">=</span> <span class="n">encoding</span>
+        <span class="c"># This is still a little ugly, thanks to the pyexpat API. ;-(</span>
+        <span class="k">if</span> <span class="n">standalone</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">standalone</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">standalone</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">standalone</span> <span class="o">=</span> <span class="bp">False</span>
+
+
+<span class="c"># Don&#39;t include FILTER_INTERRUPT, since that&#39;s checked separately</span>
+<span class="c"># where allowed.</span></div></div>
+<span class="n">_ALLOWED_FILTER_RETURNS</span> <span class="o">=</span> <span class="p">(</span><span class="n">FILTER_ACCEPT</span><span class="p">,</span> <span class="n">FILTER_REJECT</span><span class="p">,</span> <span class="n">FILTER_SKIP</span><span class="p">)</span>
+
+<div class="viewcode-block" id="FilterVisibilityController"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FilterVisibilityController">[docs]</a><span class="k">class</span> <span class="nc">FilterVisibilityController</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Wrapper around a DOMBuilderFilter which implements the checks</span>
+<span class="sd">    to make the whatToShow filter attribute work.&quot;&quot;&quot;</span>
+
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="s">&#39;filter&#39;</span><span class="p">,</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">filter</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filter</span> <span class="o">=</span> <span class="nb">filter</span>
+
+<div class="viewcode-block" id="FilterVisibilityController.startContainer"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FilterVisibilityController.startContainer">[docs]</a>    <span class="k">def</span> <span class="nf">startContainer</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">):</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nodetype_mask</span><span class="p">[</span><span class="n">node</span><span class="o">.</span><span class="n">nodeType</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter</span><span class="o">.</span><span class="n">whatToShow</span> <span class="o">&amp;</span> <span class="n">mask</span><span class="p">:</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter</span><span class="o">.</span><span class="n">startContainer</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">val</span> <span class="o">==</span> <span class="n">FILTER_INTERRUPT</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">ParseEscape</span>
+            <span class="k">if</span> <span class="n">val</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ALLOWED_FILTER_RETURNS</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                      <span class="s">&quot;startContainer() returned illegal value: &quot;</span> <span class="o">+</span> <span class="nb">repr</span><span class="p">(</span><span class="n">val</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">val</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">FILTER_ACCEPT</span>
+</div>
+<div class="viewcode-block" id="FilterVisibilityController.acceptNode"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FilterVisibilityController.acceptNode">[docs]</a>    <span class="k">def</span> <span class="nf">acceptNode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">node</span><span class="p">):</span>
+        <span class="n">mask</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nodetype_mask</span><span class="p">[</span><span class="n">node</span><span class="o">.</span><span class="n">nodeType</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter</span><span class="o">.</span><span class="n">whatToShow</span> <span class="o">&amp;</span> <span class="n">mask</span><span class="p">:</span>
+            <span class="n">val</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">filter</span><span class="o">.</span><span class="n">acceptNode</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">val</span> <span class="o">==</span> <span class="n">FILTER_INTERRUPT</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">ParseEscape</span>
+            <span class="k">if</span> <span class="n">val</span> <span class="o">==</span> <span class="n">FILTER_SKIP</span><span class="p">:</span>
+                <span class="c"># move all child nodes to the parent, and remove this node</span>
+                <span class="n">parent</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">parentNode</span>
+                <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="n">node</span><span class="o">.</span><span class="n">childNodes</span><span class="p">[:]:</span>
+                    <span class="n">parent</span><span class="o">.</span><span class="n">appendChild</span><span class="p">(</span><span class="n">child</span><span class="p">)</span>
+                <span class="c"># node is handled by the caller</span>
+                <span class="k">return</span> <span class="n">FILTER_REJECT</span>
+            <span class="k">if</span> <span class="n">val</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ALLOWED_FILTER_RETURNS</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                      <span class="s">&quot;acceptNode() returned illegal value: &quot;</span> <span class="o">+</span> <span class="nb">repr</span><span class="p">(</span><span class="n">val</span><span class="p">))</span>
+            <span class="k">return</span> <span class="n">val</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">FILTER_ACCEPT</span>
+</div>
+    <span class="n">_nodetype_mask</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">ELEMENT_NODE</span><span class="p">:</span>                <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_ELEMENT</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">ATTRIBUTE_NODE</span><span class="p">:</span>              <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_ATTRIBUTE</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">TEXT_NODE</span><span class="p">:</span>                   <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_TEXT</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">CDATA_SECTION_NODE</span><span class="p">:</span>          <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_CDATA_SECTION</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">ENTITY_REFERENCE_NODE</span><span class="p">:</span>       <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_ENTITY_REFERENCE</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">ENTITY_NODE</span><span class="p">:</span>                 <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_ENTITY</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">PROCESSING_INSTRUCTION_NODE</span><span class="p">:</span> <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_PROCESSING_INSTRUCTION</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">COMMENT_NODE</span><span class="p">:</span>                <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_COMMENT</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">DOCUMENT_NODE</span><span class="p">:</span>               <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_DOCUMENT</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">DOCUMENT_TYPE_NODE</span><span class="p">:</span>          <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_DOCUMENT_TYPE</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">DOCUMENT_FRAGMENT_NODE</span><span class="p">:</span>      <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_DOCUMENT_FRAGMENT</span><span class="p">,</span>
+        <span class="n">Node</span><span class="o">.</span><span class="n">NOTATION_NODE</span><span class="p">:</span>               <span class="n">NodeFilter</span><span class="o">.</span><span class="n">SHOW_NOTATION</span><span class="p">,</span>
+        <span class="p">}</span>
+
+</div>
+<div class="viewcode-block" id="FilterCrutch"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FilterCrutch">[docs]</a><span class="k">class</span> <span class="nc">FilterCrutch</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="s">&#39;_builder&#39;</span><span class="p">,</span> <span class="s">&#39;_level&#39;</span><span class="p">,</span> <span class="s">&#39;_old_start&#39;</span><span class="p">,</span> <span class="s">&#39;_old_end&#39;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">builder</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_builder</span> <span class="o">=</span> <span class="n">builder</span>
+        <span class="n">parser</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">_parser</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_old_start</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">StartElementHandler</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_old_end</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">EndElementHandler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">StartElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_element_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">EndElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_element_handler</span>
+</div>
+<div class="viewcode-block" id="Rejecter"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Rejecter">[docs]</a><span class="k">class</span> <span class="nc">Rejecter</span><span class="p">(</span><span class="n">FilterCrutch</span><span class="p">):</span>
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">builder</span><span class="p">):</span>
+        <span class="n">FilterCrutch</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">builder</span><span class="p">)</span>
+        <span class="n">parser</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">_parser</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;ProcessingInstructionHandler&quot;</span><span class="p">,</span>
+                     <span class="s">&quot;CommentHandler&quot;</span><span class="p">,</span>
+                     <span class="s">&quot;CharacterDataHandler&quot;</span><span class="p">,</span>
+                     <span class="s">&quot;StartCdataSectionHandler&quot;</span><span class="p">,</span>
+                     <span class="s">&quot;EndCdataSectionHandler&quot;</span><span class="p">,</span>
+                     <span class="s">&quot;ExternalEntityRefHandler&quot;</span><span class="p">,</span>
+                     <span class="p">):</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="n">parser</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Rejecter.start_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Rejecter.start_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">+</span> <span class="mi">1</span>
+</div>
+<div class="viewcode-block" id="Rejecter.end_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Rejecter.end_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">end_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c"># restore the old handlers</span>
+            <span class="n">parser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_builder</span><span class="o">.</span><span class="n">_parser</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_builder</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="n">parser</span><span class="p">)</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">StartElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_old_start</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">EndElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_old_end</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">-</span> <span class="mi">1</span>
+</div></div>
+<div class="viewcode-block" id="Skipper"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Skipper">[docs]</a><span class="k">class</span> <span class="nc">Skipper</span><span class="p">(</span><span class="n">FilterCrutch</span><span class="p">):</span>
+    <span class="n">__slots__</span> <span class="o">=</span> <span class="p">()</span>
+
+<div class="viewcode-block" id="Skipper.start_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Skipper.start_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_builder</span><span class="o">.</span><span class="n">curNode</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_old_start</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_builder</span><span class="o">.</span><span class="n">curNode</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">node</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">+</span> <span class="mi">1</span>
+</div>
+<div class="viewcode-block" id="Skipper.end_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Skipper.end_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">end_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c"># We&#39;re popping back out of the node we&#39;re skipping, so we</span>
+            <span class="c"># shouldn&#39;t need to do anything but reset the handlers.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_builder</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">StartElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_old_start</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_builder</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">EndElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_old_end</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_builder</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_level</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_old_end</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+
+<span class="c"># framework document used by the fragment builder.</span>
+<span class="c"># Takes a string for the doctype, subset string, and namespace attrs string.</span>
+</div></div>
+<span class="n">_FRAGMENT_BUILDER_INTERNAL_SYSTEM_ID</span> <span class="o">=</span> \
+    <span class="s">&quot;http://xml.python.org/entities/fragment-builder/internal&quot;</span>
+
+<span class="n">_FRAGMENT_BUILDER_TEMPLATE</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="sd">&#39;&#39;&#39;\</span>
+<span class="sd">&lt;!DOCTYPE wrapper</span>
+<span class="sd">  %%s [</span>
+<span class="sd">  &lt;!ENTITY fragment-builder-internal</span>
+<span class="sd">    SYSTEM &quot;%s&quot;&gt;</span>
+<span class="sd">%%s</span>
+<span class="sd">]&gt;</span>
+<span class="sd">&lt;wrapper %%s</span>
+<span class="sd">&gt;&amp;fragment-builder-internal;&lt;/wrapper&gt;&#39;&#39;&#39;</span>
+    <span class="o">%</span> <span class="n">_FRAGMENT_BUILDER_INTERNAL_SYSTEM_ID</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="FragmentBuilder"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FragmentBuilder">[docs]</a><span class="k">class</span> <span class="nc">FragmentBuilder</span><span class="p">(</span><span class="n">ExpatBuilder</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Builder which constructs document fragments given XML source</span>
+<span class="sd">    text and a context node.</span>
+
+<span class="sd">    The context node is expected to provide information about the</span>
+<span class="sd">    namespace declarations which are in scope at the start of the</span>
+<span class="sd">    fragment.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">context</span><span class="o">.</span><span class="n">nodeType</span> <span class="o">==</span> <span class="n">DOCUMENT_NODE</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">originalDocument</span> <span class="o">=</span> <span class="n">context</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">context</span> <span class="o">=</span> <span class="n">context</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">originalDocument</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">ownerDocument</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">context</span> <span class="o">=</span> <span class="n">context</span>
+        <span class="n">ExpatBuilder</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">options</span><span class="p">)</span>
+
+<div class="viewcode-block" id="FragmentBuilder.reset"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FragmentBuilder.reset">[docs]</a>    <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">ExpatBuilder</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fragment</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="FragmentBuilder.parseFile"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FragmentBuilder.parseFile">[docs]</a>    <span class="k">def</span> <span class="nf">parseFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parse a document fragment from a file object, returning the</span>
+<span class="sd">        fragment node.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">parseString</span><span class="p">(</span><span class="nb">file</span><span class="o">.</span><span class="n">read</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="FragmentBuilder.parseString"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FragmentBuilder.parseString">[docs]</a>    <span class="k">def</span> <span class="nf">parseString</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parse a document fragment from a string, returning the</span>
+<span class="sd">        fragment node.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_source</span> <span class="o">=</span> <span class="n">string</span>
+        <span class="n">parser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getParser</span><span class="p">()</span>
+        <span class="n">doctype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">originalDocument</span><span class="o">.</span><span class="n">doctype</span>
+        <span class="n">ident</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">doctype</span><span class="p">:</span>
+            <span class="n">subset</span> <span class="o">=</span> <span class="n">doctype</span><span class="o">.</span><span class="n">internalSubset</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">_getDeclarations</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">doctype</span><span class="o">.</span><span class="n">publicId</span><span class="p">:</span>
+                <span class="n">ident</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;PUBLIC &quot;</span><span class="si">%s</span><span class="s">&quot; &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span>
+                         <span class="o">%</span> <span class="p">(</span><span class="n">doctype</span><span class="o">.</span><span class="n">publicId</span><span class="p">,</span> <span class="n">doctype</span><span class="o">.</span><span class="n">systemId</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="n">doctype</span><span class="o">.</span><span class="n">systemId</span><span class="p">:</span>
+                <span class="n">ident</span> <span class="o">=</span> <span class="s">&#39;SYSTEM &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="n">doctype</span><span class="o">.</span><span class="n">systemId</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">subset</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="n">nsattrs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_getNSattrs</span><span class="p">()</span> <span class="c"># get ns decls from node&#39;s ancestors</span>
+        <span class="n">document</span> <span class="o">=</span> <span class="n">_FRAGMENT_BUILDER_TEMPLATE</span> <span class="o">%</span> <span class="p">(</span><span class="n">ident</span><span class="p">,</span> <span class="n">subset</span><span class="p">,</span> <span class="n">nsattrs</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">Parse</span><span class="p">(</span><span class="n">document</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+            <span class="k">raise</span>
+        <span class="n">fragment</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fragment</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reset</span><span class="p">()</span>
+<span class="c">##         self._parser = None</span>
+        <span class="k">return</span> <span class="n">fragment</span>
+</div>
+    <span class="k">def</span> <span class="nf">_getDeclarations</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Re-create the internal subset from the DocumentType node.</span>
+
+<span class="sd">        This is only needed if we don&#39;t already have the</span>
+<span class="sd">        internalSubset as a string.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">doctype</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span><span class="o">.</span><span class="n">ownerDocument</span><span class="o">.</span><span class="n">doctype</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">doctype</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">doctype</span><span class="o">.</span><span class="n">notations</span><span class="o">.</span><span class="n">length</span><span class="p">):</span>
+                <span class="n">notation</span> <span class="o">=</span> <span class="n">doctype</span><span class="o">.</span><span class="n">notations</span><span class="o">.</span><span class="n">item</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">s</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="n">s</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">  &quot;</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">&lt;!NOTATION </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">notation</span><span class="o">.</span><span class="n">nodeName</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">notation</span><span class="o">.</span><span class="n">publicId</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s"> PUBLIC &quot;</span><span class="si">%s</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">             &quot;</span><span class="si">%s</span><span class="s">&quot;&gt;&#39;</span> \
+                        <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">notation</span><span class="o">.</span><span class="n">publicId</span><span class="p">,</span> <span class="n">notation</span><span class="o">.</span><span class="n">systemId</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s"> SYSTEM &quot;</span><span class="si">%s</span><span class="s">&quot;&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">notation</span><span class="o">.</span><span class="n">systemId</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">doctype</span><span class="o">.</span><span class="n">entities</span><span class="o">.</span><span class="n">length</span><span class="p">):</span>
+                <span class="n">entity</span> <span class="o">=</span> <span class="n">doctype</span><span class="o">.</span><span class="n">entities</span><span class="o">.</span><span class="n">item</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">s</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="n">s</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">  &quot;</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s">&lt;!ENTITY </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">entity</span><span class="o">.</span><span class="n">nodeName</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">entity</span><span class="o">.</span><span class="n">publicId</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s"> PUBLIC &quot;</span><span class="si">%s</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">             &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> \
+                        <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">entity</span><span class="o">.</span><span class="n">publicId</span><span class="p">,</span> <span class="n">entity</span><span class="o">.</span><span class="n">systemId</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="n">entity</span><span class="o">.</span><span class="n">systemId</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s"> SYSTEM &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">entity</span><span class="o">.</span><span class="n">systemId</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s"> &quot;</span><span class="si">%s</span><span class="s">&quot;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">entity</span><span class="o">.</span><span class="n">firstChild</span><span class="o">.</span><span class="n">data</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">entity</span><span class="o">.</span><span class="n">notationName</span><span class="p">:</span>
+                    <span class="n">s</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> NOTATION </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">entity</span><span class="o">.</span><span class="n">notationName</span><span class="p">)</span>
+                <span class="n">s</span> <span class="o">=</span> <span class="n">s</span> <span class="o">+</span> <span class="s">&quot;&gt;&quot;</span>
+        <span class="k">return</span> <span class="n">s</span>
+
+    <span class="k">def</span> <span class="nf">_getNSattrs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;&quot;</span>
+
+<div class="viewcode-block" id="FragmentBuilder.external_entity_ref_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FragmentBuilder.external_entity_ref_handler">[docs]</a>    <span class="k">def</span> <span class="nf">external_entity_ref_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">systemId</span><span class="p">,</span> <span class="n">publicId</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">systemId</span> <span class="o">==</span> <span class="n">_FRAGMENT_BUILDER_INTERNAL_SYSTEM_ID</span><span class="p">:</span>
+            <span class="c"># this entref is the one that we made to put the subtree</span>
+            <span class="c"># in; all of our given input is parsed in here.</span>
+            <span class="n">old_document</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+            <span class="n">old_cur_node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span>
+            <span class="n">parser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_parser</span><span class="o">.</span><span class="n">ExternalEntityParserCreate</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+            <span class="c"># put the real document back, parse into the fragment to return</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">document</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">originalDocument</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fragment</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span><span class="o">.</span><span class="n">createDocumentFragment</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fragment</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">parser</span><span class="o">.</span><span class="n">Parse</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_source</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span> <span class="o">=</span> <span class="n">old_cur_node</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">document</span> <span class="o">=</span> <span class="n">old_document</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_source</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">return</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">ExpatBuilder</span><span class="o">.</span><span class="n">external_entity_ref_handler</span><span class="p">(</span>
+                <span class="bp">self</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">base</span><span class="p">,</span> <span class="n">systemId</span><span class="p">,</span> <span class="n">publicId</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="Namespaces"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Namespaces">[docs]</a><span class="k">class</span> <span class="nc">Namespaces</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Mix-in class for builders; adds support for namespaces.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_initNamespaces</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># list of (prefix, uri) ns declarations.  Namespace attrs are</span>
+        <span class="c"># constructed from this and added to the element&#39;s attrs.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ns_ordered_prefixes</span> <span class="o">=</span> <span class="p">[]</span>
+
+<div class="viewcode-block" id="Namespaces.createParser"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Namespaces.createParser">[docs]</a>    <span class="k">def</span> <span class="nf">createParser</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Create a new namespace-handling parser.&quot;&quot;&quot;</span>
+        <span class="n">parser</span> <span class="o">=</span> <span class="n">expat</span><span class="o">.</span><span class="n">ParserCreate</span><span class="p">(</span><span class="n">namespace_separator</span><span class="o">=</span><span class="s">&quot; &quot;</span><span class="p">)</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">namespace_prefixes</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">return</span> <span class="n">parser</span>
+</div>
+<div class="viewcode-block" id="Namespaces.install"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Namespaces.install">[docs]</a>    <span class="k">def</span> <span class="nf">install</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parser</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Insert the namespace-handlers onto the parser.&quot;&quot;&quot;</span>
+        <span class="n">ExpatBuilder</span><span class="o">.</span><span class="n">install</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parser</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_options</span><span class="o">.</span><span class="n">namespace_declarations</span><span class="p">:</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">StartNamespaceDeclHandler</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">start_namespace_decl_handler</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Namespaces.start_namespace_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Namespaces.start_namespace_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_namespace_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">uri</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Push this namespace declaration on our storage.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ns_ordered_prefixes</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">prefix</span><span class="p">,</span> <span class="n">uri</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="Namespaces.start_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Namespaces.start_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">attributes</span><span class="p">):</span>
+        <span class="k">if</span> <span class="s">&#39; &#39;</span> <span class="ow">in</span> <span class="n">name</span><span class="p">:</span>
+            <span class="n">uri</span><span class="p">,</span> <span class="n">localname</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">qname</span> <span class="o">=</span> <span class="n">_parse_ns_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">uri</span> <span class="o">=</span> <span class="n">EMPTY_NAMESPACE</span>
+            <span class="n">qname</span> <span class="o">=</span> <span class="n">name</span>
+            <span class="n">localname</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="n">prefix</span> <span class="o">=</span> <span class="n">EMPTY_PREFIX</span>
+        <span class="n">node</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">Element</span><span class="p">(</span><span class="n">qname</span><span class="p">,</span> <span class="n">uri</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">localname</span><span class="p">)</span>
+        <span class="n">node</span><span class="o">.</span><span class="n">ownerDocument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+        <span class="n">_append_child</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">curNode</span><span class="p">,</span> <span class="n">node</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span> <span class="o">=</span> <span class="n">node</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ns_ordered_prefixes</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">uri</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ns_ordered_prefixes</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">prefix</span><span class="p">:</span>
+                    <span class="n">a</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">Attr</span><span class="p">(</span><span class="n">_intern</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;xmlns:&#39;</span> <span class="o">+</span> <span class="n">prefix</span><span class="p">),</span>
+                                     <span class="n">XMLNS_NAMESPACE</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="s">&quot;xmlns&quot;</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">a</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">Attr</span><span class="p">(</span><span class="s">&quot;xmlns&quot;</span><span class="p">,</span> <span class="n">XMLNS_NAMESPACE</span><span class="p">,</span>
+                                     <span class="s">&quot;xmlns&quot;</span><span class="p">,</span> <span class="n">EMPTY_PREFIX</span><span class="p">)</span>
+                <span class="n">a</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="n">uri</span>
+                <span class="n">a</span><span class="o">.</span><span class="n">ownerDocument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+                <span class="n">_set_attribute_node</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ns_ordered_prefixes</span><span class="p">[:]</span>
+
+        <span class="k">if</span> <span class="n">attributes</span><span class="p">:</span>
+            <span class="n">node</span><span class="o">.</span><span class="n">_ensure_attributes</span><span class="p">()</span>
+            <span class="n">_attrs</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">_attrs</span>
+            <span class="n">_attrsNS</span> <span class="o">=</span> <span class="n">node</span><span class="o">.</span><span class="n">_attrsNS</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">attributes</span><span class="p">),</span> <span class="mi">2</span><span class="p">):</span>
+                <span class="n">aname</span> <span class="o">=</span> <span class="n">attributes</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">attributes</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
+                <span class="k">if</span> <span class="s">&#39; &#39;</span> <span class="ow">in</span> <span class="n">aname</span><span class="p">:</span>
+                    <span class="n">uri</span><span class="p">,</span> <span class="n">localname</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">qname</span> <span class="o">=</span> <span class="n">_parse_ns_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">aname</span><span class="p">)</span>
+                    <span class="n">a</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">Attr</span><span class="p">(</span><span class="n">qname</span><span class="p">,</span> <span class="n">uri</span><span class="p">,</span> <span class="n">localname</span><span class="p">,</span> <span class="n">prefix</span><span class="p">)</span>
+                    <span class="n">_attrs</span><span class="p">[</span><span class="n">qname</span><span class="p">]</span> <span class="o">=</span> <span class="n">a</span>
+                    <span class="n">_attrsNS</span><span class="p">[(</span><span class="n">uri</span><span class="p">,</span> <span class="n">localname</span><span class="p">)]</span> <span class="o">=</span> <span class="n">a</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">a</span> <span class="o">=</span> <span class="n">minidom</span><span class="o">.</span><span class="n">Attr</span><span class="p">(</span><span class="n">aname</span><span class="p">,</span> <span class="n">EMPTY_NAMESPACE</span><span class="p">,</span>
+                                     <span class="n">aname</span><span class="p">,</span> <span class="n">EMPTY_PREFIX</span><span class="p">)</span>
+                    <span class="n">_attrs</span><span class="p">[</span><span class="n">aname</span><span class="p">]</span> <span class="o">=</span> <span class="n">a</span>
+                    <span class="n">_attrsNS</span><span class="p">[(</span><span class="n">EMPTY_NAMESPACE</span><span class="p">,</span> <span class="n">aname</span><span class="p">)]</span> <span class="o">=</span> <span class="n">a</span>
+                <span class="n">a</span><span class="o">.</span><span class="n">ownerDocument</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">document</span>
+                <span class="n">a</span><span class="o">.</span><span class="n">value</span> <span class="o">=</span> <span class="n">value</span>
+                <span class="n">a</span><span class="o">.</span><span class="n">ownerElement</span> <span class="o">=</span> <span class="n">node</span>
+</div>
+    <span class="k">if</span> <span class="n">__debug__</span><span class="p">:</span>
+        <span class="c"># This only adds some asserts to the original</span>
+        <span class="c"># end_element_handler(), so we only define this when -O is not</span>
+        <span class="c"># used.  If changing one, be sure to check the other to see if</span>
+        <span class="c"># it needs to be changed as well.</span>
+        <span class="c">#</span>
+<div class="viewcode-block" id="Namespaces.end_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.Namespaces.end_element_handler">[docs]</a>        <span class="k">def</span> <span class="nf">end_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+            <span class="n">curNode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span>
+            <span class="k">if</span> <span class="s">&#39; &#39;</span> <span class="ow">in</span> <span class="n">name</span><span class="p">:</span>
+                <span class="n">uri</span><span class="p">,</span> <span class="n">localname</span><span class="p">,</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">qname</span> <span class="o">=</span> <span class="n">_parse_ns_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+                <span class="k">assert</span> <span class="p">(</span><span class="n">curNode</span><span class="o">.</span><span class="n">namespaceURI</span> <span class="o">==</span> <span class="n">uri</span>
+                        <span class="ow">and</span> <span class="n">curNode</span><span class="o">.</span><span class="n">localName</span> <span class="o">==</span> <span class="n">localname</span>
+                        <span class="ow">and</span> <span class="n">curNode</span><span class="o">.</span><span class="n">prefix</span> <span class="o">==</span> <span class="n">prefix</span><span class="p">),</span> \
+                        <span class="s">&quot;element stack messed up! (namespace)&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">assert</span> <span class="n">curNode</span><span class="o">.</span><span class="n">nodeName</span> <span class="o">==</span> <span class="n">name</span><span class="p">,</span> \
+                       <span class="s">&quot;element stack messed up - bad nodeName&quot;</span>
+                <span class="k">assert</span> <span class="n">curNode</span><span class="o">.</span><span class="n">namespaceURI</span> <span class="o">==</span> <span class="n">EMPTY_NAMESPACE</span><span class="p">,</span> \
+                       <span class="s">&quot;element stack messed up - bad namespaceURI&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">curNode</span> <span class="o">=</span> <span class="n">curNode</span><span class="o">.</span><span class="n">parentNode</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_finish_end_element</span><span class="p">(</span><span class="n">curNode</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ExpatBuilderNS"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilderNS">[docs]</a><span class="k">class</span> <span class="nc">ExpatBuilderNS</span><span class="p">(</span><span class="n">Namespaces</span><span class="p">,</span> <span class="n">ExpatBuilder</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Document builder that supports namespaces.&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="ExpatBuilderNS.reset"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ExpatBuilderNS.reset">[docs]</a>    <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">ExpatBuilder</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initNamespaces</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="FragmentBuilderNS"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FragmentBuilderNS">[docs]</a><span class="k">class</span> <span class="nc">FragmentBuilderNS</span><span class="p">(</span><span class="n">Namespaces</span><span class="p">,</span> <span class="n">FragmentBuilder</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Fragment builder that supports namespaces.&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="FragmentBuilderNS.reset"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.FragmentBuilderNS.reset">[docs]</a>    <span class="k">def</span> <span class="nf">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">FragmentBuilder</span><span class="o">.</span><span class="n">reset</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_initNamespaces</span><span class="p">()</span>
+</div>
+    <span class="k">def</span> <span class="nf">_getNSattrs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return string of namespace attributes from this element and</span>
+<span class="sd">        ancestors.&quot;&quot;&quot;</span>
+        <span class="c"># XXX This needs to be re-written to walk the ancestors of the</span>
+        <span class="c"># context to build up the namespace information from</span>
+        <span class="c"># declarations, elements, and attributes found in context.</span>
+        <span class="c"># Otherwise we have to store a bunch more data on the DOM</span>
+        <span class="c"># (though that *might* be more reliable -- not clear).</span>
+        <span class="n">attrs</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="n">context</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">context</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="n">context</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">context</span><span class="p">,</span> <span class="s">&#39;_ns_prefix_uri&#39;</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">prefix</span><span class="p">,</span> <span class="n">uri</span> <span class="ow">in</span> <span class="n">context</span><span class="o">.</span><span class="n">_ns_prefix_uri</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="c"># add every new NS decl from context to L and attrs string</span>
+                    <span class="k">if</span> <span class="n">prefix</span> <span class="ow">in</span> <span class="n">L</span><span class="p">:</span>
+                        <span class="k">continue</span>
+                    <span class="n">L</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">prefix</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">prefix</span><span class="p">:</span>
+                        <span class="n">declname</span> <span class="o">=</span> <span class="s">&quot;xmlns:&quot;</span> <span class="o">+</span> <span class="n">prefix</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">declname</span> <span class="o">=</span> <span class="s">&quot;xmlns&quot;</span>
+                    <span class="k">if</span> <span class="n">attrs</span><span class="p">:</span>
+                        <span class="n">attrs</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s</span><span class="se">\n</span><span class="s">    </span><span class="si">%s</span><span class="s">=&#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">attrs</span><span class="p">,</span> <span class="n">declname</span><span class="p">,</span> <span class="n">uri</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="n">attrs</span> <span class="o">=</span> <span class="s">&quot; </span><span class="si">%s</span><span class="s">=&#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">declname</span><span class="p">,</span> <span class="n">uri</span><span class="p">)</span>
+            <span class="n">context</span> <span class="o">=</span> <span class="n">context</span><span class="o">.</span><span class="n">parentNode</span>
+        <span class="k">return</span> <span class="n">attrs</span>
+
+</div>
+<div class="viewcode-block" id="ParseEscape"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.ParseEscape">[docs]</a><span class="k">class</span> <span class="nc">ParseEscape</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Exception raised to short-circuit parsing in InternalSubsetExtractor.&quot;&quot;&quot;</span>
+    <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="InternalSubsetExtractor"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.InternalSubsetExtractor">[docs]</a><span class="k">class</span> <span class="nc">InternalSubsetExtractor</span><span class="p">(</span><span class="n">ExpatBuilder</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;XML processor which can rip out the internal document type subset.&quot;&quot;&quot;</span>
+
+    <span class="n">subset</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="InternalSubsetExtractor.getSubset"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.InternalSubsetExtractor.getSubset">[docs]</a>    <span class="k">def</span> <span class="nf">getSubset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the internal subset as a string.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">subset</span>
+</div>
+<div class="viewcode-block" id="InternalSubsetExtractor.parseFile"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.InternalSubsetExtractor.parseFile">[docs]</a>    <span class="k">def</span> <span class="nf">parseFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">ExpatBuilder</span><span class="o">.</span><span class="n">parseFile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ParseEscape</span><span class="p">:</span>
+            <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="InternalSubsetExtractor.parseString"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.InternalSubsetExtractor.parseString">[docs]</a>    <span class="k">def</span> <span class="nf">parseString</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">ExpatBuilder</span><span class="o">.</span><span class="n">parseString</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">ParseEscape</span><span class="p">:</span>
+            <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="InternalSubsetExtractor.install"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.InternalSubsetExtractor.install">[docs]</a>    <span class="k">def</span> <span class="nf">install</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parser</span><span class="p">):</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">StartDoctypeDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_doctype_decl_handler</span>
+        <span class="n">parser</span><span class="o">.</span><span class="n">StartElementHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">start_element_handler</span>
+</div>
+<div class="viewcode-block" id="InternalSubsetExtractor.start_doctype_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.InternalSubsetExtractor.start_doctype_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_doctype_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">publicId</span><span class="p">,</span> <span class="n">systemId</span><span class="p">,</span>
+                                   <span class="n">has_internal_subset</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">has_internal_subset</span><span class="p">:</span>
+            <span class="n">parser</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">getParser</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">subset</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">DefaultHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">subset</span><span class="o">.</span><span class="n">append</span>
+            <span class="n">parser</span><span class="o">.</span><span class="n">EndDoctypeDeclHandler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">end_doctype_decl_handler</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ParseEscape</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="InternalSubsetExtractor.end_doctype_decl_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.InternalSubsetExtractor.end_doctype_decl_handler">[docs]</a>    <span class="k">def</span> <span class="nf">end_doctype_decl_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">subset</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\r</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">subset</span> <span class="o">=</span> <span class="n">s</span>
+        <span class="k">raise</span> <span class="n">ParseEscape</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="InternalSubsetExtractor.start_element_handler"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.InternalSubsetExtractor.start_element_handler">[docs]</a>    <span class="k">def</span> <span class="nf">start_element_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">attrs</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">ParseEscape</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="parse"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.parse">[docs]</a><span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">namespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Parse a document, returning the resulting Document node.</span>
+
+<span class="sd">    &#39;file&#39; may be either a file name or an open file object.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">namespaces</span><span class="p">:</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">ExpatBuilderNS</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">ExpatBuilder</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">parseFile</span><span class="p">(</span><span class="n">fp</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">parseFile</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result</span>
+
+</div>
+<div class="viewcode-block" id="parseString"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.parseString">[docs]</a><span class="k">def</span> <span class="nf">parseString</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="n">namespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Parse a document from a string, returning the resulting</span>
+<span class="sd">    Document node.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">namespaces</span><span class="p">:</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">ExpatBuilderNS</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">ExpatBuilder</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">parseString</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="parseFragment"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.parseFragment">[docs]</a><span class="k">def</span> <span class="nf">parseFragment</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">namespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Parse a fragment of a document, given the context from which it</span>
+<span class="sd">    was originally extracted.  context should be the parent of the</span>
+<span class="sd">    node(s) which are in the fragment.</span>
+
+<span class="sd">    &#39;file&#39; may be either a file name or an open file object.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">namespaces</span><span class="p">:</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">FragmentBuilderNS</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">FragmentBuilder</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="s">&#39;rb&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">parseFile</span><span class="p">(</span><span class="n">fp</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="n">builder</span><span class="o">.</span><span class="n">parseFile</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">result</span>
+
+</div>
+<div class="viewcode-block" id="parseFragmentString"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.parseFragmentString">[docs]</a><span class="k">def</span> <span class="nf">parseFragmentString</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="n">context</span><span class="p">,</span> <span class="n">namespaces</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Parse a fragment of a document from a string, given the context</span>
+<span class="sd">    from which it was originally extracted.  context should be the</span>
+<span class="sd">    parent of the node(s) which are in the fragment.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">namespaces</span><span class="p">:</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">FragmentBuilderNS</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">builder</span> <span class="o">=</span> <span class="n">FragmentBuilder</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">builder</span><span class="o">.</span><span class="n">parseString</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="makeBuilder"><a class="viewcode-back" href="../../../xml.dom.html#xml.dom.expatbuilder.makeBuilder">[docs]</a><span class="k">def</span> <span class="nf">makeBuilder</span><span class="p">(</span><span class="n">options</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Create a builder based on an Options object.&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">options</span><span class="o">.</span><span class="n">namespaces</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">ExpatBuilderNS</span><span class="p">(</span><span class="n">options</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">ExpatBuilder</span><span class="p">(</span><span class="n">options</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

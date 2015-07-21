@@ -1,0 +1,1 @@
+initSidebarItems({"type":[["Handle","Raw HANDLEs."],["Socket","Raw SOCKETs."]],"trait":[["AsRawHandle","Extract raw handles."],["AsRawSocket","Extract raw sockets."],["OpenOptionsExt",""],["OsStrExt",""],["OsStringExt",""]]});

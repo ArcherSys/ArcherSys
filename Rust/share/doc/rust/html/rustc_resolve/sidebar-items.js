@@ -1,0 +1,1 @@
+initSidebarItems({"constant":[["IMPORTABLE",""],["PUBLIC",""]],"mod":[["diagnostics",""]],"enum":[["MakeGlobMap",""]],"struct":[["CrateMap",""],["DefModifiers",""]],"fn":[["resolve_crate","Entry point to crate resolution."]]});

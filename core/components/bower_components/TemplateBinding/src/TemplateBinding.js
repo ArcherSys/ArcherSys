@@ -135,8 +135,12 @@
     'template': true,
     'repeat': true,
     'bind': true,
+<<<<<<< HEAD
     'ref': true,
     'if': true
+=======
+    'ref': true
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
   };
 
   var semanticTemplateElements = {

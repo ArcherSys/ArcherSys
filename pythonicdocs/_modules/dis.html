@@ -1,0 +1,636 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>dis &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../index.html"/>
+        <link rel="up" title="Module code" href="index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="index.html">Module code</a> &raquo;</li>
+      
+    <li>dis</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for dis</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Disassembler of Python byte code into mnemonics.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">types</span>
+<span class="kn">import</span> <span class="nn">collections</span>
+<span class="kn">import</span> <span class="nn">io</span>
+
+<span class="kn">from</span> <span class="nn">opcode</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">opcode</span> <span class="kn">import</span> <span class="n">__all__</span> <span class="k">as</span> <span class="n">_opcodes_all</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;code_info&quot;</span><span class="p">,</span> <span class="s">&quot;dis&quot;</span><span class="p">,</span> <span class="s">&quot;disassemble&quot;</span><span class="p">,</span> <span class="s">&quot;distb&quot;</span><span class="p">,</span> <span class="s">&quot;disco&quot;</span><span class="p">,</span>
+           <span class="s">&quot;findlinestarts&quot;</span><span class="p">,</span> <span class="s">&quot;findlabels&quot;</span><span class="p">,</span> <span class="s">&quot;show_code&quot;</span><span class="p">,</span>
+           <span class="s">&quot;get_instructions&quot;</span><span class="p">,</span> <span class="s">&quot;Instruction&quot;</span><span class="p">,</span> <span class="s">&quot;Bytecode&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="n">_opcodes_all</span>
+<span class="k">del</span> <span class="n">_opcodes_all</span>
+
+<span class="n">_have_code</span> <span class="o">=</span> <span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">MethodType</span><span class="p">,</span> <span class="n">types</span><span class="o">.</span><span class="n">FunctionType</span><span class="p">,</span> <span class="n">types</span><span class="o">.</span><span class="n">CodeType</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_try_compile</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Attempts to compile the given source, first as an expression and</span>
+<span class="sd">       then as a statement if the first approach fails.</span>
+
+<span class="sd">       Utility function to accept strings in functions that otherwise</span>
+<span class="sd">       expect code objects</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="nb">compile</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="s">&#39;eval&#39;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">SyntaxError</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="nb">compile</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="s">&#39;exec&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">c</span>
+
+<div class="viewcode-block" id="dis"><a class="viewcode-back" href="../dis.html#dis.dis">[docs]</a><span class="k">def</span> <span class="nf">dis</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Disassemble classes, methods, functions, or code.</span>
+
+<span class="sd">    With no argument, disassemble the last traceback.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">x</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">distb</span><span class="p">(</span><span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+        <span class="k">return</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&#39;__func__&#39;</span><span class="p">):</span>  <span class="c"># Method</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__func__</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&#39;__code__&#39;</span><span class="p">):</span>  <span class="c"># Function</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__code__</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&#39;__dict__&#39;</span><span class="p">):</span>  <span class="c"># Class or module</span>
+        <span class="n">items</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">x</span><span class="o">.</span><span class="n">__dict__</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">x1</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="n">_have_code</span><span class="p">):</span>
+                <span class="k">print</span><span class="p">(</span><span class="s">&quot;Disassembly of </span><span class="si">%s</span><span class="s">:&quot;</span> <span class="o">%</span> <span class="n">name</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">dis</span><span class="p">(</span><span class="n">x1</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">TypeError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                    <span class="k">print</span><span class="p">(</span><span class="s">&quot;Sorry:&quot;</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+                <span class="k">print</span><span class="p">(</span><span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&#39;co_code&#39;</span><span class="p">):</span> <span class="c"># Code object</span>
+        <span class="n">disassemble</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="p">(</span><span class="nb">bytes</span><span class="p">,</span> <span class="nb">bytearray</span><span class="p">)):</span> <span class="c"># Raw bytecode</span>
+        <span class="n">_disassemble_bytes</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>    <span class="c"># Source code</span>
+        <span class="n">_disassemble_str</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;don&#39;t know how to disassemble </span><span class="si">%s</span><span class="s"> objects&quot;</span> <span class="o">%</span>
+                        <span class="nb">type</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="distb"><a class="viewcode-back" href="../dis.html#dis.distb">[docs]</a><span class="k">def</span> <span class="nf">distb</span><span class="p">(</span><span class="n">tb</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Disassemble a traceback (default: last traceback).&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">tb</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">tb</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">last_traceback</span>
+        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;no last traceback to disassemble&quot;</span><span class="p">)</span>
+        <span class="k">while</span> <span class="n">tb</span><span class="o">.</span><span class="n">tb_next</span><span class="p">:</span> <span class="n">tb</span> <span class="o">=</span> <span class="n">tb</span><span class="o">.</span><span class="n">tb_next</span>
+    <span class="n">disassemble</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">tb_frame</span><span class="o">.</span><span class="n">f_code</span><span class="p">,</span> <span class="n">tb</span><span class="o">.</span><span class="n">tb_lasti</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+
+<span class="c"># The inspect module interrogates this dictionary to build its</span>
+<span class="c"># list of CO_* constants. It is also used by pretty_flags to</span>
+<span class="c"># turn the co_flags field into a human readable list.</span></div>
+<span class="n">COMPILER_FLAG_NAMES</span> <span class="o">=</span> <span class="p">{</span>
+     <span class="mi">1</span><span class="p">:</span> <span class="s">&quot;OPTIMIZED&quot;</span><span class="p">,</span>
+     <span class="mi">2</span><span class="p">:</span> <span class="s">&quot;NEWLOCALS&quot;</span><span class="p">,</span>
+     <span class="mi">4</span><span class="p">:</span> <span class="s">&quot;VARARGS&quot;</span><span class="p">,</span>
+     <span class="mi">8</span><span class="p">:</span> <span class="s">&quot;VARKEYWORDS&quot;</span><span class="p">,</span>
+    <span class="mi">16</span><span class="p">:</span> <span class="s">&quot;NESTED&quot;</span><span class="p">,</span>
+    <span class="mi">32</span><span class="p">:</span> <span class="s">&quot;GENERATOR&quot;</span><span class="p">,</span>
+    <span class="mi">64</span><span class="p">:</span> <span class="s">&quot;NOFREE&quot;</span><span class="p">,</span>
+<span class="p">}</span>
+
+<span class="k">def</span> <span class="nf">pretty_flags</span><span class="p">(</span><span class="n">flags</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return pretty representation of code flags.&quot;&quot;&quot;</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">32</span><span class="p">):</span>
+        <span class="n">flag</span> <span class="o">=</span> <span class="mi">1</span><span class="o">&lt;&lt;</span><span class="n">i</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="o">&amp;</span> <span class="n">flag</span><span class="p">:</span>
+            <span class="n">names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">COMPILER_FLAG_NAMES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">flag</span><span class="p">,</span> <span class="nb">hex</span><span class="p">(</span><span class="n">flag</span><span class="p">)))</span>
+            <span class="n">flags</span> <span class="o">^=</span> <span class="n">flag</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">flags</span><span class="p">:</span>
+                <span class="k">break</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">hex</span><span class="p">(</span><span class="n">flags</span><span class="p">))</span>
+    <span class="k">return</span> <span class="s">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_get_code_object</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Helper to handle methods, functions, strings and raw code objects&quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&#39;__func__&#39;</span><span class="p">):</span> <span class="c"># Method</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__func__</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&#39;__code__&#39;</span><span class="p">):</span> <span class="c"># Function</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">__code__</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>     <span class="c"># Source code</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">_try_compile</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&quot;&lt;disassembly&gt;&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="s">&#39;co_code&#39;</span><span class="p">):</span>  <span class="c"># Code object</span>
+        <span class="k">return</span> <span class="n">x</span>
+    <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;don&#39;t know how to disassemble </span><span class="si">%s</span><span class="s"> objects&quot;</span> <span class="o">%</span>
+                    <span class="nb">type</span><span class="p">(</span><span class="n">x</span><span class="p">)</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+
+<div class="viewcode-block" id="code_info"><a class="viewcode-back" href="../dis.html#dis.code_info">[docs]</a><span class="k">def</span> <span class="nf">code_info</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Formatted details of methods, functions, or code.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_format_code_info</span><span class="p">(</span><span class="n">_get_code_object</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+</div>
+<span class="k">def</span> <span class="nf">_format_code_info</span><span class="p">(</span><span class="n">co</span><span class="p">):</span>
+    <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Name:              </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">co</span><span class="o">.</span><span class="n">co_name</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Filename:          </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">co</span><span class="o">.</span><span class="n">co_filename</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Argument count:    </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">co</span><span class="o">.</span><span class="n">co_argcount</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Kw-only arguments: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">co</span><span class="o">.</span><span class="n">co_kwonlyargcount</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Number of locals:  </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">co</span><span class="o">.</span><span class="n">co_nlocals</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Stack size:        </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">co</span><span class="o">.</span><span class="n">co_stacksize</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Flags:             </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">pretty_flags</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_flags</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">co</span><span class="o">.</span><span class="n">co_consts</span><span class="p">:</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Constants:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i_c</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_consts</span><span class="p">):</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%4d</span><span class="s">: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">i_c</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">co</span><span class="o">.</span><span class="n">co_names</span><span class="p">:</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Names:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i_n</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_names</span><span class="p">):</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%4d</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">i_n</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">co</span><span class="o">.</span><span class="n">co_varnames</span><span class="p">:</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Variable names:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i_n</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_varnames</span><span class="p">):</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%4d</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">i_n</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">co</span><span class="o">.</span><span class="n">co_freevars</span><span class="p">:</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Free variables:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i_n</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_freevars</span><span class="p">):</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%4d</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">i_n</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">co</span><span class="o">.</span><span class="n">co_cellvars</span><span class="p">:</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;Cell variables:&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i_n</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_cellvars</span><span class="p">):</span>
+            <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%4d</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">i_n</span><span class="p">)</span>
+    <span class="k">return</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">)</span>
+
+<div class="viewcode-block" id="show_code"><a class="viewcode-back" href="../dis.html#dis.show_code">[docs]</a><span class="k">def</span> <span class="nf">show_code</span><span class="p">(</span><span class="n">co</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Print details of methods, functions, or code to *file*.</span>
+
+<span class="sd">    If *file* is not provided, the output is printed on stdout.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">code_info</span><span class="p">(</span><span class="n">co</span><span class="p">),</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+</div>
+<span class="n">_Instruction</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">namedtuple</span><span class="p">(</span><span class="s">&quot;_Instruction&quot;</span><span class="p">,</span>
+     <span class="s">&quot;opname opcode arg argval argrepr offset starts_line is_jump_target&quot;</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Instruction"><a class="viewcode-back" href="../dis.html#dis.Instruction">[docs]</a><span class="k">class</span> <span class="nc">Instruction</span><span class="p">(</span><span class="n">_Instruction</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Details for a bytecode operation</span>
+
+<span class="sd">       Defined fields:</span>
+<span class="sd">         opname - human readable name for operation</span>
+<span class="sd">         opcode - numeric code for operation</span>
+<span class="sd">         arg - numeric argument to operation (if any), otherwise None</span>
+<span class="sd">         argval - resolved arg value (if known), otherwise same as arg</span>
+<span class="sd">         argrepr - human readable description of operation argument</span>
+<span class="sd">         offset - start index of operation within bytecode sequence</span>
+<span class="sd">         starts_line - line started by this opcode (if any), otherwise None</span>
+<span class="sd">         is_jump_target - True if other code jumps to here, otherwise False</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_disassemble</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lineno_width</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">mark_as_current</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Format instruction details for inclusion in disassembly output</span>
+
+<span class="sd">        *lineno_width* sets the width of the line number field (0 omits it)</span>
+<span class="sd">        *mark_as_current* inserts a &#39;--&gt;&#39; marker arrow as part of the line</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">fields</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c"># Column: Source code line number</span>
+        <span class="k">if</span> <span class="n">lineno_width</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">starts_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">lineno_fmt</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%%%d</span><span class="s">d&quot;</span> <span class="o">%</span> <span class="n">lineno_width</span>
+                <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lineno_fmt</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">starts_line</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39; &#39;</span> <span class="o">*</span> <span class="n">lineno_width</span><span class="p">)</span>
+        <span class="c"># Column: Current instruction indicator</span>
+        <span class="k">if</span> <span class="n">mark_as_current</span><span class="p">:</span>
+            <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;--&gt;&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;   &#39;</span><span class="p">)</span>
+        <span class="c"># Column: Jump target marker</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_jump_target</span><span class="p">:</span>
+            <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;&gt;&gt;&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;  &#39;</span><span class="p">)</span>
+        <span class="c"># Column: Instruction offset from start of code sequence</span>
+        <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">offset</span><span class="p">)</span><span class="o">.</span><span class="n">rjust</span><span class="p">(</span><span class="mi">4</span><span class="p">))</span>
+        <span class="c"># Column: Opcode name</span>
+        <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">opname</span><span class="o">.</span><span class="n">ljust</span><span class="p">(</span><span class="mi">20</span><span class="p">))</span>
+        <span class="c"># Column: Opcode argument</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">arg</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">arg</span><span class="p">)</span><span class="o">.</span><span class="n">rjust</span><span class="p">(</span><span class="mi">5</span><span class="p">))</span>
+            <span class="c"># Column: Opcode argument details</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">argrepr</span><span class="p">:</span>
+                <span class="n">fields</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;(&#39;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">argrepr</span> <span class="o">+</span> <span class="s">&#39;)&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">fields</span><span class="p">)</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="get_instructions"><a class="viewcode-back" href="../dis.html#dis.get_instructions">[docs]</a><span class="k">def</span> <span class="nf">get_instructions</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">first_line</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Iterator for the opcodes in methods, functions or code</span>
+
+<span class="sd">    Generates a series of Instruction named tuples giving the details of</span>
+<span class="sd">    each operations in the supplied code.</span>
+
+<span class="sd">    If *first_line* is not None, it indicates the line number that should</span>
+<span class="sd">    be reported for the first source line in the disassembled code.</span>
+<span class="sd">    Otherwise, the source line information (if any) is taken directly from</span>
+<span class="sd">    the disassembled code object.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">co</span> <span class="o">=</span> <span class="n">_get_code_object</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+    <span class="n">cell_names</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">co_cellvars</span> <span class="o">+</span> <span class="n">co</span><span class="o">.</span><span class="n">co_freevars</span>
+    <span class="n">linestarts</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">findlinestarts</span><span class="p">(</span><span class="n">co</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">first_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">line_offset</span> <span class="o">=</span> <span class="n">first_line</span> <span class="o">-</span> <span class="n">co</span><span class="o">.</span><span class="n">co_firstlineno</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">line_offset</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">_get_instructions_bytes</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_code</span><span class="p">,</span> <span class="n">co</span><span class="o">.</span><span class="n">co_varnames</span><span class="p">,</span> <span class="n">co</span><span class="o">.</span><span class="n">co_names</span><span class="p">,</span>
+                                   <span class="n">co</span><span class="o">.</span><span class="n">co_consts</span><span class="p">,</span> <span class="n">cell_names</span><span class="p">,</span> <span class="n">linestarts</span><span class="p">,</span>
+                                   <span class="n">line_offset</span><span class="p">)</span>
+</div>
+<span class="k">def</span> <span class="nf">_get_const_info</span><span class="p">(</span><span class="n">const_index</span><span class="p">,</span> <span class="n">const_list</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Helper to get optional details about const references</span>
+
+<span class="sd">       Returns the dereferenced constant and its repr if the constant</span>
+<span class="sd">       list is defined.</span>
+<span class="sd">       Otherwise returns the constant index and its repr().</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">argval</span> <span class="o">=</span> <span class="n">const_index</span>
+    <span class="k">if</span> <span class="n">const_list</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">argval</span> <span class="o">=</span> <span class="n">const_list</span><span class="p">[</span><span class="n">const_index</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">argval</span><span class="p">,</span> <span class="nb">repr</span><span class="p">(</span><span class="n">argval</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_get_name_info</span><span class="p">(</span><span class="n">name_index</span><span class="p">,</span> <span class="n">name_list</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Helper to get optional details about named references</span>
+
+<span class="sd">       Returns the dereferenced name as both value and repr if the name</span>
+<span class="sd">       list is defined.</span>
+<span class="sd">       Otherwise returns the name index and its repr().</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">argval</span> <span class="o">=</span> <span class="n">name_index</span>
+    <span class="k">if</span> <span class="n">name_list</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">argval</span> <span class="o">=</span> <span class="n">name_list</span><span class="p">[</span><span class="n">name_index</span><span class="p">]</span>
+        <span class="n">argrepr</span> <span class="o">=</span> <span class="n">argval</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">argrepr</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="n">argval</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">argval</span><span class="p">,</span> <span class="n">argrepr</span>
+
+
+<span class="k">def</span> <span class="nf">_get_instructions_bytes</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">varnames</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">names</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">constants</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                      <span class="n">cells</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">linestarts</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">line_offset</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Iterate over the instructions in a bytecode string.</span>
+
+<span class="sd">    Generates a sequence of Instruction namedtuples giving the details of each</span>
+<span class="sd">    opcode.  Additional information about the code&#39;s runtime environment</span>
+<span class="sd">    (e.g. variable names, constants) can be specified using optional</span>
+<span class="sd">    arguments.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">labels</span> <span class="o">=</span> <span class="n">findlabels</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+    <span class="n">extended_arg</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">starts_line</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">free</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="c"># enumerate() is not an option, since we sometimes process</span>
+    <span class="c"># multiple elements on a single pass through the loop</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">:</span>
+        <span class="n">op</span> <span class="o">=</span> <span class="n">code</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">offset</span> <span class="o">=</span> <span class="n">i</span>
+        <span class="k">if</span> <span class="n">linestarts</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">starts_line</span> <span class="o">=</span> <span class="n">linestarts</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">starts_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">starts_line</span> <span class="o">+=</span> <span class="n">line_offset</span>
+        <span class="n">is_jump_target</span> <span class="o">=</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">labels</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+        <span class="n">arg</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">argval</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">argrepr</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">op</span> <span class="o">&gt;=</span> <span class="n">HAVE_ARGUMENT</span><span class="p">:</span>
+            <span class="n">arg</span> <span class="o">=</span> <span class="n">code</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">code</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="o">*</span><span class="mi">256</span> <span class="o">+</span> <span class="n">extended_arg</span>
+            <span class="n">extended_arg</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">2</span>
+            <span class="k">if</span> <span class="n">op</span> <span class="o">==</span> <span class="n">EXTENDED_ARG</span><span class="p">:</span>
+                <span class="n">extended_arg</span> <span class="o">=</span> <span class="n">arg</span><span class="o">*</span><span class="mi">65536</span>
+            <span class="c">#  Set argval to the dereferenced value of the argument when</span>
+            <span class="c">#  availabe, and argrepr to the string representation of argval.</span>
+            <span class="c">#    _disassemble_bytes needs the string repr of the</span>
+            <span class="c">#    raw name index for LOAD_GLOBAL, LOAD_CONST, etc.</span>
+            <span class="n">argval</span> <span class="o">=</span> <span class="n">arg</span>
+            <span class="k">if</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">hasconst</span><span class="p">:</span>
+                <span class="n">argval</span><span class="p">,</span> <span class="n">argrepr</span> <span class="o">=</span> <span class="n">_get_const_info</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">constants</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">hasname</span><span class="p">:</span>
+                <span class="n">argval</span><span class="p">,</span> <span class="n">argrepr</span> <span class="o">=</span> <span class="n">_get_name_info</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">names</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">hasjrel</span><span class="p">:</span>
+                <span class="n">argval</span> <span class="o">=</span> <span class="n">i</span> <span class="o">+</span> <span class="n">arg</span>
+                <span class="n">argrepr</span> <span class="o">=</span> <span class="s">&quot;to &quot;</span> <span class="o">+</span> <span class="nb">repr</span><span class="p">(</span><span class="n">argval</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">haslocal</span><span class="p">:</span>
+                <span class="n">argval</span><span class="p">,</span> <span class="n">argrepr</span> <span class="o">=</span> <span class="n">_get_name_info</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">varnames</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">hascompare</span><span class="p">:</span>
+                <span class="n">argval</span> <span class="o">=</span> <span class="n">cmp_op</span><span class="p">[</span><span class="n">arg</span><span class="p">]</span>
+                <span class="n">argrepr</span> <span class="o">=</span> <span class="n">argval</span>
+            <span class="k">elif</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">hasfree</span><span class="p">:</span>
+                <span class="n">argval</span><span class="p">,</span> <span class="n">argrepr</span> <span class="o">=</span> <span class="n">_get_name_info</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">cells</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">hasnargs</span><span class="p">:</span>
+                <span class="n">argrepr</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%d</span><span class="s"> positional, </span><span class="si">%d</span><span class="s"> keyword pair&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">code</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">2</span><span class="p">],</span> <span class="n">code</span><span class="p">[</span><span class="n">i</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">yield</span> <span class="n">Instruction</span><span class="p">(</span><span class="n">opname</span><span class="p">[</span><span class="n">op</span><span class="p">],</span> <span class="n">op</span><span class="p">,</span>
+                          <span class="n">arg</span><span class="p">,</span> <span class="n">argval</span><span class="p">,</span> <span class="n">argrepr</span><span class="p">,</span>
+                          <span class="n">offset</span><span class="p">,</span> <span class="n">starts_line</span><span class="p">,</span> <span class="n">is_jump_target</span><span class="p">)</span>
+
+<div class="viewcode-block" id="disassemble"><a class="viewcode-back" href="../dis.html#dis.disassemble">[docs]</a><span class="k">def</span> <span class="nf">disassemble</span><span class="p">(</span><span class="n">co</span><span class="p">,</span> <span class="n">lasti</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Disassemble a code object.&quot;&quot;&quot;</span>
+    <span class="n">cell_names</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">co_cellvars</span> <span class="o">+</span> <span class="n">co</span><span class="o">.</span><span class="n">co_freevars</span>
+    <span class="n">linestarts</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">findlinestarts</span><span class="p">(</span><span class="n">co</span><span class="p">))</span>
+    <span class="n">_disassemble_bytes</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_code</span><span class="p">,</span> <span class="n">lasti</span><span class="p">,</span> <span class="n">co</span><span class="o">.</span><span class="n">co_varnames</span><span class="p">,</span> <span class="n">co</span><span class="o">.</span><span class="n">co_names</span><span class="p">,</span>
+                       <span class="n">co</span><span class="o">.</span><span class="n">co_consts</span><span class="p">,</span> <span class="n">cell_names</span><span class="p">,</span> <span class="n">linestarts</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+</div>
+<span class="k">def</span> <span class="nf">_disassemble_bytes</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">lasti</span><span class="o">=-</span><span class="mi">1</span><span class="p">,</span> <span class="n">varnames</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">names</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                       <span class="n">constants</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">cells</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">linestarts</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                       <span class="o">*</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">line_offset</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+    <span class="c"># Omit the line number column entirely if we have no line number info</span>
+    <span class="n">show_lineno</span> <span class="o">=</span> <span class="n">linestarts</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+    <span class="c"># TODO?: Adjust width upwards if max(linestarts.values()) &gt;= 1000?</span>
+    <span class="n">lineno_width</span> <span class="o">=</span> <span class="mi">3</span> <span class="k">if</span> <span class="n">show_lineno</span> <span class="k">else</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">instr</span> <span class="ow">in</span> <span class="n">_get_instructions_bytes</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">varnames</span><span class="p">,</span> <span class="n">names</span><span class="p">,</span>
+                                         <span class="n">constants</span><span class="p">,</span> <span class="n">cells</span><span class="p">,</span> <span class="n">linestarts</span><span class="p">,</span>
+                                         <span class="n">line_offset</span><span class="o">=</span><span class="n">line_offset</span><span class="p">):</span>
+        <span class="n">new_source_line</span> <span class="o">=</span> <span class="p">(</span><span class="n">show_lineno</span> <span class="ow">and</span>
+                           <span class="n">instr</span><span class="o">.</span><span class="n">starts_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span>
+                           <span class="n">instr</span><span class="o">.</span><span class="n">offset</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">new_source_line</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+        <span class="n">is_current_instr</span> <span class="o">=</span> <span class="n">instr</span><span class="o">.</span><span class="n">offset</span> <span class="o">==</span> <span class="n">lasti</span>
+        <span class="k">print</span><span class="p">(</span><span class="n">instr</span><span class="o">.</span><span class="n">_disassemble</span><span class="p">(</span><span class="n">lineno_width</span><span class="p">,</span> <span class="n">is_current_instr</span><span class="p">),</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_disassemble_str</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Compile the source string, then disassemble the code object.&quot;&quot;&quot;</span>
+    <span class="n">disassemble</span><span class="p">(</span><span class="n">_try_compile</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="s">&#39;&lt;dis&gt;&#39;</span><span class="p">),</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+
+<span class="n">disco</span> <span class="o">=</span> <span class="n">disassemble</span>                     <span class="c"># XXX For backwards compatibility</span>
+
+<div class="viewcode-block" id="findlabels"><a class="viewcode-back" href="../dis.html#dis.findlabels">[docs]</a><span class="k">def</span> <span class="nf">findlabels</span><span class="p">(</span><span class="n">code</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Detect all offsets in a byte code which are jump targets.</span>
+
+<span class="sd">    Return the list of offsets.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">labels</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="c"># enumerate() is not an option, since we sometimes process</span>
+    <span class="c"># multiple elements on a single pass through the loop</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">:</span>
+        <span class="n">op</span> <span class="o">=</span> <span class="n">code</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+        <span class="k">if</span> <span class="n">op</span> <span class="o">&gt;=</span> <span class="n">HAVE_ARGUMENT</span><span class="p">:</span>
+            <span class="n">arg</span> <span class="o">=</span> <span class="n">code</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">code</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span><span class="o">*</span><span class="mi">256</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">2</span>
+            <span class="n">label</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+            <span class="k">if</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">hasjrel</span><span class="p">:</span>
+                <span class="n">label</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="n">arg</span>
+            <span class="k">elif</span> <span class="n">op</span> <span class="ow">in</span> <span class="n">hasjabs</span><span class="p">:</span>
+                <span class="n">label</span> <span class="o">=</span> <span class="n">arg</span>
+            <span class="k">if</span> <span class="n">label</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">label</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">labels</span><span class="p">:</span>
+                    <span class="n">labels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">label</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">labels</span>
+</div>
+<div class="viewcode-block" id="findlinestarts"><a class="viewcode-back" href="../dis.html#dis.findlinestarts">[docs]</a><span class="k">def</span> <span class="nf">findlinestarts</span><span class="p">(</span><span class="n">code</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Find the offsets in a byte code which are start of lines in the source.</span>
+
+<span class="sd">    Generate pairs (offset, lineno) as described in Python/compile.c.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">byte_increments</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">code</span><span class="o">.</span><span class="n">co_lnotab</span><span class="p">[</span><span class="mi">0</span><span class="p">::</span><span class="mi">2</span><span class="p">])</span>
+    <span class="n">line_increments</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">code</span><span class="o">.</span><span class="n">co_lnotab</span><span class="p">[</span><span class="mi">1</span><span class="p">::</span><span class="mi">2</span><span class="p">])</span>
+
+    <span class="n">lastlineno</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">lineno</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">co_firstlineno</span>
+    <span class="n">addr</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">byte_incr</span><span class="p">,</span> <span class="n">line_incr</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">byte_increments</span><span class="p">,</span> <span class="n">line_increments</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">byte_incr</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">lineno</span> <span class="o">!=</span> <span class="n">lastlineno</span><span class="p">:</span>
+                <span class="k">yield</span> <span class="p">(</span><span class="n">addr</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+                <span class="n">lastlineno</span> <span class="o">=</span> <span class="n">lineno</span>
+            <span class="n">addr</span> <span class="o">+=</span> <span class="n">byte_incr</span>
+        <span class="n">lineno</span> <span class="o">+=</span> <span class="n">line_incr</span>
+    <span class="k">if</span> <span class="n">lineno</span> <span class="o">!=</span> <span class="n">lastlineno</span><span class="p">:</span>
+        <span class="k">yield</span> <span class="p">(</span><span class="n">addr</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Bytecode"><a class="viewcode-back" href="../dis.html#dis.Bytecode">[docs]</a><span class="k">class</span> <span class="nc">Bytecode</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;The bytecode operations of a piece of code</span>
+
+<span class="sd">    Instantiate this with a function, method, string of code, or a code object</span>
+<span class="sd">    (as returned by compile()).</span>
+
+<span class="sd">    Iterating over this yields the bytecode operations as Instruction instances.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">first_line</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">current_offset</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">codeobj</span> <span class="o">=</span> <span class="n">co</span> <span class="o">=</span> <span class="n">_get_code_object</span><span class="p">(</span><span class="n">x</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">first_line</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">first_line</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">co_firstlineno</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_line_offset</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">first_line</span> <span class="o">=</span> <span class="n">first_line</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_line_offset</span> <span class="o">=</span> <span class="n">first_line</span> <span class="o">-</span> <span class="n">co</span><span class="o">.</span><span class="n">co_firstlineno</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cell_names</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">co_cellvars</span> <span class="o">+</span> <span class="n">co</span><span class="o">.</span><span class="n">co_freevars</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_linestarts</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">findlinestarts</span><span class="p">(</span><span class="n">co</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_original_object</span> <span class="o">=</span> <span class="n">x</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">current_offset</span> <span class="o">=</span> <span class="n">current_offset</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">co</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">codeobj</span>
+        <span class="k">return</span> <span class="n">_get_instructions_bytes</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_code</span><span class="p">,</span> <span class="n">co</span><span class="o">.</span><span class="n">co_varnames</span><span class="p">,</span> <span class="n">co</span><span class="o">.</span><span class="n">co_names</span><span class="p">,</span>
+                                       <span class="n">co</span><span class="o">.</span><span class="n">co_consts</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cell_names</span><span class="p">,</span>
+                                       <span class="bp">self</span><span class="o">.</span><span class="n">_linestarts</span><span class="p">,</span>
+                                       <span class="n">line_offset</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_line_offset</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&quot;{}({!r})&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span>
+                                 <span class="bp">self</span><span class="o">.</span><span class="n">_original_object</span><span class="p">)</span>
+
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="Bytecode.from_traceback"><a class="viewcode-back" href="../dis.html#dis.Bytecode.from_traceback">[docs]</a>    <span class="k">def</span> <span class="nf">from_traceback</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">tb</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Construct a Bytecode from the given traceback &quot;&quot;&quot;</span>
+        <span class="k">while</span> <span class="n">tb</span><span class="o">.</span><span class="n">tb_next</span><span class="p">:</span>
+            <span class="n">tb</span> <span class="o">=</span> <span class="n">tb</span><span class="o">.</span><span class="n">tb_next</span>
+        <span class="k">return</span> <span class="n">cls</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">tb_frame</span><span class="o">.</span><span class="n">f_code</span><span class="p">,</span> <span class="n">current_offset</span><span class="o">=</span><span class="n">tb</span><span class="o">.</span><span class="n">tb_lasti</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Bytecode.info"><a class="viewcode-back" href="../dis.html#dis.Bytecode.info">[docs]</a>    <span class="k">def</span> <span class="nf">info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return formatted information about the code object.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">_format_code_info</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">codeobj</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Bytecode.dis"><a class="viewcode-back" href="../dis.html#dis.Bytecode.dis">[docs]</a>    <span class="k">def</span> <span class="nf">dis</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a formatted view of the bytecode operations.&quot;&quot;&quot;</span>
+        <span class="n">co</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">codeobj</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_offset</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">offset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">current_offset</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">offset</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="k">with</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span> <span class="k">as</span> <span class="n">output</span><span class="p">:</span>
+            <span class="n">_disassemble_bytes</span><span class="p">(</span><span class="n">co</span><span class="o">.</span><span class="n">co_code</span><span class="p">,</span> <span class="n">varnames</span><span class="o">=</span><span class="n">co</span><span class="o">.</span><span class="n">co_varnames</span><span class="p">,</span>
+                               <span class="n">names</span><span class="o">=</span><span class="n">co</span><span class="o">.</span><span class="n">co_names</span><span class="p">,</span> <span class="n">constants</span><span class="o">=</span><span class="n">co</span><span class="o">.</span><span class="n">co_consts</span><span class="p">,</span>
+                               <span class="n">cells</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_cell_names</span><span class="p">,</span>
+                               <span class="n">linestarts</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_linestarts</span><span class="p">,</span>
+                               <span class="n">line_offset</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_line_offset</span><span class="p">,</span>
+                               <span class="nb">file</span><span class="o">=</span><span class="n">output</span><span class="p">,</span>
+                               <span class="n">lasti</span><span class="o">=</span><span class="n">offset</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+
+</div></div>
+<span class="k">def</span> <span class="nf">_test</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Simple test program to disassemble a file.&quot;&quot;&quot;</span>
+    <span class="kn">import</span> <span class="nn">argparse</span>
+
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s">&#39;infile&#39;</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">argparse</span><span class="o">.</span><span class="n">FileType</span><span class="p">(),</span> <span class="n">nargs</span><span class="o">=</span><span class="s">&#39;?&#39;</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="s">&#39;-&#39;</span><span class="p">)</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">args</span><span class="o">.</span><span class="n">infile</span> <span class="k">as</span> <span class="n">infile</span><span class="p">:</span>
+        <span class="n">source</span> <span class="o">=</span> <span class="n">infile</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+    <span class="n">code</span> <span class="o">=</span> <span class="nb">compile</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">args</span><span class="o">.</span><span class="n">infile</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="s">&quot;exec&quot;</span><span class="p">)</span>
+    <span class="n">dis</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">_test</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../_static/jquery.js"></script>
+      <script type="text/javascript" src="../_static/underscore.js"></script>
+      <script type="text/javascript" src="../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

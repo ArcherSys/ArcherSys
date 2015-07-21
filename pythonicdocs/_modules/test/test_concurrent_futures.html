@@ -1,0 +1,846 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>test.test_concurrent_futures &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>test.test_concurrent_futures</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for test.test_concurrent_futures</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">test.support</span>
+
+<span class="c"># Skip tests if _multiprocessing wasn&#39;t built.</span>
+<span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s">&#39;_multiprocessing&#39;</span><span class="p">)</span>
+<span class="c"># Skip tests if sem_open implementation is broken.</span>
+<span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s">&#39;multiprocessing.synchronize&#39;</span><span class="p">)</span>
+<span class="c"># import threading after _multiprocessing to raise a more revelant error</span>
+<span class="c"># message: &quot;No module named _multiprocessing&quot;. _multiprocessing is not compiled</span>
+<span class="c"># without thread support.</span>
+<span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s">&#39;threading&#39;</span><span class="p">)</span>
+
+<span class="kn">from</span> <span class="nn">test.script_helper</span> <span class="kn">import</span> <span class="n">assert_python_ok</span>
+
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">threading</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">import</span> <span class="nn">weakref</span>
+
+<span class="kn">from</span> <span class="nn">concurrent</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">concurrent.futures._base</span> <span class="kn">import</span> <span class="p">(</span>
+    <span class="n">PENDING</span><span class="p">,</span> <span class="n">RUNNING</span><span class="p">,</span> <span class="n">CANCELLED</span><span class="p">,</span> <span class="n">CANCELLED_AND_NOTIFIED</span><span class="p">,</span> <span class="n">FINISHED</span><span class="p">,</span> <span class="n">Future</span><span class="p">)</span>
+<span class="kn">from</span> <span class="nn">concurrent.futures.process</span> <span class="kn">import</span> <span class="n">BrokenProcessPool</span>
+
+
+<div class="viewcode-block" id="create_future"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.create_future">[docs]</a><span class="k">def</span> <span class="nf">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">PENDING</span><span class="p">,</span> <span class="n">exception</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">result</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="n">f</span> <span class="o">=</span> <span class="n">Future</span><span class="p">()</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">state</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">_exception</span> <span class="o">=</span> <span class="n">exception</span>
+    <span class="n">f</span><span class="o">.</span><span class="n">_result</span> <span class="o">=</span> <span class="n">result</span>
+    <span class="k">return</span> <span class="n">f</span>
+
+</div>
+<span class="n">PENDING_FUTURE</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">PENDING</span><span class="p">)</span>
+<span class="n">RUNNING_FUTURE</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">RUNNING</span><span class="p">)</span>
+<span class="n">CANCELLED_FUTURE</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">CANCELLED</span><span class="p">)</span>
+<span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">CANCELLED_AND_NOTIFIED</span><span class="p">)</span>
+<span class="n">EXCEPTION_FUTURE</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">FINISHED</span><span class="p">,</span> <span class="n">exception</span><span class="o">=</span><span class="ne">OSError</span><span class="p">())</span>
+<span class="n">SUCCESSFUL_FUTURE</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">FINISHED</span><span class="p">,</span> <span class="n">result</span><span class="o">=</span><span class="mi">42</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="mul"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.mul">[docs]</a><span class="k">def</span> <span class="nf">mul</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">x</span> <span class="o">*</span> <span class="n">y</span>
+
+</div>
+<div class="viewcode-block" id="sleep_and_raise"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.sleep_and_raise">[docs]</a><span class="k">def</span> <span class="nf">sleep_and_raise</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;this is an exception&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="sleep_and_print"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.sleep_and_print">[docs]</a><span class="k">def</span> <span class="nf">sleep_and_print</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+    <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+    <span class="k">print</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+    <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="MyObject"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.MyObject">[docs]</a><span class="k">class</span> <span class="nc">MyObject</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+<div class="viewcode-block" id="MyObject.my_method"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.MyObject.my_method">[docs]</a>    <span class="k">def</span> <span class="nf">my_method</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+</div></div>
+<div class="viewcode-block" id="ExecutorMixin"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorMixin">[docs]</a><span class="k">class</span> <span class="nc">ExecutorMixin</span><span class="p">:</span>
+    <span class="n">worker_count</span> <span class="o">=</span> <span class="mi">5</span>
+
+<div class="viewcode-block" id="ExecutorMixin.setUp"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorMixin.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t1</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">executor</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor_type</span><span class="p">(</span><span class="n">max_workers</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">worker_count</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">NotImplementedError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">skipTest</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_prime_executor</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ExecutorMixin.tearDown"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorMixin.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">shutdown</span><span class="p">(</span><span class="n">wait</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">dt</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">t1</span>
+        <span class="k">if</span> <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%.2f</span><span class="s">s&quot;</span> <span class="o">%</span> <span class="n">dt</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s">&#39; &#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertLess</span><span class="p">(</span><span class="n">dt</span><span class="p">,</span> <span class="mi">60</span><span class="p">,</span> <span class="s">&quot;synchronization issue: test lasted too long&quot;</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_prime_executor</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Make sure that the executor is ready to do work before running the</span>
+        <span class="c"># tests. This should reduce the probability of timeouts in the tests.</span>
+        <span class="n">futures</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span>
+                   <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">worker_count</span><span class="p">)]</span>
+
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">futures</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="ThreadPoolMixin"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolMixin">[docs]</a><span class="k">class</span> <span class="nc">ThreadPoolMixin</span><span class="p">(</span><span class="n">ExecutorMixin</span><span class="p">):</span>
+    <span class="n">executor_type</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">ThreadPoolExecutor</span>
+
+</div>
+<div class="viewcode-block" id="ProcessPoolMixin"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolMixin">[docs]</a><span class="k">class</span> <span class="nc">ProcessPoolMixin</span><span class="p">(</span><span class="n">ExecutorMixin</span><span class="p">):</span>
+    <span class="n">executor_type</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">ProcessPoolExecutor</span>
+
+</div>
+<div class="viewcode-block" id="ExecutorShutdownTest"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorShutdownTest">[docs]</a><span class="k">class</span> <span class="nc">ExecutorShutdownTest</span><span class="p">:</span>
+<div class="viewcode-block" id="ExecutorShutdownTest.test_run_after_shutdown"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorShutdownTest.test_run_after_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_run_after_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">RuntimeError</span><span class="p">,</span>
+                          <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">,</span>
+                          <span class="nb">pow</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExecutorShutdownTest.test_interpreter_shutdown"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorShutdownTest.test_interpreter_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_interpreter_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test the atexit hook for shutdown of worker threads and processes</span>
+        <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            from concurrent.futures import {executor_type}</span>
+<span class="s">            from time import sleep</span>
+<span class="s">            from test.test_concurrent_futures import sleep_and_print</span>
+<span class="s">            t = {executor_type}(5)</span>
+<span class="s">            t.submit(sleep_and_print, 1.0, &quot;apple&quot;)</span>
+<span class="s">            &quot;&quot;&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">executor_type</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">executor_type</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+        <span class="c"># Errors in atexit hooks don&#39;t change the process exit code, check</span>
+        <span class="c"># stderr manually.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">b</span><span class="s">&quot;apple&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExecutorShutdownTest.test_hang_issue12364"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorShutdownTest.test_hang_issue12364">[docs]</a>    <span class="k">def</span> <span class="nf">test_hang_issue12364</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">fs</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mf">0.1</span><span class="p">)</span> <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">50</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">fs</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="ThreadPoolShutdownTest"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolShutdownTest">[docs]</a><span class="k">class</span> <span class="nc">ThreadPoolShutdownTest</span><span class="p">(</span><span class="n">ThreadPoolMixin</span><span class="p">,</span> <span class="n">ExecutorShutdownTest</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_prime_executor</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+<div class="viewcode-block" id="ThreadPoolShutdownTest.test_threads_terminate"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolShutdownTest.test_threads_terminate">[docs]</a>    <span class="k">def</span> <span class="nf">test_threads_terminate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">21</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">14</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">_threads</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">_threads</span><span class="p">:</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ThreadPoolShutdownTest.test_context_manager_shutdown"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolShutdownTest.test_context_manager_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_context_manager_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">futures</span><span class="o">.</span><span class="n">ThreadPoolExecutor</span><span class="p">(</span><span class="n">max_workers</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">executor</span> <span class="o">=</span> <span class="n">e</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="nb">abs</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">))),</span>
+                             <span class="p">[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">])</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">executor</span><span class="o">.</span><span class="n">_threads</span><span class="p">:</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ThreadPoolShutdownTest.test_del_shutdown"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolShutdownTest.test_del_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_del_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">executor</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">ThreadPoolExecutor</span><span class="p">(</span><span class="n">max_workers</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="n">executor</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="nb">abs</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="n">threads</span> <span class="o">=</span> <span class="n">executor</span><span class="o">.</span><span class="n">_threads</span>
+        <span class="k">del</span> <span class="n">executor</span>
+
+        <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+            <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="ProcessPoolShutdownTest"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolShutdownTest">[docs]</a><span class="k">class</span> <span class="nc">ProcessPoolShutdownTest</span><span class="p">(</span><span class="n">ProcessPoolMixin</span><span class="p">,</span> <span class="n">ExecutorShutdownTest</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">_prime_executor</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+<div class="viewcode-block" id="ProcessPoolShutdownTest.test_processes_terminate"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolShutdownTest.test_processes_terminate">[docs]</a>    <span class="k">def</span> <span class="nf">test_processes_terminate</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">21</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">14</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">_processes</span><span class="p">),</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="n">processes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">_processes</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
+
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">processes</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">p</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ProcessPoolShutdownTest.test_context_manager_shutdown"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolShutdownTest.test_context_manager_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_context_manager_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">futures</span><span class="o">.</span><span class="n">ProcessPoolExecutor</span><span class="p">(</span><span class="n">max_workers</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">processes</span> <span class="o">=</span> <span class="n">e</span><span class="o">.</span><span class="n">_processes</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">e</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="nb">abs</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">))),</span>
+                             <span class="p">[</span><span class="mi">5</span><span class="p">,</span> <span class="mi">4</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">])</span>
+
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">processes</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">p</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="ProcessPoolShutdownTest.test_del_shutdown"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolShutdownTest.test_del_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_del_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">executor</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">ProcessPoolExecutor</span><span class="p">(</span><span class="n">max_workers</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+        <span class="nb">list</span><span class="p">(</span><span class="n">executor</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="nb">abs</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="o">-</span><span class="mi">5</span><span class="p">,</span> <span class="mi">5</span><span class="p">)))</span>
+        <span class="n">queue_management_thread</span> <span class="o">=</span> <span class="n">executor</span><span class="o">.</span><span class="n">_queue_management_thread</span>
+        <span class="n">processes</span> <span class="o">=</span> <span class="n">executor</span><span class="o">.</span><span class="n">_processes</span>
+        <span class="k">del</span> <span class="n">executor</span>
+
+        <span class="n">queue_management_thread</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">processes</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">p</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+
+</div></div>
+<div class="viewcode-block" id="WaitTests"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.WaitTests">[docs]</a><span class="k">class</span> <span class="nc">WaitTests</span><span class="p">:</span>
+
+<div class="viewcode-block" id="WaitTests.test_first_completed"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.WaitTests.test_first_completed">[docs]</a>    <span class="k">def</span> <span class="nf">test_first_completed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">21</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">future2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">)</span>
+
+        <span class="n">done</span><span class="p">,</span> <span class="n">not_done</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">CANCELLED_FUTURE</span><span class="p">,</span> <span class="n">future1</span><span class="p">,</span> <span class="n">future2</span><span class="p">],</span>
+                 <span class="n">return_when</span><span class="o">=</span><span class="n">futures</span><span class="o">.</span><span class="n">FIRST_COMPLETED</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">future1</span><span class="p">]),</span> <span class="n">done</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">CANCELLED_FUTURE</span><span class="p">,</span> <span class="n">future2</span><span class="p">]),</span> <span class="n">not_done</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WaitTests.test_first_completed_some_already_completed"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.WaitTests.test_first_completed_some_already_completed">[docs]</a>    <span class="k">def</span> <span class="nf">test_first_completed_some_already_completed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">)</span>
+
+        <span class="n">finished</span><span class="p">,</span> <span class="n">pending</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                 <span class="p">[</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span> <span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span> <span class="n">future1</span><span class="p">],</span>
+                 <span class="n">return_when</span><span class="o">=</span><span class="n">futures</span><span class="o">.</span><span class="n">FIRST_COMPLETED</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span>
+                <span class="nb">set</span><span class="p">([</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span> <span class="n">SUCCESSFUL_FUTURE</span><span class="p">]),</span>
+                <span class="n">finished</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">future1</span><span class="p">]),</span> <span class="n">pending</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WaitTests.test_first_exception"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.WaitTests.test_first_exception">[docs]</a>    <span class="k">def</span> <span class="nf">test_first_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">21</span><span class="p">)</span>
+        <span class="n">future2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">sleep_and_raise</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">)</span>
+        <span class="n">future3</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+        <span class="n">finished</span><span class="p">,</span> <span class="n">pending</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">future1</span><span class="p">,</span> <span class="n">future2</span><span class="p">,</span> <span class="n">future3</span><span class="p">],</span>
+                <span class="n">return_when</span><span class="o">=</span><span class="n">futures</span><span class="o">.</span><span class="n">FIRST_EXCEPTION</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">future1</span><span class="p">,</span> <span class="n">future2</span><span class="p">]),</span> <span class="n">finished</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">future3</span><span class="p">]),</span> <span class="n">pending</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WaitTests.test_first_exception_some_already_complete"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.WaitTests.test_first_exception_some_already_complete">[docs]</a>    <span class="k">def</span> <span class="nf">test_first_exception_some_already_complete</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="nb">divmod</span><span class="p">,</span> <span class="mi">21</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">future2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mf">1.5</span><span class="p">)</span>
+
+        <span class="n">finished</span><span class="p">,</span> <span class="n">pending</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                 <span class="n">CANCELLED_FUTURE</span><span class="p">,</span>
+                 <span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                 <span class="n">future1</span><span class="p">,</span> <span class="n">future2</span><span class="p">],</span>
+                <span class="n">return_when</span><span class="o">=</span><span class="n">futures</span><span class="o">.</span><span class="n">FIRST_EXCEPTION</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                              <span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                              <span class="n">future1</span><span class="p">]),</span> <span class="n">finished</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">CANCELLED_FUTURE</span><span class="p">,</span> <span class="n">future2</span><span class="p">]),</span> <span class="n">pending</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WaitTests.test_first_exception_one_already_failed"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.WaitTests.test_first_exception_one_already_failed">[docs]</a>    <span class="k">def</span> <span class="nf">test_first_exception_one_already_failed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+
+        <span class="n">finished</span><span class="p">,</span> <span class="n">pending</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                 <span class="p">[</span><span class="n">EXCEPTION_FUTURE</span><span class="p">,</span> <span class="n">future1</span><span class="p">],</span>
+                 <span class="n">return_when</span><span class="o">=</span><span class="n">futures</span><span class="o">.</span><span class="n">FIRST_EXCEPTION</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">EXCEPTION_FUTURE</span><span class="p">]),</span> <span class="n">finished</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">future1</span><span class="p">]),</span> <span class="n">pending</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WaitTests.test_all_completed"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.WaitTests.test_all_completed">[docs]</a>    <span class="k">def</span> <span class="nf">test_all_completed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="nb">divmod</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">future2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">21</span><span class="p">)</span>
+
+        <span class="n">finished</span><span class="p">,</span> <span class="n">pending</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                 <span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                 <span class="n">EXCEPTION_FUTURE</span><span class="p">,</span>
+                 <span class="n">future1</span><span class="p">,</span>
+                 <span class="n">future2</span><span class="p">],</span>
+                <span class="n">return_when</span><span class="o">=</span><span class="n">futures</span><span class="o">.</span><span class="n">ALL_COMPLETED</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                              <span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                              <span class="n">EXCEPTION_FUTURE</span><span class="p">,</span>
+                              <span class="n">future1</span><span class="p">,</span>
+                              <span class="n">future2</span><span class="p">]),</span> <span class="n">finished</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">(),</span> <span class="n">pending</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="WaitTests.test_timeout"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.WaitTests.test_timeout">[docs]</a>    <span class="k">def</span> <span class="nf">test_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">7</span><span class="p">)</span>
+        <span class="n">future2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+
+        <span class="n">finished</span><span class="p">,</span> <span class="n">pending</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                 <span class="n">EXCEPTION_FUTURE</span><span class="p">,</span>
+                 <span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                 <span class="n">future1</span><span class="p">,</span> <span class="n">future2</span><span class="p">],</span>
+                <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span>
+                <span class="n">return_when</span><span class="o">=</span><span class="n">futures</span><span class="o">.</span><span class="n">ALL_COMPLETED</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                              <span class="n">EXCEPTION_FUTURE</span><span class="p">,</span>
+                              <span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                              <span class="n">future1</span><span class="p">]),</span> <span class="n">finished</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">future2</span><span class="p">]),</span> <span class="n">pending</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ThreadPoolWaitTests"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolWaitTests">[docs]</a><span class="k">class</span> <span class="nc">ThreadPoolWaitTests</span><span class="p">(</span><span class="n">ThreadPoolMixin</span><span class="p">,</span> <span class="n">WaitTests</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="ThreadPoolWaitTests.test_pending_calls_race"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolWaitTests.test_pending_calls_race">[docs]</a>    <span class="k">def</span> <span class="nf">test_pending_calls_race</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #14406: multi-threaded race condition when waiting on all</span>
+        <span class="c"># futures.</span>
+        <span class="n">event</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="k">def</span> <span class="nf">future_func</span><span class="p">():</span>
+            <span class="n">event</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="n">oldswitchinterval</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">getswitchinterval</span><span class="p">()</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">setswitchinterval</span><span class="p">(</span><span class="mf">1e-6</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">fs</span> <span class="o">=</span> <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">future_func</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">100</span><span class="p">)}</span>
+            <span class="n">event</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+            <span class="n">futures</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">fs</span><span class="p">,</span> <span class="n">return_when</span><span class="o">=</span><span class="n">futures</span><span class="o">.</span><span class="n">ALL_COMPLETED</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">setswitchinterval</span><span class="p">(</span><span class="n">oldswitchinterval</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ProcessPoolWaitTests"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolWaitTests">[docs]</a><span class="k">class</span> <span class="nc">ProcessPoolWaitTests</span><span class="p">(</span><span class="n">ProcessPoolMixin</span><span class="p">,</span> <span class="n">WaitTests</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+</div>
+<div class="viewcode-block" id="AsCompletedTests"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.AsCompletedTests">[docs]</a><span class="k">class</span> <span class="nc">AsCompletedTests</span><span class="p">:</span>
+    <span class="c"># TODO(brian@sweetapp.com): Should have a test with a non-zero timeout.</span>
+<div class="viewcode-block" id="AsCompletedTests.test_no_timeout"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.AsCompletedTests.test_no_timeout">[docs]</a>    <span class="k">def</span> <span class="nf">test_no_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">21</span><span class="p">)</span>
+        <span class="n">future2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">7</span><span class="p">,</span> <span class="mi">6</span><span class="p">)</span>
+
+        <span class="n">completed</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">as_completed</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                 <span class="n">EXCEPTION_FUTURE</span><span class="p">,</span>
+                 <span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                 <span class="n">future1</span><span class="p">,</span> <span class="n">future2</span><span class="p">]))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span>
+                <span class="p">[</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                 <span class="n">EXCEPTION_FUTURE</span><span class="p">,</span>
+                 <span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                 <span class="n">future1</span><span class="p">,</span> <span class="n">future2</span><span class="p">]),</span>
+                <span class="n">completed</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="AsCompletedTests.test_zero_timeout"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.AsCompletedTests.test_zero_timeout">[docs]</a>    <span class="k">def</span> <span class="nf">test_zero_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">completed_futures</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">future</span> <span class="ow">in</span> <span class="n">futures</span><span class="o">.</span><span class="n">as_completed</span><span class="p">(</span>
+                    <span class="p">[</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                     <span class="n">EXCEPTION_FUTURE</span><span class="p">,</span>
+                     <span class="n">SUCCESSFUL_FUTURE</span><span class="p">,</span>
+                     <span class="n">future1</span><span class="p">],</span>
+                    <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+                <span class="n">completed_futures</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">future</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">([</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">,</span>
+                              <span class="n">EXCEPTION_FUTURE</span><span class="p">,</span>
+                              <span class="n">SUCCESSFUL_FUTURE</span><span class="p">]),</span>
+                         <span class="n">completed_futures</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="AsCompletedTests.test_duplicate_futures"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.AsCompletedTests.test_duplicate_futures">[docs]</a>    <span class="k">def</span> <span class="nf">test_duplicate_futures</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue 20367. Duplicate futures should not raise exceptions or give</span>
+        <span class="c"># duplicate responses.</span>
+        <span class="n">future1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span>
+        <span class="n">completed</span> <span class="o">=</span> <span class="p">[</span><span class="n">f</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">futures</span><span class="o">.</span><span class="n">as_completed</span><span class="p">([</span><span class="n">future1</span><span class="p">,</span><span class="n">future1</span><span class="p">])]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">completed</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ThreadPoolAsCompletedTests"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolAsCompletedTests">[docs]</a><span class="k">class</span> <span class="nc">ThreadPoolAsCompletedTests</span><span class="p">(</span><span class="n">ThreadPoolMixin</span><span class="p">,</span> <span class="n">AsCompletedTests</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+</div>
+<div class="viewcode-block" id="ProcessPoolAsCompletedTests"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolAsCompletedTests">[docs]</a><span class="k">class</span> <span class="nc">ProcessPoolAsCompletedTests</span><span class="p">(</span><span class="n">ProcessPoolMixin</span><span class="p">,</span> <span class="n">AsCompletedTests</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+</div>
+<div class="viewcode-block" id="ExecutorTest"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorTest">[docs]</a><span class="k">class</span> <span class="nc">ExecutorTest</span><span class="p">:</span>
+    <span class="c"># Executor.shutdown() and context manager usage is tested by</span>
+    <span class="c"># ExecutorShutdownTest.</span>
+<div class="viewcode-block" id="ExecutorTest.test_submit"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorTest.test_submit">[docs]</a>    <span class="k">def</span> <span class="nf">test_submit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="nb">pow</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">256</span><span class="p">,</span> <span class="n">future</span><span class="o">.</span><span class="n">result</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="ExecutorTest.test_submit_keyword"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorTest.test_submit_keyword">[docs]</a>    <span class="k">def</span> <span class="nf">test_submit_keyword</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">future</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">mul</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="n">y</span><span class="o">=</span><span class="mi">8</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">16</span><span class="p">,</span> <span class="n">future</span><span class="o">.</span><span class="n">result</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="ExecutorTest.test_map"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorTest.test_map">[docs]</a>    <span class="k">def</span> <span class="nf">test_map</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span>
+                <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="nb">pow</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">),</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">))),</span>
+                <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="p">(</span><span class="nb">pow</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">),</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">))))</span>
+</div>
+<div class="viewcode-block" id="ExecutorTest.test_map_exception"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorTest.test_map_exception">[docs]</a>    <span class="k">def</span> <span class="nf">test_map_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="nb">divmod</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">5</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">i</span><span class="o">.</span><span class="n">__next__</span><span class="p">(),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">i</span><span class="o">.</span><span class="n">__next__</span><span class="p">(),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">ZeroDivisionError</span><span class="p">,</span> <span class="n">i</span><span class="o">.</span><span class="n">__next__</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExecutorTest.test_map_timeout"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorTest.test_map_timeout">[docs]</a>    <span class="k">def</span> <span class="nf">test_map_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span>
+                                       <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">6</span><span class="p">],</span>
+                                       <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
+                <span class="n">results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">i</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&#39;expected TimeoutError&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">([</span><span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">],</span> <span class="n">results</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="ExecutorTest.test_shutdown_race_issue12456"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorTest.test_shutdown_race_issue12456">[docs]</a>    <span class="k">def</span> <span class="nf">test_shutdown_race_issue12456</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #12456: race condition at shutdown where trying to post a</span>
+        <span class="c"># sentinel in the call queue blocks (the queue is full while processes</span>
+        <span class="c"># have exited).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="nb">str</span><span class="p">,</span> <span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">worker_count</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">shutdown</span><span class="p">()</span>
+</div>
+    <span class="nd">@test.support.cpython_only</span>
+<div class="viewcode-block" id="ExecutorTest.test_no_stale_references"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ExecutorTest.test_no_stale_references">[docs]</a>    <span class="k">def</span> <span class="nf">test_no_stale_references</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #16284: check that the executors don&#39;t unnecessarily hang onto</span>
+        <span class="c"># references.</span>
+        <span class="n">my_object</span> <span class="o">=</span> <span class="n">MyObject</span><span class="p">()</span>
+        <span class="n">my_object_collected</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="n">my_object_callback</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span>
+            <span class="n">my_object</span><span class="p">,</span> <span class="k">lambda</span> <span class="n">obj</span><span class="p">:</span> <span class="n">my_object_collected</span><span class="o">.</span><span class="n">set</span><span class="p">())</span>
+        <span class="c"># Deliberately discarding the future.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">my_object</span><span class="o">.</span><span class="n">my_method</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">my_object</span>
+
+        <span class="n">collected</span> <span class="o">=</span> <span class="n">my_object_collected</span><span class="o">.</span><span class="n">wait</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">5.0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">collected</span><span class="p">,</span>
+                        <span class="s">&quot;Stale reference not collected within timeout.&quot;</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="ThreadPoolExecutorTest"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolExecutorTest">[docs]</a><span class="k">class</span> <span class="nc">ThreadPoolExecutorTest</span><span class="p">(</span><span class="n">ThreadPoolMixin</span><span class="p">,</span> <span class="n">ExecutorTest</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="ThreadPoolExecutorTest.test_map_submits_without_iteration"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ThreadPoolExecutorTest.test_map_submits_without_iteration">[docs]</a>    <span class="k">def</span> <span class="nf">test_map_submits_without_iteration</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Tests verifying issue 11777.&quot;&quot;&quot;</span>
+        <span class="n">finished</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">def</span> <span class="nf">record_finished</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="n">finished</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">record_finished</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">shutdown</span><span class="p">(</span><span class="n">wait</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertCountEqual</span><span class="p">(</span><span class="n">finished</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="mi">10</span><span class="p">))</span>
+
+</div></div>
+<div class="viewcode-block" id="ProcessPoolExecutorTest"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolExecutorTest">[docs]</a><span class="k">class</span> <span class="nc">ProcessPoolExecutorTest</span><span class="p">(</span><span class="n">ProcessPoolMixin</span><span class="p">,</span> <span class="n">ExecutorTest</span><span class="p">,</span> <span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="ProcessPoolExecutorTest.test_killed_child"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.ProcessPoolExecutorTest.test_killed_child">[docs]</a>    <span class="k">def</span> <span class="nf">test_killed_child</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># When a child process is abruptly terminated, the whole pool gets</span>
+        <span class="c"># &quot;broken&quot;.</span>
+        <span class="n">futures</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">,</span> <span class="mi">3</span><span class="p">)]</span>
+        <span class="c"># Get one of the processes, and terminate (kill) it</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="nb">iter</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">_processes</span><span class="o">.</span><span class="n">values</span><span class="p">()))</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">terminate</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">fut</span> <span class="ow">in</span> <span class="n">futures</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">BrokenProcessPool</span><span class="p">,</span> <span class="n">fut</span><span class="o">.</span><span class="n">result</span><span class="p">)</span>
+        <span class="c"># Submitting other jobs fails as well.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">BrokenProcessPool</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">executor</span><span class="o">.</span><span class="n">submit</span><span class="p">,</span> <span class="nb">pow</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="FutureTests"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests">[docs]</a><span class="k">class</span> <span class="nc">FutureTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="FutureTests.test_done_callback_with_result"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_done_callback_with_result">[docs]</a>    <span class="k">def</span> <span class="nf">test_done_callback_with_result</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">callback_result</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">def</span> <span class="nf">fn</span><span class="p">(</span><span class="n">callback_future</span><span class="p">):</span>
+            <span class="n">nonlocal</span> <span class="n">callback_result</span>
+            <span class="n">callback_result</span> <span class="o">=</span> <span class="n">callback_future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">Future</span><span class="p">()</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="n">callback_result</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_done_callback_with_exception"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_done_callback_with_exception">[docs]</a>    <span class="k">def</span> <span class="nf">test_done_callback_with_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">callback_exception</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">def</span> <span class="nf">fn</span><span class="p">(</span><span class="n">callback_future</span><span class="p">):</span>
+            <span class="n">nonlocal</span> <span class="n">callback_exception</span>
+            <span class="n">callback_exception</span> <span class="o">=</span> <span class="n">callback_future</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">Future</span><span class="p">()</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;test&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">((</span><span class="s">&#39;test&#39;</span><span class="p">,),</span> <span class="n">callback_exception</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_done_callback_with_cancel"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_done_callback_with_cancel">[docs]</a>    <span class="k">def</span> <span class="nf">test_done_callback_with_cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">was_cancelled</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">def</span> <span class="nf">fn</span><span class="p">(</span><span class="n">callback_future</span><span class="p">):</span>
+            <span class="n">nonlocal</span> <span class="n">was_cancelled</span>
+            <span class="n">was_cancelled</span> <span class="o">=</span> <span class="n">callback_future</span><span class="o">.</span><span class="n">cancelled</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">Future</span><span class="p">()</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">cancel</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">was_cancelled</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_done_callback_raises"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_done_callback_raises">[docs]</a>    <span class="k">def</span> <span class="nf">test_done_callback_raises</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">captured_stderr</span><span class="p">()</span> <span class="k">as</span> <span class="n">stderr</span><span class="p">:</span>
+            <span class="n">raising_was_called</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">fn_was_called</span> <span class="o">=</span> <span class="bp">False</span>
+
+            <span class="k">def</span> <span class="nf">raising_fn</span><span class="p">(</span><span class="n">callback_future</span><span class="p">):</span>
+                <span class="n">nonlocal</span> <span class="n">raising_was_called</span>
+                <span class="n">raising_was_called</span> <span class="o">=</span> <span class="bp">True</span>
+                <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;doh!&#39;</span><span class="p">)</span>
+
+            <span class="k">def</span> <span class="nf">fn</span><span class="p">(</span><span class="n">callback_future</span><span class="p">):</span>
+                <span class="n">nonlocal</span> <span class="n">fn_was_called</span>
+                <span class="n">fn_was_called</span> <span class="o">=</span> <span class="bp">True</span>
+
+            <span class="n">f</span> <span class="o">=</span> <span class="n">Future</span><span class="p">()</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">raising_fn</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">raising_was_called</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">fn_was_called</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&#39;Exception: doh!&#39;</span><span class="p">,</span> <span class="n">stderr</span><span class="o">.</span><span class="n">getvalue</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_done_callback_already_successful"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_done_callback_already_successful">[docs]</a>    <span class="k">def</span> <span class="nf">test_done_callback_already_successful</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">callback_result</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">def</span> <span class="nf">fn</span><span class="p">(</span><span class="n">callback_future</span><span class="p">):</span>
+            <span class="n">nonlocal</span> <span class="n">callback_result</span>
+            <span class="n">callback_result</span> <span class="o">=</span> <span class="n">callback_future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">Future</span><span class="p">()</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">5</span><span class="p">,</span> <span class="n">callback_result</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_done_callback_already_failed"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_done_callback_already_failed">[docs]</a>    <span class="k">def</span> <span class="nf">test_done_callback_already_failed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">callback_exception</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">def</span> <span class="nf">fn</span><span class="p">(</span><span class="n">callback_future</span><span class="p">):</span>
+            <span class="n">nonlocal</span> <span class="n">callback_exception</span>
+            <span class="n">callback_exception</span> <span class="o">=</span> <span class="n">callback_future</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">Future</span><span class="p">()</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="ne">Exception</span><span class="p">(</span><span class="s">&#39;test&#39;</span><span class="p">))</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">((</span><span class="s">&#39;test&#39;</span><span class="p">,),</span> <span class="n">callback_exception</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_done_callback_already_cancelled"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_done_callback_already_cancelled">[docs]</a>    <span class="k">def</span> <span class="nf">test_done_callback_already_cancelled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">was_cancelled</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">def</span> <span class="nf">fn</span><span class="p">(</span><span class="n">callback_future</span><span class="p">):</span>
+            <span class="n">nonlocal</span> <span class="n">was_cancelled</span>
+            <span class="n">was_cancelled</span> <span class="o">=</span> <span class="n">callback_future</span><span class="o">.</span><span class="n">cancelled</span><span class="p">()</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="n">Future</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">cancel</span><span class="p">())</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">fn</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">was_cancelled</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_repr"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_repr">[docs]</a>    <span class="k">def</span> <span class="nf">test_repr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">PENDING_FUTURE</span><span class="p">),</span>
+                         <span class="s">&#39;&lt;Future at 0x[0-9a-f]+ state=pending&gt;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">RUNNING_FUTURE</span><span class="p">),</span>
+                         <span class="s">&#39;&lt;Future at 0x[0-9a-f]+ state=running&gt;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">CANCELLED_FUTURE</span><span class="p">),</span>
+                         <span class="s">&#39;&lt;Future at 0x[0-9a-f]+ state=cancelled&gt;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="p">),</span>
+                         <span class="s">&#39;&lt;Future at 0x[0-9a-f]+ state=cancelled&gt;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span>
+                <span class="nb">repr</span><span class="p">(</span><span class="n">EXCEPTION_FUTURE</span><span class="p">),</span>
+                <span class="s">&#39;&lt;Future at 0x[0-9a-f]+ state=finished raised OSError&gt;&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span>
+                <span class="nb">repr</span><span class="p">(</span><span class="n">SUCCESSFUL_FUTURE</span><span class="p">),</span>
+                <span class="s">&#39;&lt;Future at 0x[0-9a-f]+ state=finished returned int&gt;&#39;</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="FutureTests.test_cancel"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_cancel">[docs]</a>    <span class="k">def</span> <span class="nf">test_cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">f1</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">PENDING</span><span class="p">)</span>
+        <span class="n">f2</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">RUNNING</span><span class="p">)</span>
+        <span class="n">f3</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">CANCELLED</span><span class="p">)</span>
+        <span class="n">f4</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">CANCELLED_AND_NOTIFIED</span><span class="p">)</span>
+        <span class="n">f5</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">FINISHED</span><span class="p">,</span> <span class="n">exception</span><span class="o">=</span><span class="ne">OSError</span><span class="p">())</span>
+        <span class="n">f6</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">FINISHED</span><span class="p">,</span> <span class="n">result</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f1</span><span class="o">.</span><span class="n">cancel</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f1</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="n">CANCELLED</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f2</span><span class="o">.</span><span class="n">cancel</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f2</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="n">RUNNING</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f3</span><span class="o">.</span><span class="n">cancel</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f3</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="n">CANCELLED</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">f4</span><span class="o">.</span><span class="n">cancel</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f4</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="n">CANCELLED_AND_NOTIFIED</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f5</span><span class="o">.</span><span class="n">cancel</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f5</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="n">FINISHED</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">f6</span><span class="o">.</span><span class="n">cancel</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f6</span><span class="o">.</span><span class="n">_state</span><span class="p">,</span> <span class="n">FINISHED</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_cancelled"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_cancelled">[docs]</a>    <span class="k">def</span> <span class="nf">test_cancelled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">PENDING_FUTURE</span><span class="o">.</span><span class="n">cancelled</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">RUNNING_FUTURE</span><span class="o">.</span><span class="n">cancelled</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">CANCELLED_FUTURE</span><span class="o">.</span><span class="n">cancelled</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="o">.</span><span class="n">cancelled</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">EXCEPTION_FUTURE</span><span class="o">.</span><span class="n">cancelled</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">SUCCESSFUL_FUTURE</span><span class="o">.</span><span class="n">cancelled</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_done"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_done">[docs]</a>    <span class="k">def</span> <span class="nf">test_done</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">PENDING_FUTURE</span><span class="o">.</span><span class="n">done</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">RUNNING_FUTURE</span><span class="o">.</span><span class="n">done</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">CANCELLED_FUTURE</span><span class="o">.</span><span class="n">done</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="o">.</span><span class="n">done</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">EXCEPTION_FUTURE</span><span class="o">.</span><span class="n">done</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">SUCCESSFUL_FUTURE</span><span class="o">.</span><span class="n">done</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_running"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_running">[docs]</a>    <span class="k">def</span> <span class="nf">test_running</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">PENDING_FUTURE</span><span class="o">.</span><span class="n">running</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">RUNNING_FUTURE</span><span class="o">.</span><span class="n">running</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">CANCELLED_FUTURE</span><span class="o">.</span><span class="n">running</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="o">.</span><span class="n">running</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">EXCEPTION_FUTURE</span><span class="o">.</span><span class="n">running</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">SUCCESSFUL_FUTURE</span><span class="o">.</span><span class="n">running</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_result_with_timeout"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_result_with_timeout">[docs]</a>    <span class="k">def</span> <span class="nf">test_result_with_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">,</span>
+                          <span class="n">PENDING_FUTURE</span><span class="o">.</span><span class="n">result</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">,</span>
+                          <span class="n">RUNNING_FUTURE</span><span class="o">.</span><span class="n">result</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">,</span>
+                          <span class="n">CANCELLED_FUTURE</span><span class="o">.</span><span class="n">result</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">,</span>
+                          <span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="o">.</span><span class="n">result</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="n">EXCEPTION_FUTURE</span><span class="o">.</span><span class="n">result</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">SUCCESSFUL_FUTURE</span><span class="o">.</span><span class="n">result</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="mi">42</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_result_with_success"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_result_with_success">[docs]</a>    <span class="k">def</span> <span class="nf">test_result_with_success</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># TODO(brian@sweetapp.com): This test is timing dependant.</span>
+        <span class="k">def</span> <span class="nf">notification</span><span class="p">():</span>
+            <span class="c"># Wait until the main thread is waiting for the result.</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">f1</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="mi">42</span><span class="p">)</span>
+
+        <span class="n">f1</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">PENDING</span><span class="p">)</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">notification</span><span class="p">)</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">f1</span><span class="o">.</span><span class="n">result</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="mi">42</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_result_with_cancel"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_result_with_cancel">[docs]</a>    <span class="k">def</span> <span class="nf">test_result_with_cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># TODO(brian@sweetapp.com): This test is timing dependant.</span>
+        <span class="k">def</span> <span class="nf">notification</span><span class="p">():</span>
+            <span class="c"># Wait until the main thread is waiting for the result.</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="n">f1</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+        <span class="n">f1</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">PENDING</span><span class="p">)</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">notification</span><span class="p">)</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">,</span> <span class="n">f1</span><span class="o">.</span><span class="n">result</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_exception_with_timeout"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_exception_with_timeout">[docs]</a>    <span class="k">def</span> <span class="nf">test_exception_with_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">,</span>
+                          <span class="n">PENDING_FUTURE</span><span class="o">.</span><span class="n">exception</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">,</span>
+                          <span class="n">RUNNING_FUTURE</span><span class="o">.</span><span class="n">exception</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">,</span>
+                          <span class="n">CANCELLED_FUTURE</span><span class="o">.</span><span class="n">exception</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">,</span>
+                          <span class="n">CANCELLED_AND_NOTIFIED_FUTURE</span><span class="o">.</span><span class="n">exception</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">EXCEPTION_FUTURE</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span>
+                                   <span class="ne">OSError</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">SUCCESSFUL_FUTURE</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FutureTests.test_exception_with_success"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.FutureTests.test_exception_with_success">[docs]</a>    <span class="k">def</span> <span class="nf">test_exception_with_success</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">def</span> <span class="nf">notification</span><span class="p">():</span>
+            <span class="c"># Wait until the main thread is waiting for the exception.</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">with</span> <span class="n">f1</span><span class="o">.</span><span class="n">_condition</span><span class="p">:</span>
+                <span class="n">f1</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="n">FINISHED</span>
+                <span class="n">f1</span><span class="o">.</span><span class="n">_exception</span> <span class="o">=</span> <span class="ne">OSError</span><span class="p">()</span>
+                <span class="n">f1</span><span class="o">.</span><span class="n">_condition</span><span class="o">.</span><span class="n">notify_all</span><span class="p">()</span>
+
+        <span class="n">f1</span> <span class="o">=</span> <span class="n">create_future</span><span class="p">(</span><span class="n">state</span><span class="o">=</span><span class="n">PENDING</span><span class="p">)</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">notification</span><span class="p">)</span>
+        <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">f1</span><span class="o">.</span><span class="n">exception</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mi">5</span><span class="p">),</span> <span class="ne">OSError</span><span class="p">))</span>
+</div></div>
+<span class="nd">@test.support.reap_threads</span>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_concurrent_futures.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">():</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">run_unittest</span><span class="p">(</span><span class="n">__name__</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">test</span><span class="o">.</span><span class="n">support</span><span class="o">.</span><span class="n">reap_children</span><span class="p">()</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

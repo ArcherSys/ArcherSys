@@ -242,6 +242,7 @@
     'querySelectorAll',
     'removeChild',
     'replaceChild',
+<<<<<<< HEAD
   ]);
 
   forwardMethodsToWrapper([
@@ -249,6 +250,9 @@
     window.HTMLHeadElement,
     window.HTMLHtmlElement,
   ], matchesNames);
+=======
+  ].concat(matchesNames));
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
 
   forwardMethodsToWrapper([
     window.HTMLDocument || window.Document,  // Gecko adds these to HTMLDocument

@@ -1,0 +1,1115 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>multiprocessing.connection &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>multiprocessing.connection</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for multiprocessing.connection</h1><div class="highlight"><pre>
+<span class="c">#</span>
+<span class="c"># A higher level module for using sockets (or Windows named pipes)</span>
+<span class="c">#</span>
+<span class="c"># multiprocessing/connection.py</span>
+<span class="c">#</span>
+<span class="c"># Copyright (c) 2006-2008, R Oudkerk</span>
+<span class="c"># Licensed to PSF under a Contributor Agreement.</span>
+<span class="c">#</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span> <span class="s">&#39;Client&#39;</span><span class="p">,</span> <span class="s">&#39;Listener&#39;</span><span class="p">,</span> <span class="s">&#39;Pipe&#39;</span><span class="p">,</span> <span class="s">&#39;wait&#39;</span> <span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+<span class="kn">import</span> <span class="nn">itertools</span>
+
+<span class="kn">import</span> <span class="nn">_multiprocessing</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">reduction</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">util</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">AuthenticationError</span><span class="p">,</span> <span class="n">BufferTooShort</span>
+<span class="kn">from</span> <span class="nn">.reduction</span> <span class="kn">import</span> <span class="n">ForkingPickler</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">_winapi</span>
+    <span class="kn">from</span> <span class="nn">_winapi</span> <span class="kn">import</span> <span class="n">WAIT_OBJECT_0</span><span class="p">,</span> <span class="n">WAIT_ABANDONED_0</span><span class="p">,</span> <span class="n">WAIT_TIMEOUT</span><span class="p">,</span> <span class="n">INFINITE</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+        <span class="k">raise</span>
+    <span class="n">_winapi</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="c">#</span>
+<span class="c">#</span>
+<span class="c">#</span>
+
+<span class="n">BUFSIZE</span> <span class="o">=</span> <span class="mi">8192</span>
+<span class="c"># A very generous timeout when it comes to local connections...</span>
+<span class="n">CONNECTION_TIMEOUT</span> <span class="o">=</span> <span class="mf">20.</span>
+
+<span class="n">_mmap_counter</span> <span class="o">=</span> <span class="n">itertools</span><span class="o">.</span><span class="n">count</span><span class="p">()</span>
+
+<span class="n">default_family</span> <span class="o">=</span> <span class="s">&#39;AF_INET&#39;</span>
+<span class="n">families</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;AF_INET&#39;</span><span class="p">]</span>
+
+<span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="s">&#39;AF_UNIX&#39;</span><span class="p">):</span>
+    <span class="n">default_family</span> <span class="o">=</span> <span class="s">&#39;AF_UNIX&#39;</span>
+    <span class="n">families</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&#39;AF_UNIX&#39;</span><span class="p">]</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+    <span class="n">default_family</span> <span class="o">=</span> <span class="s">&#39;AF_PIPE&#39;</span>
+    <span class="n">families</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&#39;AF_PIPE&#39;</span><span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">_init_timeout</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="n">CONNECTION_TIMEOUT</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">+</span> <span class="n">timeout</span>
+
+<span class="k">def</span> <span class="nf">_check_timeout</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">&gt;</span> <span class="n">t</span>
+
+<span class="c">#</span>
+<span class="c">#</span>
+<span class="c">#</span>
+
+<span class="k">def</span> <span class="nf">arbitrary_address</span><span class="p">(</span><span class="n">family</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Return an arbitrary free address for the given family</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="n">family</span> <span class="o">==</span> <span class="s">&#39;AF_INET&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">family</span> <span class="o">==</span> <span class="s">&#39;AF_UNIX&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mktemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s">&#39;listener-&#39;</span><span class="p">,</span> <span class="nb">dir</span><span class="o">=</span><span class="n">util</span><span class="o">.</span><span class="n">get_temp_dir</span><span class="p">())</span>
+    <span class="k">elif</span> <span class="n">family</span> <span class="o">==</span> <span class="s">&#39;AF_PIPE&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mktemp</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s">r&#39;</span><span class="se">\\</span><span class="s">.\pipe\pyc-</span><span class="si">%d</span><span class="s">-</span><span class="si">%d</span><span class="s">-&#39;</span> <span class="o">%</span>
+                               <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">getpid</span><span class="p">(),</span> <span class="nb">next</span><span class="p">(</span><span class="n">_mmap_counter</span><span class="p">)),</span> <span class="nb">dir</span><span class="o">=</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;unrecognized family&#39;</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_validate_family</span><span class="p">(</span><span class="n">family</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Checks if the family is valid for the current environment.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">!=</span> <span class="s">&#39;win32&#39;</span> <span class="ow">and</span> <span class="n">family</span> <span class="o">==</span> <span class="s">&#39;AF_PIPE&#39;</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Family </span><span class="si">%s</span><span class="s"> is not recognized.&#39;</span> <span class="o">%</span> <span class="n">family</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span> <span class="ow">and</span> <span class="n">family</span> <span class="o">==</span> <span class="s">&#39;AF_UNIX&#39;</span><span class="p">:</span>
+        <span class="c"># double check</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="n">family</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Family </span><span class="si">%s</span><span class="s"> is not recognized.&#39;</span> <span class="o">%</span> <span class="n">family</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">address_type</span><span class="p">(</span><span class="n">address</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Return the types of the address</span>
+
+<span class="sd">    This can be &#39;AF_INET&#39;, &#39;AF_UNIX&#39;, or &#39;AF_PIPE&#39;</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="o">==</span> <span class="nb">tuple</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s">&#39;AF_INET&#39;</span>
+    <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">str</span> <span class="ow">and</span> <span class="n">address</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\\\\</span><span class="s">&#39;</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s">&#39;AF_PIPE&#39;</span>
+    <span class="k">elif</span> <span class="nb">type</span><span class="p">(</span><span class="n">address</span><span class="p">)</span> <span class="ow">is</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="s">&#39;AF_UNIX&#39;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;address type of </span><span class="si">%r</span><span class="s"> unrecognized&#39;</span> <span class="o">%</span> <span class="n">address</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Connection classes</span>
+<span class="c">#</span>
+
+<span class="k">class</span> <span class="nc">_ConnectionBase</span><span class="p">:</span>
+    <span class="n">_handle</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">readable</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">writable</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="n">handle</span> <span class="o">=</span> <span class="n">handle</span><span class="o">.</span><span class="n">__index__</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">handle</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;invalid handle&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">readable</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">writable</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                <span class="s">&quot;at least one of `readable` and `writable` must be True&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="o">=</span> <span class="n">handle</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_readable</span> <span class="o">=</span> <span class="n">readable</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_writable</span> <span class="o">=</span> <span class="n">writable</span>
+
+    <span class="c"># XXX should we use util.Finalize instead of a __del__?</span>
+
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_close</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_check_closed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&quot;handle is closed&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_readable</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&quot;connection is write-only&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_check_writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writable</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&quot;connection is read-only&quot;</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_bad_message_length</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writable</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_readable</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&quot;bad message length&quot;</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">closed</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;True if the connection is closed&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="ow">is</span> <span class="bp">None</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;True if the connection is readable&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_readable</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;True if the connection is writable&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_writable</span>
+
+    <span class="k">def</span> <span class="nf">fileno</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;File descriptor or handle of the connection&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Close the connection&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_close</span><span class="p">()</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">send_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send the bytes data from a bytes-like object&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_writable</span><span class="p">()</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+        <span class="c"># HACK for byte-indexing of non-bytewise buffers (e.g. array.array)</span>
+        <span class="k">if</span> <span class="n">m</span><span class="o">.</span><span class="n">itemsize</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">m</span> <span class="o">=</span> <span class="n">memoryview</span><span class="p">(</span><span class="nb">bytes</span><span class="p">(</span><span class="n">m</span><span class="p">))</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">offset</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;offset is negative&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="n">offset</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;buffer length &lt; offset&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">size</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">n</span> <span class="o">-</span> <span class="n">offset</span>
+        <span class="k">elif</span> <span class="n">size</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;size is negative&quot;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">offset</span> <span class="o">+</span> <span class="n">size</span> <span class="o">&gt;</span> <span class="n">n</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;buffer length &lt; offset + size&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_send_bytes</span><span class="p">(</span><span class="n">m</span><span class="p">[</span><span class="n">offset</span><span class="p">:</span><span class="n">offset</span> <span class="o">+</span> <span class="n">size</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Send a (picklable) object&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_writable</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_send_bytes</span><span class="p">(</span><span class="n">ForkingPickler</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">obj</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">recv_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">maxlength</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Receive bytes data as a bytes object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_readable</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">maxlength</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">maxlength</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;negative maxlength&quot;</span><span class="p">)</span>
+        <span class="n">buf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recv_bytes</span><span class="p">(</span><span class="n">maxlength</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">buf</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_bad_message_length</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">buf</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">recv_bytes_into</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Receive bytes data into a writeable buffer-like object.</span>
+<span class="sd">        Return the number of bytes read.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_readable</span><span class="p">()</span>
+        <span class="k">with</span> <span class="n">memoryview</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span> <span class="k">as</span> <span class="n">m</span><span class="p">:</span>
+            <span class="c"># Get bytesize of arbitrary buffer</span>
+            <span class="n">itemsize</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">itemsize</span>
+            <span class="n">bytesize</span> <span class="o">=</span> <span class="n">itemsize</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">offset</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;negative offset&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">offset</span> <span class="o">&gt;</span> <span class="n">bytesize</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;offset too large&quot;</span><span class="p">)</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recv_bytes</span><span class="p">()</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">tell</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">bytesize</span> <span class="o">&lt;</span> <span class="n">offset</span> <span class="o">+</span> <span class="n">size</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">BufferTooShort</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">getvalue</span><span class="p">())</span>
+            <span class="c"># Message can fit in dest</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">seek</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">readinto</span><span class="p">(</span><span class="n">m</span><span class="p">[</span><span class="n">offset</span> <span class="o">//</span> <span class="n">itemsize</span> <span class="p">:</span>
+                              <span class="p">(</span><span class="n">offset</span> <span class="o">+</span> <span class="n">size</span><span class="p">)</span> <span class="o">//</span> <span class="n">itemsize</span><span class="p">])</span>
+            <span class="k">return</span> <span class="n">size</span>
+
+    <span class="k">def</span> <span class="nf">recv</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Receive a (picklable) object&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_readable</span><span class="p">()</span>
+        <span class="n">buf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recv_bytes</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">ForkingPickler</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">buf</span><span class="o">.</span><span class="n">getbuffer</span><span class="p">())</span>
+
+    <span class="k">def</span> <span class="nf">poll</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mf">0.0</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Whether there is any input available to be read&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_closed</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_check_readable</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_poll</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="n">exc_tb</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+
+<span class="k">if</span> <span class="n">_winapi</span><span class="p">:</span>
+
+    <span class="k">class</span> <span class="nc">PipeConnection</span><span class="p">(</span><span class="n">_ConnectionBase</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Connection class based on a Windows named pipe.</span>
+<span class="sd">        Overlapped I/O is used, so the handles must have been created</span>
+<span class="sd">        with FILE_FLAG_OVERLAPPED.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">_got_empty_message</span> <span class="o">=</span> <span class="bp">False</span>
+
+        <span class="k">def</span> <span class="nf">_close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_CloseHandle</span><span class="o">=</span><span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">):</span>
+            <span class="n">_CloseHandle</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">_send_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">buf</span><span class="p">):</span>
+            <span class="n">ov</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">WriteFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">overlapped</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">err</span> <span class="o">==</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_IO_PENDING</span><span class="p">:</span>
+                    <span class="n">waitres</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">WaitForMultipleObjects</span><span class="p">(</span>
+                        <span class="p">[</span><span class="n">ov</span><span class="o">.</span><span class="n">event</span><span class="p">],</span> <span class="bp">False</span><span class="p">,</span> <span class="n">INFINITE</span><span class="p">)</span>
+                    <span class="k">assert</span> <span class="n">waitres</span> <span class="o">==</span> <span class="n">WAIT_OBJECT_0</span>
+            <span class="k">except</span><span class="p">:</span>
+                <span class="n">ov</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                <span class="k">raise</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="n">nwritten</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">ov</span><span class="o">.</span><span class="n">GetOverlappedResult</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">assert</span> <span class="n">err</span> <span class="o">==</span> <span class="mi">0</span>
+            <span class="k">assert</span> <span class="n">nwritten</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">_recv_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">maxsize</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_got_empty_message</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_got_empty_message</span> <span class="o">=</span> <span class="bp">False</span>
+                <span class="k">return</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">bsize</span> <span class="o">=</span> <span class="mi">128</span> <span class="k">if</span> <span class="n">maxsize</span> <span class="ow">is</span> <span class="bp">None</span> <span class="k">else</span> <span class="nb">min</span><span class="p">(</span><span class="n">maxsize</span><span class="p">,</span> <span class="mi">128</span><span class="p">)</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">ov</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ReadFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">,</span> <span class="n">bsize</span><span class="p">,</span>
+                                                <span class="n">overlapped</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="n">err</span> <span class="o">==</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_IO_PENDING</span><span class="p">:</span>
+                            <span class="n">waitres</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">WaitForMultipleObjects</span><span class="p">(</span>
+                                <span class="p">[</span><span class="n">ov</span><span class="o">.</span><span class="n">event</span><span class="p">],</span> <span class="bp">False</span><span class="p">,</span> <span class="n">INFINITE</span><span class="p">)</span>
+                            <span class="k">assert</span> <span class="n">waitres</span> <span class="o">==</span> <span class="n">WAIT_OBJECT_0</span>
+                    <span class="k">except</span><span class="p">:</span>
+                        <span class="n">ov</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                        <span class="k">raise</span>
+                    <span class="k">finally</span><span class="p">:</span>
+                        <span class="n">nread</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">ov</span><span class="o">.</span><span class="n">GetOverlappedResult</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+                        <span class="k">if</span> <span class="n">err</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                            <span class="n">f</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+                            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ov</span><span class="o">.</span><span class="n">getbuffer</span><span class="p">())</span>
+                            <span class="k">return</span> <span class="n">f</span>
+                        <span class="k">elif</span> <span class="n">err</span> <span class="o">==</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_MORE_DATA</span><span class="p">:</span>
+                            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_more_data</span><span class="p">(</span><span class="n">ov</span><span class="p">,</span> <span class="n">maxsize</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">winerror</span> <span class="o">==</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_BROKEN_PIPE</span><span class="p">:</span>
+                        <span class="k">raise</span> <span class="ne">EOFError</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="k">raise</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;shouldn&#39;t get here; expected KeyboardInterrupt&quot;</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">_poll</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="p">):</span>
+            <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_got_empty_message</span> <span class="ow">or</span>
+                        <span class="n">_winapi</span><span class="o">.</span><span class="n">PeekNamedPipe</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">):</span>
+                <span class="k">return</span> <span class="bp">True</span>
+            <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">wait</span><span class="p">([</span><span class="bp">self</span><span class="p">],</span> <span class="n">timeout</span><span class="p">))</span>
+
+        <span class="k">def</span> <span class="nf">_get_more_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="n">maxsize</span><span class="p">):</span>
+            <span class="n">buf</span> <span class="o">=</span> <span class="n">ov</span><span class="o">.</span><span class="n">getbuffer</span><span class="p">()</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+            <span class="n">left</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PeekNamedPipe</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">assert</span> <span class="n">left</span> <span class="o">&gt;</span> <span class="mi">0</span>
+            <span class="k">if</span> <span class="n">maxsize</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span> <span class="o">+</span> <span class="n">left</span> <span class="o">&gt;</span> <span class="n">maxsize</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_bad_message_length</span><span class="p">()</span>
+            <span class="n">ov</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ReadFile</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">,</span> <span class="n">left</span><span class="p">,</span> <span class="n">overlapped</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">rbytes</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">ov</span><span class="o">.</span><span class="n">GetOverlappedResult</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">assert</span> <span class="n">err</span> <span class="o">==</span> <span class="mi">0</span>
+            <span class="k">assert</span> <span class="n">rbytes</span> <span class="o">==</span> <span class="n">left</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">ov</span><span class="o">.</span><span class="n">getbuffer</span><span class="p">())</span>
+            <span class="k">return</span> <span class="n">f</span>
+
+
+<span class="k">class</span> <span class="nc">Connection</span><span class="p">(</span><span class="n">_ConnectionBase</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Connection class based on an arbitrary file descriptor (Unix only), or</span>
+<span class="sd">    a socket handle (Windows).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">_winapi</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">_close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_close</span><span class="o">=</span><span class="n">_multiprocessing</span><span class="o">.</span><span class="n">closesocket</span><span class="p">):</span>
+            <span class="n">_close</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+        <span class="n">_write</span> <span class="o">=</span> <span class="n">_multiprocessing</span><span class="o">.</span><span class="n">send</span>
+        <span class="n">_read</span> <span class="o">=</span> <span class="n">_multiprocessing</span><span class="o">.</span><span class="n">recv</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">_close</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">_close</span><span class="o">=</span><span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">):</span>
+            <span class="n">_close</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+        <span class="n">_write</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">write</span>
+        <span class="n">_read</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">read</span>
+
+    <span class="k">def</span> <span class="nf">_send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">write</span><span class="o">=</span><span class="n">_write</span><span class="p">):</span>
+        <span class="n">remaining</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">,</span> <span class="n">buf</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">InterruptedError</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">remaining</span> <span class="o">-=</span> <span class="n">n</span>
+            <span class="k">if</span> <span class="n">remaining</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="n">buf</span> <span class="o">=</span> <span class="n">buf</span><span class="p">[</span><span class="n">n</span><span class="p">:]</span>
+
+    <span class="k">def</span> <span class="nf">_recv</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">read</span><span class="o">=</span><span class="n">_read</span><span class="p">):</span>
+        <span class="n">buf</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">BytesIO</span><span class="p">()</span>
+        <span class="n">handle</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span>
+        <span class="n">remaining</span> <span class="o">=</span> <span class="n">size</span>
+        <span class="k">while</span> <span class="n">remaining</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">chunk</span> <span class="o">=</span> <span class="n">read</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">remaining</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">InterruptedError</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">n</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">remaining</span> <span class="o">==</span> <span class="n">size</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">EOFError</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&quot;got end of file during message&quot;</span><span class="p">)</span>
+            <span class="n">buf</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+            <span class="n">remaining</span> <span class="o">-=</span> <span class="n">n</span>
+        <span class="k">return</span> <span class="n">buf</span>
+
+    <span class="k">def</span> <span class="nf">_send_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">buf</span><span class="p">):</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+        <span class="c"># For wire compatibility with 3.2 and lower</span>
+        <span class="n">header</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&quot;!i&quot;</span><span class="p">,</span> <span class="n">n</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">16384</span><span class="p">:</span>
+            <span class="c"># The payload is large so Nagle&#39;s algorithm won&#39;t be triggered</span>
+            <span class="c"># and we&#39;d better avoid the cost of concatenation.</span>
+            <span class="n">chunks</span> <span class="o">=</span> <span class="p">[</span><span class="n">header</span><span class="p">,</span> <span class="n">buf</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c"># Issue # 20540: concatenate before sending, to avoid delays due</span>
+            <span class="c"># to Nagle&#39;s algorithm on a TCP socket.</span>
+            <span class="n">chunks</span> <span class="o">=</span> <span class="p">[</span><span class="n">header</span> <span class="o">+</span> <span class="n">buf</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># This code path is necessary to avoid &quot;broken pipe&quot; errors</span>
+            <span class="c"># when sending a 0-length buffer if the other end closed the pipe.</span>
+            <span class="n">chunks</span> <span class="o">=</span> <span class="p">[</span><span class="n">header</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">chunk</span> <span class="ow">in</span> <span class="n">chunks</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_send</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_recv_bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">maxsize</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">buf</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recv</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span>
+        <span class="n">size</span><span class="p">,</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s">&quot;!i&quot;</span><span class="p">,</span> <span class="n">buf</span><span class="o">.</span><span class="n">getvalue</span><span class="p">())</span>
+        <span class="k">if</span> <span class="n">maxsize</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">size</span> <span class="o">&gt;</span> <span class="n">maxsize</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_recv</span><span class="p">(</span><span class="n">size</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_poll</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="p">):</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="n">wait</span><span class="p">([</span><span class="bp">self</span><span class="p">],</span> <span class="n">timeout</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">bool</span><span class="p">(</span><span class="n">r</span><span class="p">)</span>
+
+
+<span class="c">#</span>
+<span class="c"># Public functions</span>
+<span class="c">#</span>
+
+<div class="viewcode-block" id="Listener"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.connection.Listener">[docs]</a><span class="k">class</span> <span class="nc">Listener</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns a listener object.</span>
+
+<span class="sd">    This is a wrapper for a bound socket which is &#39;listening&#39; for</span>
+<span class="sd">    connections, or for a Windows named pipe.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">family</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">backlog</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">authkey</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">family</span> <span class="o">=</span> <span class="n">family</span> <span class="ow">or</span> <span class="p">(</span><span class="n">address</span> <span class="ow">and</span> <span class="n">address_type</span><span class="p">(</span><span class="n">address</span><span class="p">))</span> \
+                 <span class="ow">or</span> <span class="n">default_family</span>
+        <span class="n">address</span> <span class="o">=</span> <span class="n">address</span> <span class="ow">or</span> <span class="n">arbitrary_address</span><span class="p">(</span><span class="n">family</span><span class="p">)</span>
+
+        <span class="n">_validate_family</span><span class="p">(</span><span class="n">family</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">family</span> <span class="o">==</span> <span class="s">&#39;AF_PIPE&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="o">=</span> <span class="n">PipeListener</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">backlog</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="o">=</span> <span class="n">SocketListener</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">family</span><span class="p">,</span> <span class="n">backlog</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">authkey</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">authkey</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;authkey should be a byte string&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_authkey</span> <span class="o">=</span> <span class="n">authkey</span>
+
+<div class="viewcode-block" id="Listener.accept"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.connection.Listener.accept">[docs]</a>    <span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Accept a connection on the bound socket or named pipe of `self`.</span>
+
+<span class="sd">        Returns a `Connection` object.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="s">&#39;listener is closed&#39;</span><span class="p">)</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_authkey</span><span class="p">:</span>
+            <span class="n">deliver_challenge</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_authkey</span><span class="p">)</span>
+            <span class="n">answer_challenge</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_authkey</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">c</span>
+</div>
+<div class="viewcode-block" id="Listener.close"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.connection.Listener.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Close the bound socket or named pipe of `self`.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+    <span class="n">address</span> <span class="o">=</span> <span class="nb">property</span><span class="p">(</span><span class="k">lambda</span> <span class="bp">self</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span><span class="o">.</span><span class="n">_address</span><span class="p">)</span>
+    <span class="n">last_accepted</span> <span class="o">=</span> <span class="nb">property</span><span class="p">(</span><span class="k">lambda</span> <span class="bp">self</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_listener</span><span class="o">.</span><span class="n">_last_accepted</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__enter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">__exit__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc_type</span><span class="p">,</span> <span class="n">exc_value</span><span class="p">,</span> <span class="n">exc_tb</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="Client"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.connection.Client">[docs]</a><span class="k">def</span> <span class="nf">Client</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="n">family</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">authkey</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Returns a connection to the address of a `Listener`</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">family</span> <span class="o">=</span> <span class="n">family</span> <span class="ow">or</span> <span class="n">address_type</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+    <span class="n">_validate_family</span><span class="p">(</span><span class="n">family</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">family</span> <span class="o">==</span> <span class="s">&#39;AF_PIPE&#39;</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">PipeClient</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="n">SocketClient</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">authkey</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">authkey</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;authkey should be a byte string&#39;</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">authkey</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">answer_challenge</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">authkey</span><span class="p">)</span>
+        <span class="n">deliver_challenge</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">authkey</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">c</span>
+
+</div>
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">!=</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">Pipe</span><span class="p">(</span><span class="n">duplex</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Returns pair of connection objects at either end of a pipe</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">duplex</span><span class="p">:</span>
+            <span class="n">s1</span><span class="p">,</span> <span class="n">s2</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">socketpair</span><span class="p">()</span>
+            <span class="n">s1</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">s2</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+            <span class="n">c1</span> <span class="o">=</span> <span class="n">Connection</span><span class="p">(</span><span class="n">s1</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+            <span class="n">c2</span> <span class="o">=</span> <span class="n">Connection</span><span class="p">(</span><span class="n">s2</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fd1</span><span class="p">,</span> <span class="n">fd2</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">pipe</span><span class="p">()</span>
+            <span class="n">c1</span> <span class="o">=</span> <span class="n">Connection</span><span class="p">(</span><span class="n">fd1</span><span class="p">,</span> <span class="n">writable</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+            <span class="n">c2</span> <span class="o">=</span> <span class="n">Connection</span><span class="p">(</span><span class="n">fd2</span><span class="p">,</span> <span class="n">readable</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">c1</span><span class="p">,</span> <span class="n">c2</span>
+
+<span class="k">else</span><span class="p">:</span>
+
+<div class="viewcode-block" id="Pipe"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.connection.Pipe">[docs]</a>    <span class="k">def</span> <span class="nf">Pipe</span><span class="p">(</span><span class="n">duplex</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Returns pair of connection objects at either end of a pipe</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="n">address</span> <span class="o">=</span> <span class="n">arbitrary_address</span><span class="p">(</span><span class="s">&#39;AF_PIPE&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">duplex</span><span class="p">:</span>
+            <span class="n">openmode</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_ACCESS_DUPLEX</span>
+            <span class="n">access</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GENERIC_READ</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GENERIC_WRITE</span>
+            <span class="n">obsize</span><span class="p">,</span> <span class="n">ibsize</span> <span class="o">=</span> <span class="n">BUFSIZE</span><span class="p">,</span> <span class="n">BUFSIZE</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">openmode</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_ACCESS_INBOUND</span>
+            <span class="n">access</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GENERIC_WRITE</span>
+            <span class="n">obsize</span><span class="p">,</span> <span class="n">ibsize</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">BUFSIZE</span>
+
+        <span class="n">h1</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">CreateNamedPipe</span><span class="p">(</span>
+            <span class="n">address</span><span class="p">,</span> <span class="n">openmode</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_FLAG_OVERLAPPED</span> <span class="o">|</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_FLAG_FIRST_PIPE_INSTANCE</span><span class="p">,</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_TYPE_MESSAGE</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_READMODE_MESSAGE</span> <span class="o">|</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_WAIT</span><span class="p">,</span>
+            <span class="mi">1</span><span class="p">,</span> <span class="n">obsize</span><span class="p">,</span> <span class="n">ibsize</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">NMPWAIT_WAIT_FOREVER</span><span class="p">,</span>
+            <span class="c"># default security descriptor: the handle cannot be inherited</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">NULL</span>
+            <span class="p">)</span>
+        <span class="n">h2</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">CreateFile</span><span class="p">(</span>
+            <span class="n">address</span><span class="p">,</span> <span class="n">access</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">NULL</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">OPEN_EXISTING</span><span class="p">,</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_FLAG_OVERLAPPED</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">NULL</span>
+            <span class="p">)</span>
+        <span class="n">_winapi</span><span class="o">.</span><span class="n">SetNamedPipeHandleState</span><span class="p">(</span>
+            <span class="n">h2</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_READMODE_MESSAGE</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span>
+            <span class="p">)</span>
+
+        <span class="n">overlapped</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ConnectNamedPipe</span><span class="p">(</span><span class="n">h1</span><span class="p">,</span> <span class="n">overlapped</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">overlapped</span><span class="o">.</span><span class="n">GetOverlappedResult</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="n">err</span> <span class="o">==</span> <span class="mi">0</span>
+
+        <span class="n">c1</span> <span class="o">=</span> <span class="n">PipeConnection</span><span class="p">(</span><span class="n">h1</span><span class="p">,</span> <span class="n">writable</span><span class="o">=</span><span class="n">duplex</span><span class="p">)</span>
+        <span class="n">c2</span> <span class="o">=</span> <span class="n">PipeConnection</span><span class="p">(</span><span class="n">h2</span><span class="p">,</span> <span class="n">readable</span><span class="o">=</span><span class="n">duplex</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">c1</span><span class="p">,</span> <span class="n">c2</span>
+
+<span class="c">#</span>
+<span class="c"># Definitions for connections based on sockets</span>
+<span class="c">#</span>
+</div>
+<span class="k">class</span> <span class="nc">SocketListener</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Representation of a socket which is bound to an address and listening</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">family</span><span class="p">,</span> <span class="n">backlog</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="n">family</span><span class="p">))</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c"># SO_REUSEADDR has different semantics on Windows (issue #2550).</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;posix&#39;</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span><span class="o">.</span><span class="n">setsockopt</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span>
+                                        <span class="n">socket</span><span class="o">.</span><span class="n">SO_REUSEADDR</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="n">backlog</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span><span class="o">.</span><span class="n">getsockname</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">raise</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_family</span> <span class="o">=</span> <span class="n">family</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_accepted</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">family</span> <span class="o">==</span> <span class="s">&#39;AF_UNIX&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_unlink</span> <span class="o">=</span> <span class="n">util</span><span class="o">.</span><span class="n">Finalize</span><span class="p">(</span>
+                <span class="bp">self</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">unlink</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="n">address</span><span class="p">,),</span> <span class="n">exitpriority</span><span class="o">=</span><span class="mi">0</span>
+                <span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_unlink</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">s</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_accepted</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+            <span class="k">except</span> <span class="n">InterruptedError</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">break</span>
+        <span class="n">s</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">Connection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_unlink</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_unlink</span><span class="p">()</span>
+
+
+<span class="k">def</span> <span class="nf">SocketClient</span><span class="p">(</span><span class="n">address</span><span class="p">):</span>
+    <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Return a connection object connected to the socket given by `address`</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+    <span class="n">family</span> <span class="o">=</span> <span class="n">address_type</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+    <span class="k">with</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">(</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">socket</span><span class="p">,</span> <span class="n">family</span><span class="p">)</span> <span class="p">)</span> <span class="k">as</span> <span class="n">s</span><span class="p">:</span>
+        <span class="n">s</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">s</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">Connection</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">detach</span><span class="p">())</span>
+
+<span class="c">#</span>
+<span class="c"># Definitions for connections based on named pipes</span>
+<span class="c">#</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+
+    <span class="k">class</span> <span class="nc">PipeListener</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Representation of a named pipe</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="n">backlog</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="n">address</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_handle_queue</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_new_handle</span><span class="p">(</span><span class="n">first</span><span class="o">=</span><span class="bp">True</span><span class="p">)]</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">_last_accepted</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">sub_debug</span><span class="p">(</span><span class="s">&#39;listener created with address=</span><span class="si">%r</span><span class="s">&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span> <span class="o">=</span> <span class="n">util</span><span class="o">.</span><span class="n">Finalize</span><span class="p">(</span>
+                <span class="bp">self</span><span class="p">,</span> <span class="n">PipeListener</span><span class="o">.</span><span class="n">_finalize_pipe_listener</span><span class="p">,</span>
+                <span class="n">args</span><span class="o">=</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle_queue</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">),</span> <span class="n">exitpriority</span><span class="o">=</span><span class="mi">0</span>
+                <span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">_new_handle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">first</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+            <span class="n">flags</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_ACCESS_DUPLEX</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_FLAG_OVERLAPPED</span>
+            <span class="k">if</span> <span class="n">first</span><span class="p">:</span>
+                <span class="n">flags</span> <span class="o">|=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_FLAG_FIRST_PIPE_INSTANCE</span>
+            <span class="k">return</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">CreateNamedPipe</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">,</span> <span class="n">flags</span><span class="p">,</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_TYPE_MESSAGE</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_READMODE_MESSAGE</span> <span class="o">|</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_WAIT</span><span class="p">,</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_UNLIMITED_INSTANCES</span><span class="p">,</span> <span class="n">BUFSIZE</span><span class="p">,</span> <span class="n">BUFSIZE</span><span class="p">,</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">NMPWAIT_WAIT_FOREVER</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">NULL</span>
+                <span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_handle_queue</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_new_handle</span><span class="p">())</span>
+            <span class="n">handle</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle_queue</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">ov</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ConnectNamedPipe</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">overlapped</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">winerror</span> <span class="o">!=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_NO_DATA</span><span class="p">:</span>
+                    <span class="k">raise</span>
+                <span class="c"># ERROR_NO_DATA can occur if a client has already connected,</span>
+                <span class="c"># written data and then disconnected -- see Issue 14725.</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">res</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">WaitForMultipleObjects</span><span class="p">(</span>
+                        <span class="p">[</span><span class="n">ov</span><span class="o">.</span><span class="n">event</span><span class="p">],</span> <span class="bp">False</span><span class="p">,</span> <span class="n">INFINITE</span><span class="p">)</span>
+                <span class="k">except</span><span class="p">:</span>
+                    <span class="n">ov</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                    <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+                    <span class="k">raise</span>
+                <span class="k">finally</span><span class="p">:</span>
+                    <span class="n">_</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">ov</span><span class="o">.</span><span class="n">GetOverlappedResult</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+                    <span class="k">assert</span> <span class="n">err</span> <span class="o">==</span> <span class="mi">0</span>
+            <span class="k">return</span> <span class="n">PipeConnection</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+
+        <span class="nd">@staticmethod</span>
+        <span class="k">def</span> <span class="nf">_finalize_pipe_listener</span><span class="p">(</span><span class="n">queue</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+            <span class="n">util</span><span class="o">.</span><span class="n">sub_debug</span><span class="p">(</span><span class="s">&#39;closing listener with address=</span><span class="si">%r</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">address</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">handle</span> <span class="ow">in</span> <span class="n">queue</span><span class="p">:</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">PipeClient</span><span class="p">(</span><span class="n">address</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Return a connection object connected to the pipe given by `address`</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="n">_init_timeout</span><span class="p">()</span>
+        <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">WaitNamedPipe</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="mi">1000</span><span class="p">)</span>
+                <span class="n">h</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">CreateFile</span><span class="p">(</span>
+                    <span class="n">address</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GENERIC_READ</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">GENERIC_WRITE</span><span class="p">,</span>
+                    <span class="mi">0</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">NULL</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">OPEN_EXISTING</span><span class="p">,</span>
+                    <span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_FLAG_OVERLAPPED</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">NULL</span>
+                    <span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">winerror</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_SEM_TIMEOUT</span><span class="p">,</span>
+                                      <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_PIPE_BUSY</span><span class="p">)</span> <span class="ow">or</span> <span class="n">_check_timeout</span><span class="p">(</span><span class="n">t</span><span class="p">):</span>
+                    <span class="k">raise</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span>
+
+        <span class="n">_winapi</span><span class="o">.</span><span class="n">SetNamedPipeHandleState</span><span class="p">(</span>
+            <span class="n">h</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_READMODE_MESSAGE</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="n">PipeConnection</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Authentication stuff</span>
+<span class="c">#</span>
+
+<span class="n">MESSAGE_LENGTH</span> <span class="o">=</span> <span class="mi">20</span>
+
+<span class="n">CHALLENGE</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;#CHALLENGE#&#39;</span>
+<span class="n">WELCOME</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;#WELCOME#&#39;</span>
+<span class="n">FAILURE</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;#FAILURE#&#39;</span>
+
+<span class="k">def</span> <span class="nf">deliver_challenge</span><span class="p">(</span><span class="n">connection</span><span class="p">,</span> <span class="n">authkey</span><span class="p">):</span>
+    <span class="kn">import</span> <span class="nn">hmac</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">authkey</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">)</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">urandom</span><span class="p">(</span><span class="n">MESSAGE_LENGTH</span><span class="p">)</span>
+    <span class="n">connection</span><span class="o">.</span><span class="n">send_bytes</span><span class="p">(</span><span class="n">CHALLENGE</span> <span class="o">+</span> <span class="n">message</span><span class="p">)</span>
+    <span class="n">digest</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">authkey</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="s">&#39;md5&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">connection</span><span class="o">.</span><span class="n">recv_bytes</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>        <span class="c"># reject large message</span>
+    <span class="k">if</span> <span class="n">response</span> <span class="o">==</span> <span class="n">digest</span><span class="p">:</span>
+        <span class="n">connection</span><span class="o">.</span><span class="n">send_bytes</span><span class="p">(</span><span class="n">WELCOME</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">connection</span><span class="o">.</span><span class="n">send_bytes</span><span class="p">(</span><span class="n">FAILURE</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">AuthenticationError</span><span class="p">(</span><span class="s">&#39;digest received was wrong&#39;</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">answer_challenge</span><span class="p">(</span><span class="n">connection</span><span class="p">,</span> <span class="n">authkey</span><span class="p">):</span>
+    <span class="kn">import</span> <span class="nn">hmac</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">authkey</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">)</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="n">connection</span><span class="o">.</span><span class="n">recv_bytes</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>         <span class="c"># reject large message</span>
+    <span class="k">assert</span> <span class="n">message</span><span class="p">[:</span><span class="nb">len</span><span class="p">(</span><span class="n">CHALLENGE</span><span class="p">)]</span> <span class="o">==</span> <span class="n">CHALLENGE</span><span class="p">,</span> <span class="s">&#39;message = </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">message</span>
+    <span class="n">message</span> <span class="o">=</span> <span class="n">message</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">CHALLENGE</span><span class="p">):]</span>
+    <span class="n">digest</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">authkey</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="s">&#39;md5&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
+    <span class="n">connection</span><span class="o">.</span><span class="n">send_bytes</span><span class="p">(</span><span class="n">digest</span><span class="p">)</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">connection</span><span class="o">.</span><span class="n">recv_bytes</span><span class="p">(</span><span class="mi">256</span><span class="p">)</span>        <span class="c"># reject large message</span>
+    <span class="k">if</span> <span class="n">response</span> <span class="o">!=</span> <span class="n">WELCOME</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">AuthenticationError</span><span class="p">(</span><span class="s">&#39;digest sent was rejected&#39;</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Support for using xmlrpclib for serialization</span>
+<span class="c">#</span>
+
+<span class="k">class</span> <span class="nc">ConnectionWrapper</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">dumps</span><span class="p">,</span> <span class="n">loads</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span> <span class="o">=</span> <span class="n">conn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_dumps</span> <span class="o">=</span> <span class="n">dumps</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loads</span> <span class="o">=</span> <span class="n">loads</span>
+        <span class="k">for</span> <span class="n">attr</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;fileno&#39;</span><span class="p">,</span> <span class="s">&#39;close&#39;</span><span class="p">,</span> <span class="s">&#39;poll&#39;</span><span class="p">,</span> <span class="s">&#39;recv_bytes&#39;</span><span class="p">,</span> <span class="s">&#39;send_bytes&#39;</span><span class="p">):</span>
+            <span class="n">obj</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">,</span> <span class="n">obj</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dumps</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">send_bytes</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">recv</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">recv_bytes</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loads</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_xml_dumps</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">xmlrpclib</span><span class="o">.</span><span class="n">dumps</span><span class="p">((</span><span class="n">obj</span><span class="p">,),</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">_xml_loads</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="p">(</span><span class="n">obj</span><span class="p">,),</span> <span class="n">method</span> <span class="o">=</span> <span class="n">xmlrpclib</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;utf-8&#39;</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">obj</span>
+
+<span class="k">class</span> <span class="nc">XmlListener</span><span class="p">(</span><span class="n">Listener</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">global</span> <span class="n">xmlrpclib</span>
+        <span class="kn">import</span> <span class="nn">xmlrpc.client</span> <span class="kn">as</span> <span class="nn">xmlrpclib</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="n">Listener</span><span class="o">.</span><span class="n">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">ConnectionWrapper</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">_xml_dumps</span><span class="p">,</span> <span class="n">_xml_loads</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">XmlClient</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+    <span class="k">global</span> <span class="n">xmlrpclib</span>
+    <span class="kn">import</span> <span class="nn">xmlrpc.client</span> <span class="kn">as</span> <span class="nn">xmlrpclib</span>
+    <span class="k">return</span> <span class="n">ConnectionWrapper</span><span class="p">(</span><span class="n">Client</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">),</span> <span class="n">_xml_dumps</span><span class="p">,</span> <span class="n">_xml_loads</span><span class="p">)</span>
+
+<span class="c">#</span>
+<span class="c"># Wait</span>
+<span class="c">#</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">_exhaustive_wait</span><span class="p">(</span><span class="n">handles</span><span class="p">,</span> <span class="n">timeout</span><span class="p">):</span>
+        <span class="c"># Return ALL handles which are currently signalled.  (Only</span>
+        <span class="c"># returning the first signalled might create starvation issues.)</span>
+        <span class="n">L</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">handles</span><span class="p">)</span>
+        <span class="n">ready</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="n">L</span><span class="p">:</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">WaitForMultipleObjects</span><span class="p">(</span><span class="n">L</span><span class="p">,</span> <span class="bp">False</span><span class="p">,</span> <span class="n">timeout</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">res</span> <span class="o">==</span> <span class="n">WAIT_TIMEOUT</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="k">elif</span> <span class="n">WAIT_OBJECT_0</span> <span class="o">&lt;=</span> <span class="n">res</span> <span class="o">&lt;</span> <span class="n">WAIT_OBJECT_0</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">L</span><span class="p">):</span>
+                <span class="n">res</span> <span class="o">-=</span> <span class="n">WAIT_OBJECT_0</span>
+            <span class="k">elif</span> <span class="n">WAIT_ABANDONED_0</span> <span class="o">&lt;=</span> <span class="n">res</span> <span class="o">&lt;</span> <span class="n">WAIT_ABANDONED_0</span> <span class="o">+</span> <span class="nb">len</span><span class="p">(</span><span class="n">L</span><span class="p">):</span>
+                <span class="n">res</span> <span class="o">-=</span> <span class="n">WAIT_ABANDONED_0</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&#39;Should not get here&#39;</span><span class="p">)</span>
+            <span class="n">ready</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">L</span><span class="p">[</span><span class="n">res</span><span class="p">])</span>
+            <span class="n">L</span> <span class="o">=</span> <span class="n">L</span><span class="p">[</span><span class="n">res</span><span class="o">+</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="n">timeout</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">return</span> <span class="n">ready</span>
+
+    <span class="n">_ready_errors</span> <span class="o">=</span> <span class="p">{</span><span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_BROKEN_PIPE</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_NETNAME_DELETED</span><span class="p">}</span>
+
+    <span class="k">def</span> <span class="nf">wait</span><span class="p">(</span><span class="n">object_list</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Wait till an object in object_list is ready/readable.</span>
+
+<span class="sd">        Returns list of those objects in object_list which are ready/readable.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">timeout</span> <span class="o">=</span> <span class="n">INFINITE</span>
+        <span class="k">elif</span> <span class="n">timeout</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">timeout</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">timeout</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">timeout</span> <span class="o">*</span> <span class="mi">1000</span> <span class="o">+</span> <span class="mf">0.5</span><span class="p">)</span>
+
+        <span class="n">object_list</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">object_list</span><span class="p">)</span>
+        <span class="n">waithandle_to_obj</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">ov_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">ready_objects</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="n">ready_handles</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">object_list</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">fileno</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s">&#39;fileno&#39;</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                    <span class="n">waithandle_to_obj</span><span class="p">[</span><span class="n">o</span><span class="o">.</span><span class="n">__index__</span><span class="p">()]</span> <span class="o">=</span> <span class="n">o</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># start an overlapped read of length zero</span>
+                    <span class="k">try</span><span class="p">:</span>
+                        <span class="n">ov</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ReadFile</span><span class="p">(</span><span class="n">fileno</span><span class="p">(),</span> <span class="mi">0</span><span class="p">,</span> <span class="bp">True</span><span class="p">)</span>
+                    <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                        <span class="n">err</span> <span class="o">=</span> <span class="n">e</span><span class="o">.</span><span class="n">winerror</span>
+                        <span class="k">if</span> <span class="n">err</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ready_errors</span><span class="p">:</span>
+                            <span class="k">raise</span>
+                    <span class="k">if</span> <span class="n">err</span> <span class="o">==</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_IO_PENDING</span><span class="p">:</span>
+                        <span class="n">ov_list</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ov</span><span class="p">)</span>
+                        <span class="n">waithandle_to_obj</span><span class="p">[</span><span class="n">ov</span><span class="o">.</span><span class="n">event</span><span class="p">]</span> <span class="o">=</span> <span class="n">o</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="c"># If o.fileno() is an overlapped pipe handle and</span>
+                        <span class="c"># err == 0 then there is a zero length message</span>
+                        <span class="c"># in the pipe, but it HAS NOT been consumed.</span>
+                        <span class="n">ready_objects</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+                        <span class="n">timeout</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="n">ready_handles</span> <span class="o">=</span> <span class="n">_exhaustive_wait</span><span class="p">(</span><span class="n">waithandle_to_obj</span><span class="o">.</span><span class="n">keys</span><span class="p">(),</span> <span class="n">timeout</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="c"># request that overlapped reads stop</span>
+            <span class="k">for</span> <span class="n">ov</span> <span class="ow">in</span> <span class="n">ov_list</span><span class="p">:</span>
+                <span class="n">ov</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+            <span class="c"># wait for all overlapped reads to stop</span>
+            <span class="k">for</span> <span class="n">ov</span> <span class="ow">in</span> <span class="n">ov_list</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">_</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">ov</span><span class="o">.</span><span class="n">GetOverlappedResult</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">err</span> <span class="o">=</span> <span class="n">e</span><span class="o">.</span><span class="n">winerror</span>
+                    <span class="k">if</span> <span class="n">err</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_ready_errors</span><span class="p">:</span>
+                        <span class="k">raise</span>
+                <span class="k">if</span> <span class="n">err</span> <span class="o">!=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">ERROR_OPERATION_ABORTED</span><span class="p">:</span>
+                    <span class="n">o</span> <span class="o">=</span> <span class="n">waithandle_to_obj</span><span class="p">[</span><span class="n">ov</span><span class="o">.</span><span class="n">event</span><span class="p">]</span>
+                    <span class="n">ready_objects</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">o</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">err</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="c"># If o.fileno() is an overlapped pipe handle then</span>
+                        <span class="c"># a zero length message HAS been consumed.</span>
+                        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">o</span><span class="p">,</span> <span class="s">&#39;_got_empty_message&#39;</span><span class="p">):</span>
+                            <span class="n">o</span><span class="o">.</span><span class="n">_got_empty_message</span> <span class="o">=</span> <span class="bp">True</span>
+
+        <span class="n">ready_objects</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">waithandle_to_obj</span><span class="p">[</span><span class="n">h</span><span class="p">]</span> <span class="k">for</span> <span class="n">h</span> <span class="ow">in</span> <span class="n">ready_handles</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">o</span> <span class="k">for</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">object_list</span> <span class="k">if</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">ready_objects</span><span class="p">]</span>
+
+<span class="k">else</span><span class="p">:</span>
+
+    <span class="kn">import</span> <span class="nn">selectors</span>
+
+    <span class="c"># poll/select have the advantage of not requiring any extra file</span>
+    <span class="c"># descriptor, contrarily to epoll/kqueue (also, they require a single</span>
+    <span class="c"># syscall).</span>
+    <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">selectors</span><span class="p">,</span> <span class="s">&#39;PollSelector&#39;</span><span class="p">):</span>
+        <span class="n">_WaitSelector</span> <span class="o">=</span> <span class="n">selectors</span><span class="o">.</span><span class="n">PollSelector</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">_WaitSelector</span> <span class="o">=</span> <span class="n">selectors</span><span class="o">.</span><span class="n">SelectSelector</span>
+
+<div class="viewcode-block" id="wait"><a class="viewcode-back" href="../../multiprocessing.html#multiprocessing.connection.wait">[docs]</a>    <span class="k">def</span> <span class="nf">wait</span><span class="p">(</span><span class="n">object_list</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">        Wait till an object in object_list is ready/readable.</span>
+
+<span class="sd">        Returns list of those objects in object_list which are ready/readable.</span>
+<span class="sd">        &#39;&#39;&#39;</span>
+        <span class="k">with</span> <span class="n">_WaitSelector</span><span class="p">()</span> <span class="k">as</span> <span class="n">selector</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">object_list</span><span class="p">:</span>
+                <span class="n">selector</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">selectors</span><span class="o">.</span><span class="n">EVENT_READ</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">deadline</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">+</span> <span class="n">timeout</span>
+
+            <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+                <span class="n">ready</span> <span class="o">=</span> <span class="n">selector</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">ready</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="p">[</span><span class="n">key</span><span class="o">.</span><span class="n">fileobj</span> <span class="k">for</span> <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">events</span><span class="p">)</span> <span class="ow">in</span> <span class="n">ready</span><span class="p">]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                        <span class="n">timeout</span> <span class="o">=</span> <span class="n">deadline</span> <span class="o">-</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+                        <span class="k">if</span> <span class="n">timeout</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                            <span class="k">return</span> <span class="n">ready</span>
+
+<span class="c">#</span>
+<span class="c"># Make connection and socket objects sharable if possible</span>
+<span class="c">#</span>
+</div>
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;win32&#39;</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">reduce_connection</span><span class="p">(</span><span class="n">conn</span><span class="p">):</span>
+        <span class="n">handle</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+        <span class="k">with</span> <span class="n">socket</span><span class="o">.</span><span class="n">fromfd</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">AF_INET</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SOCK_STREAM</span><span class="p">)</span> <span class="k">as</span> <span class="n">s</span><span class="p">:</span>
+            <span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">resource_sharer</span>
+            <span class="n">ds</span> <span class="o">=</span> <span class="n">resource_sharer</span><span class="o">.</span><span class="n">DupSocket</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">rebuild_connection</span><span class="p">,</span> <span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="n">conn</span><span class="o">.</span><span class="n">readable</span><span class="p">,</span> <span class="n">conn</span><span class="o">.</span><span class="n">writable</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">rebuild_connection</span><span class="p">(</span><span class="n">ds</span><span class="p">,</span> <span class="n">readable</span><span class="p">,</span> <span class="n">writable</span><span class="p">):</span>
+        <span class="n">sock</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">Connection</span><span class="p">(</span><span class="n">sock</span><span class="o">.</span><span class="n">detach</span><span class="p">(),</span> <span class="n">readable</span><span class="p">,</span> <span class="n">writable</span><span class="p">)</span>
+    <span class="n">reduction</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Connection</span><span class="p">,</span> <span class="n">reduce_connection</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">reduce_pipe_connection</span><span class="p">(</span><span class="n">conn</span><span class="p">):</span>
+        <span class="n">access</span> <span class="o">=</span> <span class="p">((</span><span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_GENERIC_READ</span> <span class="k">if</span> <span class="n">conn</span><span class="o">.</span><span class="n">readable</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span>
+                  <span class="p">(</span><span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_GENERIC_WRITE</span> <span class="k">if</span> <span class="n">conn</span><span class="o">.</span><span class="n">writable</span> <span class="k">else</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="n">dh</span> <span class="o">=</span> <span class="n">reduction</span><span class="o">.</span><span class="n">DupHandle</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">access</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">rebuild_pipe_connection</span><span class="p">,</span> <span class="p">(</span><span class="n">dh</span><span class="p">,</span> <span class="n">conn</span><span class="o">.</span><span class="n">readable</span><span class="p">,</span> <span class="n">conn</span><span class="o">.</span><span class="n">writable</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">rebuild_pipe_connection</span><span class="p">(</span><span class="n">dh</span><span class="p">,</span> <span class="n">readable</span><span class="p">,</span> <span class="n">writable</span><span class="p">):</span>
+        <span class="n">handle</span> <span class="o">=</span> <span class="n">dh</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">PipeConnection</span><span class="p">(</span><span class="n">handle</span><span class="p">,</span> <span class="n">readable</span><span class="p">,</span> <span class="n">writable</span><span class="p">)</span>
+    <span class="n">reduction</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">PipeConnection</span><span class="p">,</span> <span class="n">reduce_pipe_connection</span><span class="p">)</span>
+
+<span class="k">else</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">reduce_connection</span><span class="p">(</span><span class="n">conn</span><span class="p">):</span>
+        <span class="n">df</span> <span class="o">=</span> <span class="n">reduction</span><span class="o">.</span><span class="n">DupFd</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">rebuild_connection</span><span class="p">,</span> <span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">conn</span><span class="o">.</span><span class="n">readable</span><span class="p">,</span> <span class="n">conn</span><span class="o">.</span><span class="n">writable</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">rebuild_connection</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">readable</span><span class="p">,</span> <span class="n">writable</span><span class="p">):</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">detach</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">Connection</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">readable</span><span class="p">,</span> <span class="n">writable</span><span class="p">)</span>
+    <span class="n">reduction</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">Connection</span><span class="p">,</span> <span class="n">reduce_connection</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

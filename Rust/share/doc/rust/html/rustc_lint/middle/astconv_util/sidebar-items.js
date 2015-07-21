@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["ast_ty_to_prim_ty",""],["check_path_args",""],["prim_ty_to_ty",""]],"constant":[["NO_REGIONS",""],["NO_TPS",""]]});

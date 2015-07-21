@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<!-----------------------------------------------------------------------------\
+| Author: Patrick Abbati, 2008-sep-02                                          |
+| see http://codes-sources.commentcamarche.net/source/view/47818/1165749       |
+|______________________________________________________________________________|
+|  ownCloud Games Integration (c) 2014 Pierre Fauconnier                       |
+|  see http://oc-apps2.sourceforge.net/                                        |
+|  license	CeCILL v2.1 - http://www.cecill.info/licences/Licence_CeCILL_V2.1-en.txt
+\------------------------------------------------------------------------------>
+<html><head><title>Number Place</title>
+<meta name="Generator" content="Dev-PHP 2.6.1" />
+	<link rel="stylesheet" type="text/css" href="jsSudoku.css" />
+	<link rel="stylesheet" type="text/css" href="../_shared/msgbox.css"/>
+	<script type="text/javascript" src="../_shared/msgbox.js"></script>
+<script type="text/javascript"><!--
+// TODO 1 -opFa : "Clear board", "Enter game", "Solve game", "Save game", "Select game"
+// DONE 1 -opFa : keyboard events (in order to quickly enter digits)
+// TODO 2 -opFa : Have a look to https://github.com/attractivechaos/plb/tree/master/sudoku
+var G_oc = {	 id:'jsSudoku'
+		,caption:'Number Place'
+		,lvl:0, levels:['Normal']
+		,topN:1
+	};
+var zero=new Array(
+		new Array(9,1,2,3,4,5,6,7,8,9),
+		new Array(1,1,0,0,0,0,0,0,0,0),
+		new Array(1,0,2,0,0,0,0,0,0,0),
+		new Array(1,0,0,3,0,0,0,0,0,0),
+		new Array(1,0,0,0,4,0,0,0,0,0),
+		new Array(1,0,0,0,0,5,0,0,0,0),
+		new Array(1,0,0,0,0,0,6,0,0,0),
+		new Array(1,0,0,0,0,0,0,7,0,0),
+		new Array(1,0,0,0,0,0,0,0,8,0),
+		new Array(1,0,0,0,0,0,0,0,0,9));
+
+var arCells=new Array();//	Random list of cells numbers (to hide)	[0,80]
+var arRows=new Array();	//	Random list of rows numbers		[0,8]
+var arCols=new Array();	//	Random list of columns numbers		[0,8]
+var arDigits=new Array();//	Random list of digits			[1,9]
+
+var deja;//pour cherche2 et backtrack2
+
+var composition='';	//	The solution, or arrangement as well
+	
+var npGame='';		//	The current game, with hidden cells and "givens"
+
+var cas=new Array();	//	The 81 cells
+
+var pile=new piles();	//	Stack to keep track of changes
+pile.size=0;		//	Number of items on the pile (stack)
+
+function piles(){}
+
+	piles.prototype.pushINS=function( r, c )
+	{
+		var d=new piles();
+		d.r=r;
+		d.c=c;
+		d.w=0;
+		d.p=new Array();
+		for(var i=0;i<10;i++)d.p[i]=cas[r][c].p[i];
+		d.next=this.next;
+		this.size++;
+		this.next=d;
+	}
+
+	piles.prototype.pushDEL=function( r, c, w )
+	{
+		var d=new piles();
+		d.r=r;
+		d.c=c;
+		d.w=w;
+		d.next=this.next;
+		this.size++;
+		this.next=d;
+	}
+
+	piles.prototype.pop=function( z )
+	{
+		while ( this.size>z ) {
+			this.size--;
+			var dmy=this.next;
+			this.next=this.next.next;
+			if ( dmy.w == 0 ) {		//	Was a push (INS)
+				var x=cas[dmy.r][dmy.c];
+				x.pl=false;
+				for(var i=0;i<10;i++)x.p[i]=dmy.p[i];
+				if(x.rt!=null)x.rt.lt=x;//	"dancing links"
+				if(x.lt!=null)x.lt.rt=x;
+				if(x.up!=null)x.up.dn=x;
+				if(x.dn!=null)x.dn.up=x;
+			} else {			//	Was a pull (DEL)
+				cas[dmy.r][dmy.c].p[dmy.w]=dmy.w;
+				cas[dmy.r][dmy.c].p[0]++;
+			}
+		}
+	}
+
+function cases()
+{	//this.l;this.c;
+	this.pl=false;				// Cell is occupied
+	this.dn=null;				// Dancing link - to the bottom
+	this.up=null;				// Dancing link - to the top
+	this.lt=null;				// Dancing link - to the left
+	this.rt=null;				// Dancing link - to the right
+	this.cx=new Array();			// Dancing link - to the region (9x9 square)
+	this.p=new Array(9,1,2,3,4,5,6,7,8,9);	// List of possibilities (number of possibilities, then direct access to 9 digits)
+}
+	cases.prototype.init=function(r,c)
+	{
+		this.l=r;this.c=c;
+		if(c<8)this.rt=cas[r][c+1];	// init dancing links
+		if(c>0)this.lt=cas[r][c-1];
+		if(r<8)this.dn=cas[r+1][c];
+		if(r>0)this.up=cas[r-1][c];
+		var	 row	=3*parseInt(r/3)
+			,col	=3*parseInt(c/3)
+			,a=i=j	=0
+			;
+		for ( i=row; i<row+3; i++ )
+			for ( j=col; j<col+3; j++)
+				if ( (i!=r)&&(j!=c))	this.cx[a++]=cas[i][j];
+	}
+
+	cases.prototype.clear=function()
+	{
+		this.pl=false;
+		this.p=new Array(9,1,2,3,4,5,6,7,8,9);
+	}
+
+	cases.prototype.get=function(){for(var n=1;n<=9;n++)if(this.p[n]>0)return this.p[n];return 0;}
+
+	cases.prototype.toString=function(){return this.p[0]>1?' ':''+this.get();}
+
+	cases.prototype.pull=function(w)
+	{
+		if ( this.pl			// Occupied
+		||  (this.p[w]!=w) )		// By another digit
+			return true;		//(not really an error)
+		if ( this.p[0]<2 )return false;	// Won't remove, this digit is the only one
+		pile.pushDEL(this.l,this.c,w);	// Save this position as a remove
+		this.p[w]=0;			// Remove this digit from the list of possible digits
+		if ( --this.p[0] == 1 )
+			return this.set(this.get());// Return the only digit remaining in the list
+		return true;
+	}
+
+	cases.prototype.pullLW=function(w)	//remove leftwards
+	{
+		return this.pull(w)?this.lt!=null?this.lt.pullLW(w):true:false;
+	}
+
+	cases.prototype.pullRW=function(w)	//remove rightwards
+	{
+		return this.pull(w)?this.rt!=null?this.rt.pullRW(w):true:false;
+	}
+
+	cases.prototype.pullUW=function(w)	//remove upwards
+	{
+		return this.pull(w)?this.up!=null?this.up.pullUW(w):true:false;
+	}
+
+	cases.prototype.pullDW=function(w)	//remove downwards
+	{
+		return this.pull(w)?this.dn!=null?this.dn.pullDW(w):true:false;
+	}
+
+	cases.prototype.pullABM=function(w)	//remove all but me
+	{
+		if((this.lt!=null)&&(this.lt.pullLW(w)==false))return false;
+		if((this.rt!=null)&&(this.rt.pullRW(w)==false))return false;
+		if((this.up!=null)&&(this.up.pullUW(w)==false))return false;
+		if((this.dn!=null)&&(this.dn.pullDW(w)==false))return false;
+		for(var n=0;n<4;n++)
+			if(!this.cx[n].pl&&(this.cx[n].p[w]==w)&&(this.cx[n].pull(w)==false))return false;
+		return this.p[w]==w;//"me" should remain :)
+	}
+
+	cases.prototype.set=function(w)
+	{//w from 1 to 9
+		if(this.pl//					This cell is already occupied, we can't set any digit here
+		||(this.p[w]!=w)//				This digit doesn't belong to the list of possible digits
+		||(this.pullABM(w)==false))	return false;//	Error
+		pile.pushINS(this.l,this.c);//			Ok. Save these coordinates
+		this.pl=true;//					Mark the cell as occupied
+		for(var n=0;n<10;n++)this.p[n]=zero[w][n];//	Update the list of possible digits from the zero array
+		if(this.rt!=null)this.rt.lt=this.lt;//		"dancing link" to avoid the digits already set
+		if(this.lt!=null)this.lt.rt=this.rt;
+		if(this.up!=null)this.up.dn=this.dn;
+		if(this.dn!=null)this.dn.up=this.up;
+		return true;//					Ok
+	}
+
+function npRandomArray(n) {
+//       -------------
+//+ Jonas Raoni Soares Silva
+//@ http://jsfromhell.com/array/shuffle [v1.0]
+	function ownShuffle(o) { //v1.1
+		for(var j, x, i = o.length; i; j = Math.floor(Math.random() * i), x = o[--i], o[i] = o[j], o[j] = x);
+		return o;
+	}
+//
+	for ( var a=new Array(), i=0; i <= n; i++ )	a[i] = i;
+	return ownShuffle(a);
+}
+
+function init()
+{
+	arCells=npRandomArray(80);
+	arRows=npRandomArray(8);
+	arCols=npRandomArray(8);
+	arDigits=npRandomArray(8);for(var n=0;n<9;n++)++arDigits[n];
+	for(var j=0;j<9;j++){cas[j]=new Array();for(var i=0;i<9;i++)cas[j][i]=new cases();}
+	for(var j=0;j<9;j++)for(var i=0;i<9;i++)cas[j][i].init(j,i);
+}
+
+function npClearAll() {
+//       ----------
+	var i=j=0;
+//
+	pile.pop(0);
+	for(i=0;i<9;i++)for(j=0;j<9;j++)
+		cas[i][j].clear();
+}
+
+function toString() {//	Return the current game into a 81 chars length string
+//       --------
+	var a='',i=j=0;
+	
+	for(i=0;i<9;i++)for(j=0;j<9;j++)
+		a+=cas[i][j].toString();
+	return a;
+}
+
+function setGame( str ) {
+//       --------
+	var	 len	= str.length
+		,ret	= true
+		,i=j=n	= 0
+		,c	='.'
+		;
+	npClearAll();
+	for ( i=0; i<9; i++ )for ( j=0; j<9; j++ ) {
+		if ( n>=len )	return ret;
+		c=str.charAt(n++);
+		if ( (c>0)&&(c<=9) ) {
+			if ( !cas[i][j].set(c) )
+				ret=false;
+		}
+	}
+	return ret;
+}
+
+function backtrack( r, c, v ) {
+//       ---------
+// an arrangement of digits that conforms to the rules
+	if(r>8)return true;//					Arrangement terminated
+	while(cas[arRows[r]][arCols[c]].pl)//			Cell already set
+		if(++c>8){c=0;if(++r>8)return true;}
+	while(cas[arRows[r]][arCols[c]].p[arDigits[v]]==0)//	The v-th digit is not set
+		if(++v>8)return false;
+	var q=pile.size;//					Save the cells that gonna be updated
+	if(cas[arRows[r]][arCols[c]].set(arDigits[v]))//	Try the v-th digit (arDigits[v])
+	{
+		if(c<8){if(backtrack(r,c+1,0))return true;}//	Continue backtracking
+		else if(backtrack(r+1,0,0))return true;
+	}//							The v-th digit didn't work
+	pile.pop(q);//						Restore
+	if(v<8)return backtrack(r,c,v+1);//			Try the next digit
+	return false;//						Actually, this path goes nowhere
+}
+
+function npFind() {
+//       ------
+//Return true or false - whether a composition that conforms to the rules is found or not
+	arRows=npRandomArray(8);
+	arCols=npRandomArray(8);
+	arDigits=npRandomArray(8);for(var n=0;n<9;n++)arDigits[n]++;
+	var myReturn=backtrack(0,0,0);
+	if ( myReturn )	composition=toString();
+	pile.pop(0);
+	return myReturn;
+}
+
+function npHide() {
+//       ------
+//From a given composition of digits and from a random list of cells numbers to hide,
+//Build a problem having a unique solution
+//
+	var	 s=t	= composition
+		,ix	= 0
+		;
+	for ( i=0; i<81; i++ ) {
+		ix	= arCells[i]
+		t	= s.substr(0, ix)+' '+s.substr(ix + 1);
+		setGame(t);
+		if ( (composition===toString() ) || !cherche2() )	s=t;
+		pile.pop(0);
+	}
+	npGame=s;
+	return s;
+}
+
+function npBuild() {//	Build a problem having only one solution
+//       -------
+	npClearAll();
+	npFind();
+	arCells	= npRandomArray(80);
+	return npHide();
+}
+
+function cherche2()
+{
+	deja=false;
+	return backtrack2(0,0,0);
+}
+
+function backtrack2( r, c, v ) {
+//       ----------
+	if(r>8)if(deja)return true;else{deja=true;return false;}
+	while(cas[arRows[r]][arCols[c]].pl)//			Skip occupied cells
+		if(++c>8){c=0;if(++r>8)return true;}
+	while(cas[arRows[r]][arCols[c]].p[arDigits[v]]==0)//	Try to set a digit from the list arDigits
+		if(++v>8)return false;
+	var q=pile.size;//					Save the cells that gonna be updated
+	if(cas[arRows[r]][arCols[c]].set(arDigits[v]))//	Attempt to set the v-th digit (arDigits[v])
+	{
+		if(c<8)	if(backtrack2(r,c+1,0))return true//	Then, next cell, and try the 1st digit of the list
+		else	if(backtrack2(r+1,0,0))return true;
+	}
+	pile.pop(q);//						Didn't work, restore
+	if(v<8)
+		return backtrack2(r,c,v+1);//			Try with the next digit
+	return false;//						Dead end
+}
+
+function npIsCompleted() {
+//       -------------
+	var	i=j=0;
+	for ( j=0; j<9; j++ ) for ( i=0; i<9; i++ )
+		if ( !cas[j][i].pl )	return false;
+	return true;
+}
+//--></script>
+</head>
+<body topmargin="1" leftmargin="1" onload="init();run();">
+<script type="text/javascript"><!--
+
+var ff=".................................................................................";
+//var   ff="3.4.9.17.9...7...2..72.4...243....5.7984.6213.6....89....7.94..6...4...1.85.3.7.9";
+
+function npDraw( theName ) {
+//       ------
+	var	 myClass	=''
+		,i = j = y	= 0
+		;
+	document.write('<table id="tt'+theName+'" oncontextmenu="return false;" border="3" cellpadding="0" cellspacing="0" style="border-collapse: collapse" bordercolor="black"><caption align="top" style="cursor:default;">Number Place (sudoku)</caption>');
+	for( j=0; j<9; j++ ) {
+		y=j<8&&j%3==2;
+		document.write('<tr>');
+		for( i=0; i<9; i++ ) {
+			document.write('<td');
+			if(y)			myClass	='bb';
+			else			myClass	='';
+//
+			if(i<8&&i%3==2)		myClass	+= ' br';
+			if ( myClass != '' )	document.write(' class="'+myClass+'"');
+			document.write('><input type="text" id="'+theName+j+''+i+'" class="cell" readonly'+(theName=='S'?' onmousedown="npC(event);"':'')+'>');
+		}
+		document.write("</tr>");
+	}
+	document.write('</table><div id="foot'+theName+'">Building in progress, please wait.</div>');
+}
+
+function npPopupHide() {
+//       -----------
+	if ( xx )	xx.readOnly	= false;
+	document.getElementById('htPopup').style.display = 'none';
+}
+
+function npResetEditButtons() {
+//       ------------------
+	var	 myList	= document.getElementById('htPopTabEdit').children
+		,i
+		;
+	for ( i=0; i < myList.length; i++ ) {
+		myList[i].classList.remove('active');
+	}
+}
+
+var xx={};
+function npC( e ) {
+//       ---
+// User clicked on a cell - actually this is a mousedown event (e) on a cell
+	if(!e)e=window.event;
+	e.preventDefault();
+	e.stopImmediatePropagation();
+	e.cancelBubble=true;
+//	Is it a "given", or
+	if ( e.currentTarget.readOnly
+//	Or the wheel button (if so, do nothing)
+	|| ( e.button == 1 ) )		return false
+	xx=e.currentTarget;
+	if ( e.button == 2 ) {
+//	Right button: erase the cell (or revive its note)
+		npPopupHide();
+		xx.value='';
+		if ( xx.classList.contains('note') ) {
+//		Actually we're erasing a note
+			xx.removeAttribute('note');
+			xx.classList.remove('note');
+		} else if ( xx.hasAttribute('note') ) {
+//		Result erased, but check whether there is an existing note to revive
+			xx.value = xx.getAttribute('note');
+			xx.classList.add('note');
+		}
+		return false;
+	}
+//	Left button: show our popup
+	xx.readOnly=true;
+//	Set status of the edit buttons, according to the note, if any
+	npResetEditButtons();
+	if ( xx.hasAttribute('note') ) {
+		var	 myList	= document.getElementById('htPopTabEdit').children
+			,myConv	= [0,6,7,8,3,4,5,0,1,2]	// Order of digits is 7,8,9,4,5,6,1,2,3
+			,i
+			,myArr	= xx.getAttribute('note').split('');
+		for ( i=0; i < myArr.length; i++ ) {
+			myList[ myConv[ myArr[i] ]].classList.add('active');
+		}
+	}
+//	Show the popup
+	var	 myPopup	= document.getElementById('htPopup')
+		,myTable	= document.getElementById('ttS')
+		;
+	myPopup.style.left	= myTable.offsetLeft+'px';
+	myPopup.style.top	= myTable.offsetTop+'px';
+	myPopup.style.width	=(myTable.clientWidth - 16)+'px';	// Subtract padding value
+	myPopup.style.height	=(myTable.clientHeight -16)+'px';
+
+	myPopup.style.display	='block';
+//	Give the focus to the right tabpage
+	var	 myPage	= document.getElementById('htPopTabPage').children;
+	if ( myPage[0].style.display == 'none' ) {
+		myPage[1].focus();
+	} else {
+		myPage[0].focus();
+	}
+	return false;
+}
+
+function run()
+{
+	var	 myStart	= new Date().getTime()
+		,myInput	= {}
+		,mySoluce	= {}
+		,v		= 0
+		;
+	npClearAll();
+	npBuild();
+	for(var j=0;j<9;j++)for(var i=0;i<9;i++) {
+		var x=npGame.charAt(j*9+i);
+		myInput=document.getElementById('S'+j+''+i);
+		myInput.removeAttribute('note');
+		myInput.classList.remove('note');
+//
+		if ( x==' ') {
+			myInput.readOnly	= false;
+			myInput.value		='';
+			myInput.classList.remove('given');
+			++v;
+		} else {
+			myInput.readOnly	= true;
+			myInput.value		= x;
+			myInput.classList.add('given');
+		}
+		mySoluce	= document.getElementById('T'+j+''+i);
+		mySoluce.value	= composition.charAt(j*9+i);
+	}
+	var	 txt1=v+' empty, '+(81-v)+' givens - '
+		,txt2='Built in '+(new Date().getTime() - myStart)/1000.+' second(s)'
+		;
+	document.getElementById('footS').innerHTML	= txt1+txt2;
+	document.getElementById('footT').innerHTML	= txt2;
+}
+
+function getGame() {
+//       -------
+	var r='', cell, c;
+	for(var j=0;j<9;j++)for(var i=0;i<9;i++)
+	{
+		cell	= document.getElementById('S'+j+''+i);
+		if ( cell.classList.contains('note') )	c =''
+		else					c = cell.value;
+		r+=c==''?'.':c
+	}
+	return r;
+}
+
+function npMatch( a, b ) {
+//       -------
+// a contains the current game as a string, b contains the solution as a string
+// Return true if a matches b
+	var	 n	= 0
+		,c	='1'
+		;
+	for ( n=0; n<81; n++ ) {
+		c	= a.charAt(n);
+		if ( (c>='1')&&(c<='9') ) {
+			if ( c != b.charAt(n) )return false;
+		}
+	}
+	return true;
+}
+
+function colle()
+{
+	var	 myStart	= new Date().getTime()
+		,ok		= true
+		,v		= 0
+		;
+	npClearAll();
+	var r=coller();
+	if(r.length!=81){alert(r+"\n\nn'est pas une copie d'un jeu.");return;}
+	setGame(r);
+	if(!npIsCompleted())ok=npFind();
+	if(!ok||!npMatch(r,composition)){alert(r+"\n\nn'est pas un bon jeu.");npClearAll();return;}
+	npClearAll();
+	setGame(r);
+	if(!npIsCompleted()&&cherche2())alert(r+"\n\nest un jeu présentant au moins deux solutions");
+	npClearAll();
+	for(var j=0;j<9;j++)for(var i=0;i<9;i++)
+	{
+		var x=r.charAt(j*9+i);
+		if(x=='.')x=' ';
+		var input=document.getElementById('S'+j+''+i);
+		if(x==' ')
+		{
+			input.readOnly	= false;
+			input.value	='';
+			input.classList.remove('given');
+			++v;
+		}
+		else
+		{
+			input.readOnly	= true;
+			input.value	= x;
+			input.classList.add('given');
+		}
+		document.getElementById('T'+j+''+i).value	= composition.charAt(j*9+i);
+	}
+	var txt1=v+' empty, '+(81-v)+' givens - ';
+	var txt2='Uniqueness checked in '+(new Date().getTime() - myStart)/1000.+' second(s)';
+	input=document.getElementById('footS');
+	input.innerHTML=txt1+txt2;
+	input=document.getElementById('footT');
+	input.innerHTML=txt2;
+}
+
+function npCheck() {
+//       -------
+	var	 r	= getGame()
+		,i,j,n	= 0
+		;
+	if ( npMatch( r, composition ) ) {
+		for(var j=0;j<9;j++)for(var i=0;i<9;i++) {
+			if ( r.charAt(j*9+i) ==='.')n++;
+		}
+		document.getElementById('footS').innerHTML = 'Checked. '+n+' empty cells and '+(81-n)+' givens.';
+	} else {
+		document.getElementById('footS').innerHTML = 'There\'s something wrong here.';
+	}
+}
+
+function test()
+{
+	var	 myStart	= new Date().getTime()
+		,ok		= true
+		,v		= 0
+		,myMsg		=''
+		;
+	npClearAll();
+	var r=getGame();
+	setGame(r);
+	if(!npIsCompleted())
+		ok=npFind();
+	if(!ok||!npMatch(r,composition)){alert(r+"\n\nn'est pas un bon jeu.");npClearAll();return;}
+	npClearAll();
+	setGame(r);
+	myMsg	= r+"\n\n";
+	if(!npIsCompleted()&&cherche2())	myMsg +='est un jeu présentant au moins deux solutions';
+	else myMsg +='complies with the rules of the game.';
+	myMsg	+="\n\n";
+//
+	npClearAll();
+	for(var j=0;j<9;j++)for(var i=0;i<9;i++)
+	{
+		var x=r.charAt(j*9+i);
+		if(x=='.')v++;
+		eval("document.ffT.T"+j+""+i+".value='"+composition.charAt(j*9+i)+"';");
+	}
+	var txt1=v+' empty, '+(81-v)+' givens - ';
+	var txt2='Checked in '+(new Date().getTime() - myStart)/1000.+' second(s)';
+	input=document.getElementById('footS');
+	input.innerHTML=txt1+txt2;
+	input=document.getElementById('footT');
+	input.innerHTML=txt2;
+}
+
+function npReset() {
+//       -------
+	var	 j=i=v		=0
+		,myInput	={}
+		;
+	for ( j=0; j<9; j++ )for ( i=0; i<9; i++ ) {
+		myInput=document.getElementById('S'+j+''+i);
+		if ( ! myInput.readOnly ) {
+			v++;
+			myInput.value='';
+			myInput.removeAttribute('note');
+			myInput.classList.remove('given');
+		}
+	}
+	document.getElementById('footS').innerHTML	= v+' empty cells and '+(81-v)+' givens.';
+	document.getElementById('footT').innerHTML	=' ';
+}
+
+document.write('<center>');
+
+npDraw('S');
+
+document.write('<input type="button" value="New game" onclick="run();"></input>');
+document.write('&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type="button" value="Check" onclick="npCheck();"></input>&nbsp;&nbsp;<input type="button" value="Reset" onclick="npReset();"></input>');
+document.write('<br><br><br><br><br><br><br><br><br><br><br><br><br><br>');
+
+npDraw('T');
+
+document.write('</center>');
+
+function npClick( a ) {
+//       -------
+	function ownCheckFull() {
+		var i, j, myElem;
+		for ( i=0; i<9; i++ )for ( j=0; j<9; j++ ) {
+			myElem = document.getElementById('S'+i+''+j);
+			if ( (myElem.value == '')
+			||    myElem.classList.contains('note') )
+				return false;
+		}
+		return true;
+	}
+	function ownCheckRight() {
+		var	 g = new Array()
+			,i, j
+			;
+//		Get all cells content
+		for ( i=0; i<9; i++ ) {
+			g[i] = new Array();
+			for ( j=0; j<9; j++ ) {
+				g[i][j] = document.getElementById('S'+j+''+i).value - 1;
+			}
+		}
+//		Check the rules
+		var	myArray = [0, 0, 0, 0, 0, 0, 0, 0, 0];
+		function checkArr( theArray ) {
+			var	 myCheck = [0, 0, 0, 0, 0, 0, 0, 0, 0]
+				,i
+				;
+			for ( i=0; i<9; i++ ) {
+				++myCheck[ theArray[i] ];
+			}
+			for ( i=0; i<9; i++ ) {
+				if ( myCheck[i] !== 1 )	return true;
+			}
+			return false;
+		}
+		function checkCols() {
+			var	 j, i;
+			for ( j=0; j<9; j++ ) {
+				for ( i=0; i<9; i++ ) {
+					myArray[i] = g[i][j];
+				}
+				if ( checkArr(myArray) )	return true;
+			}
+			return false;
+		}
+		function checkRows() {
+			for ( var i=0; i<9; i++ ) {
+				if ( checkArr(g[i]) )	return true;
+			}
+			return false;
+		}
+		function checkBlocks() {
+			var	 i, j;
+			for ( i=0; i<9; i+=3 ) {
+				for ( j=0; j<9; j+=3 ) {
+					myArray[0] = g[i][j];
+					myArray[1] = g[i][j+1];
+					myArray[2] = g[i][j+2];
+					myArray[3] = g[i+1][j];
+					myArray[4] = g[i+1][j+1];
+					myArray[5] = g[i+1][j+2];
+					myArray[6] = g[i+2][j];
+					myArray[7] = g[i+2][j+1];
+					myArray[8] = g[i+2][j+2];
+				}
+				if ( checkArr(myArray) )	return true;
+			}
+			return false;
+		}
+		if ( checkCols() )	return true;
+		if ( checkRows() )	return true;
+		if ( checkBlocks() )	return true;
+		return false;
+	}
+
+	npPopupHide();
+	xx.classList.remove('note');
+	if(a<10)xx.value=a>0?a:'';
+//
+	if ( ownCheckFull() ) {
+		if ( ! ownCheckRight() ) {
+			msgbox(G_oc.caption,'Bravo!<br>You\'re Number One!',130,{});
+		}
+	}
+}
+
+function npTabChange( theTab ) {
+//       -----------
+	if ( ! theTab.classList.contains('active') ) {
+	var	 myList	= theTab.parentElement.children
+		,myPage	= document.getElementById('htPopTabPage').children
+		,i	= 0
+		;
+		for ( i=0; i < myList.length; i++ ) {
+			if ( myList[i].classList.contains('active') ) {
+				myList[i].classList.remove('active');
+				myPage[i].style.display	= 'none';
+			} else if ( myList[i] === theTab ) {
+				myList[i].classList.add('active');
+				myPage[i].style.display	= 'block';
+				myPage[i].focus();
+			}
+		}
+	}
+}
+
+function npPopupClear( e ) {
+//       ------------
+	e.preventDefault();
+	e.stopImmediatePropagation();
+	var	 myPage	= document.getElementById('htPopTabPage').children
+		;
+	if ( myPage[0].style.display == 'block' ) {
+//	Tabsheet == 'Set'
+		xx.value	='';
+//		Check whether there is an existing note to revive
+		if ( xx.hasAttribute('note') ) {
+			xx.value = xx.getAttribute('note');
+			xx.classList.add('note');
+		}
+		npPopupHide();
+	} else {
+//	Tabsheet == 'Edit'
+		npResetEditButtons();
+		xx.removeAttribute('note');
+		if ( xx.classList.contains('note') ) {
+			xx.value	='';
+			xx.classList.remove('note');
+		}
+	}
+}
+
+function npPopupEdit( theObj ) {
+//       -----------
+	if ( theObj.classList.contains('active') ) {
+		theObj.classList.remove('active');
+	} else {
+		theObj.classList.add('active');
+		xx.value	+=''+theObj.value;
+		xx.value	 = xx.value.split('').sort().join('');
+	}
+	var	 myList	= document.getElementById('htPopTabEdit').children
+		,s	=''
+		,i	= 0
+		,a	= new Array()
+		;
+	for ( i=0; i < myList.length; i++ ) {
+		if ( myList[i].classList.contains('active') ) {
+			s = myList[i].textContent;
+			a[ s ] = s;
+		}
+	}
+	s = a.join('');
+	if ( xx.value !== '') {
+//	Existing Value
+		if ( xx.classList.contains('note') ) {
+//		Existing value is a note
+//			One can change the value
+			xx.value	= s;
+			if ( s == '' ) {
+//			New note is empty, remove attribute and class
+				xx.removeAttribute('note');
+				xx.classList.remove('note');
+			} else {
+//			New note is set, change attribute
+				xx.setAttribute('note', s);
+			}
+		} else if ( s == '' ) {
+//		Existing value is a result, but a new note is reset
+				xx.removeAttribute('note');
+		} else {
+//		Existing value is a result, but a new note is set
+				xx.setAttribute('note', s);
+		}
+	} else if ( s !== '' ) {
+//	No existing value, New note : set value, class and attribute
+		xx.value	= s;
+		xx.classList.add('note');
+		xx.setAttribute('note', s);
+	}
+}
+
+function npKeySet(e,p) {
+	if ( p == 0 ) {
+		switch ( e.keyCode ) {
+		case 13:// Return
+		case 27:// Escape
+						break;
+		case 8: // Backspace		
+		case 46:// Delete
+				npPopupClear(e);break;
+		case 97:
+		case 49:	npClick(1);	break;
+		case 98:
+		case 50:	npClick(2);	break;
+		case 99:
+		case 51:	npClick(3);	break;
+		case 100:
+		case 52:	npClick(4);	break;
+		case 101:
+		case 53:	npClick(5);	break;
+		case 102:
+		case 54:	npClick(6);	break;
+		case 103:
+		case 55:	npClick(7);	break;
+		case 104:
+		case 56:	npClick(8);	break;
+		case 105:
+		case 57:	npClick(9);	break;
+		}
+		npPopupHide();
+	} else {
+		switch ( e.keyCode ) {
+		case 27:// Escape
+		case 13:// Return
+				npPopupHide();	break;
+		case 8: // Backspace
+		case 46:// Delete
+				npPopupClear(e);break;
+		case 97:
+		case 49:	npPopupEdit( document.getElementById('htBE1') );	break;
+		case 98:
+		case 50:	npPopupEdit( document.getElementById('htBE2') );	break;
+		case 99:
+		case 51:	npPopupEdit( document.getElementById('htBE3') );	break;
+		case 100:
+		case 52:	npPopupEdit( document.getElementById('htBE4') );	break;
+		case 101:
+		case 53:	npPopupEdit( document.getElementById('htBE5') );	break;
+		case 102:
+		case 54:	npPopupEdit( document.getElementById('htBE6') );	break;
+		case 103:
+		case 55:	npPopupEdit( document.getElementById('htBE7') );	break;
+		case 104:
+		case 56:	npPopupEdit( document.getElementById('htBE8') );	break;
+		case 105:
+		case 57:	npPopupEdit( document.getElementById('htBE9') );	break;
+		}
+	}
+}
+
+//--></script>
+<div id="htPopup" style="display:none;">
+<center>
+	<div class="tabSheet">
+		<ul>
+		<li id="htPopTabHeadSet"  onclick="npTabChange(this)" class="active">Set</li>
+		<li id="htPopTabHeadEdit" onclick="npTabChange(this)">Edit</li>
+		</ul>
+	</div>
+	<div id="htPopTabPage" class="tabPage">
+		<div id="htPopTabSet" tabindex="1" onkeydown="npKeySet(event,0);">
+			<input type="button" value="7" class="btnSet" onclick="npClick(7)"/>
+			<input type="button" value="8" class="btnSet" onclick="npClick(8)"/>
+			<input type="button" value="9" class="btnSet" onclick="npClick(9)"/>
+			<input type="button" value="4" class="btnSet" onclick="npClick(4)"/>
+			<input type="button" value="5" class="btnSet" onclick="npClick(5)"/>
+			<input type="button" value="6" class="btnSet" onclick="npClick(6)"/>
+			<input type="button" value="1" class="btnSet" onclick="npClick(1)"/>
+			<input type="button" value="2" class="btnSet" onclick="npClick(2)"/>
+			<input type="button" value="3" class="btnSet" onclick="npClick(3)"/>
+		</div>
+		<div id="htPopTabEdit" tabindex="2" onkeydown="npKeySet(event,1);" style="display:none;">
+			<button id="htBE7" class="btnEdit" onclick="npPopupEdit(this)">7</button>
+			<button id="htBE8" class="btnEdit" onclick="npPopupEdit(this)">8</button>
+			<button id="htBE9" class="btnEdit" onclick="npPopupEdit(this)">9</button>
+			<button id="htBE4" class="btnEdit" onclick="npPopupEdit(this)">4</button>
+			<button id="htBE5" class="btnEdit" onclick="npPopupEdit(this)">5</button>
+			<button id="htBE6" class="btnEdit" onclick="npPopupEdit(this)">6</button>
+			<button id="htBE1" class="btnEdit" onclick="npPopupEdit(this)">1</button>
+			<button id="htBE2" class="btnEdit" onclick="npPopupEdit(this)">2</button>
+			<button id="htBE3" class="btnEdit" onclick="npPopupEdit(this)">3</button>
+		</div>
+	</div>
+	<div id="htPopControl">
+		<input type="button" id="htPopClose" onclick="npPopupHide();"  value="Close"/>
+		<input type="button" id="htPopClear" onclick="npPopupClear(event);" value="Clear"/>
+	</div>
+</center>
+</div>
+</body></html>

@@ -14,7 +14,10 @@
   var Element = scope.wrappers.Element;
   var HTMLElement = scope.wrappers.HTMLElement;
   var registerObject = scope.registerObject;
+<<<<<<< HEAD
   var defineWrapGetter = scope.defineWrapGetter;
+=======
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var svgTitleElement = document.createElementNS(SVG_NS, 'title');
@@ -31,7 +34,10 @@
     delete Element.prototype.classList;
   }
 
+<<<<<<< HEAD
   defineWrapGetter(SVGElement, 'ownerSVGElement');
 
+=======
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
   scope.wrappers.SVGElement = SVGElement;
 })(window.ShadowDOMPolyfill);

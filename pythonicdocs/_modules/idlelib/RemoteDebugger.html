@@ -1,0 +1,550 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>idlelib.RemoteDebugger &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>idlelib.RemoteDebugger</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for idlelib.RemoteDebugger</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Support for remote Python debugging.</span>
+
+<span class="sd">Some ASCII art to describe the structure:</span>
+
+<span class="sd">       IN PYTHON SUBPROCESS          #             IN IDLE PROCESS</span>
+<span class="sd">                                     #</span>
+<span class="sd">                                     #        oid=&#39;gui_adapter&#39;</span>
+<span class="sd">                 +----------+        #       +------------+          +-----+</span>
+<span class="sd">                 | GUIProxy |--remote#call--&gt;| GUIAdapter |--calls--&gt;| GUI |</span>
+<span class="sd">+-----+--calls--&gt;+----------+        #       +------------+          +-----+</span>
+<span class="sd">| Idb |                               #                             /</span>
+<span class="sd">+-----+&lt;-calls--+------------+         #      +----------+&lt;--calls-/</span>
+<span class="sd">                | IdbAdapter |&lt;--remote#call--| IdbProxy |</span>
+<span class="sd">                +------------+         #      +----------+</span>
+<span class="sd">                oid=&#39;idb_adapter&#39;      #</span>
+
+<span class="sd">The purpose of the Proxy and Adapter classes is to translate certain</span>
+<span class="sd">arguments and return values that cannot be transported through the RPC</span>
+<span class="sd">barrier, in particular frame and traceback objects.</span>
+
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">types</span>
+<span class="kn">from</span> <span class="nn">idlelib</span> <span class="kn">import</span> <span class="n">rpc</span>
+<span class="kn">from</span> <span class="nn">idlelib</span> <span class="kn">import</span> <span class="n">Debugger</span>
+
+<span class="n">debugging</span> <span class="o">=</span> <span class="mi">0</span>
+
+<span class="n">idb_adap_oid</span> <span class="o">=</span> <span class="s">&quot;idb_adapter&quot;</span>
+<span class="n">gui_adap_oid</span> <span class="o">=</span> <span class="s">&quot;gui_adapter&quot;</span>
+
+<span class="c">#=======================================</span>
+<span class="c">#</span>
+<span class="c"># In the PYTHON subprocess:</span>
+
+<span class="n">frametable</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">dicttable</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">codetable</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">tracebacktable</span> <span class="o">=</span> <span class="p">{}</span>
+
+<div class="viewcode-block" id="wrap_frame"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.wrap_frame">[docs]</a><span class="k">def</span> <span class="nf">wrap_frame</span><span class="p">(</span><span class="n">frame</span><span class="p">):</span>
+    <span class="n">fid</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+    <span class="n">frametable</span><span class="p">[</span><span class="n">fid</span><span class="p">]</span> <span class="o">=</span> <span class="n">frame</span>
+    <span class="k">return</span> <span class="n">fid</span>
+</div>
+<div class="viewcode-block" id="wrap_info"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.wrap_info">[docs]</a><span class="k">def</span> <span class="nf">wrap_info</span><span class="p">(</span><span class="n">info</span><span class="p">):</span>
+    <span class="s">&quot;replace info[2], a traceback instance, by its ID&quot;</span>
+    <span class="k">if</span> <span class="n">info</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">None</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">traceback</span> <span class="o">=</span> <span class="n">info</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">traceback</span><span class="p">,</span> <span class="n">types</span><span class="o">.</span><span class="n">TracebackType</span><span class="p">)</span>
+        <span class="n">traceback_id</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">traceback</span><span class="p">)</span>
+        <span class="n">tracebacktable</span><span class="p">[</span><span class="n">traceback_id</span><span class="p">]</span> <span class="o">=</span> <span class="n">traceback</span>
+        <span class="n">modified_info</span> <span class="o">=</span> <span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">info</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">traceback_id</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">modified_info</span>
+</div>
+<div class="viewcode-block" id="GUIProxy"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.GUIProxy">[docs]</a><span class="k">class</span> <span class="nc">GUIProxy</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">gui_adap_oid</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn</span> <span class="o">=</span> <span class="n">conn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">oid</span> <span class="o">=</span> <span class="n">gui_adap_oid</span>
+
+<div class="viewcode-block" id="GUIProxy.interaction"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.GUIProxy.interaction">[docs]</a>    <span class="k">def</span> <span class="nf">interaction</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">frame</span><span class="p">,</span> <span class="n">info</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="c"># calls rpc.SocketIO.remotecall() via run.MyHandler instance</span>
+        <span class="c"># pass frame and traceback object IDs instead of the objects themselves</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">oid</span><span class="p">,</span> <span class="s">&quot;interaction&quot;</span><span class="p">,</span>
+                             <span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">wrap_frame</span><span class="p">(</span><span class="n">frame</span><span class="p">),</span> <span class="n">wrap_info</span><span class="p">(</span><span class="n">info</span><span class="p">)),</span>
+                             <span class="p">{})</span>
+</div></div>
+<div class="viewcode-block" id="IdbAdapter"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter">[docs]</a><span class="k">class</span> <span class="nc">IdbAdapter</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">idb</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">idb</span> <span class="o">=</span> <span class="n">idb</span>
+
+    <span class="c">#----------called by an IdbProxy----------</span>
+
+<div class="viewcode-block" id="IdbAdapter.set_step"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.set_step">[docs]</a>    <span class="k">def</span> <span class="nf">set_step</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">set_step</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.set_quit"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.set_quit">[docs]</a>    <span class="k">def</span> <span class="nf">set_quit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">set_quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.set_continue"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.set_continue">[docs]</a>    <span class="k">def</span> <span class="nf">set_continue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">set_continue</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.set_next"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.set_next">[docs]</a>    <span class="k">def</span> <span class="nf">set_next</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fid</span><span class="p">):</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">frametable</span><span class="p">[</span><span class="n">fid</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">set_next</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.set_return"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.set_return">[docs]</a>    <span class="k">def</span> <span class="nf">set_return</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fid</span><span class="p">):</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">frametable</span><span class="p">[</span><span class="n">fid</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">set_return</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.get_stack"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.get_stack">[docs]</a>    <span class="k">def</span> <span class="nf">get_stack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fid</span><span class="p">,</span> <span class="n">tbid</span><span class="p">):</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">frametable</span><span class="p">[</span><span class="n">fid</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">tbid</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">tb</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">tb</span> <span class="o">=</span> <span class="n">tracebacktable</span><span class="p">[</span><span class="n">tbid</span><span class="p">]</span>
+        <span class="n">stack</span><span class="p">,</span> <span class="n">i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">get_stack</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">tb</span><span class="p">)</span>
+        <span class="n">stack</span> <span class="o">=</span> <span class="p">[(</span><span class="n">wrap_frame</span><span class="p">(</span><span class="n">frame</span><span class="p">),</span> <span class="n">k</span><span class="p">)</span> <span class="k">for</span> <span class="n">frame</span><span class="p">,</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">stack</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">stack</span><span class="p">,</span> <span class="n">i</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.run"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">):</span>
+        <span class="kn">import</span> <span class="nn">__main__</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">__main__</span><span class="o">.</span><span class="n">__dict__</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.set_break"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.set_break">[docs]</a>    <span class="k">def</span> <span class="nf">set_break</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">set_break</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">msg</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.clear_break"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.clear_break">[docs]</a>    <span class="k">def</span> <span class="nf">clear_break</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">clear_break</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">msg</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.clear_all_file_breaks"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.clear_all_file_breaks">[docs]</a>    <span class="k">def</span> <span class="nf">clear_all_file_breaks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">idb</span><span class="o">.</span><span class="n">clear_all_file_breaks</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">msg</span>
+
+    <span class="c">#----------called by a FrameProxy----------</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.frame_attr"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.frame_attr">[docs]</a>    <span class="k">def</span> <span class="nf">frame_attr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fid</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">frametable</span><span class="p">[</span><span class="n">fid</span><span class="p">]</span>
+        <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.frame_globals"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.frame_globals">[docs]</a>    <span class="k">def</span> <span class="nf">frame_globals</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fid</span><span class="p">):</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">frametable</span><span class="p">[</span><span class="n">fid</span><span class="p">]</span>
+        <span class="nb">dict</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">f_globals</span>
+        <span class="n">did</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="nb">dict</span><span class="p">)</span>
+        <span class="n">dicttable</span><span class="p">[</span><span class="n">did</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span>
+        <span class="k">return</span> <span class="n">did</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.frame_locals"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.frame_locals">[docs]</a>    <span class="k">def</span> <span class="nf">frame_locals</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fid</span><span class="p">):</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">frametable</span><span class="p">[</span><span class="n">fid</span><span class="p">]</span>
+        <span class="nb">dict</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">f_locals</span>
+        <span class="n">did</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="nb">dict</span><span class="p">)</span>
+        <span class="n">dicttable</span><span class="p">[</span><span class="n">did</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span>
+        <span class="k">return</span> <span class="n">did</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.frame_code"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.frame_code">[docs]</a>    <span class="k">def</span> <span class="nf">frame_code</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fid</span><span class="p">):</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">frametable</span><span class="p">[</span><span class="n">fid</span><span class="p">]</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">f_code</span>
+        <span class="n">cid</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+        <span class="n">codetable</span><span class="p">[</span><span class="n">cid</span><span class="p">]</span> <span class="o">=</span> <span class="n">code</span>
+        <span class="k">return</span> <span class="n">cid</span>
+
+    <span class="c">#----------called by a CodeProxy----------</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.code_name"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.code_name">[docs]</a>    <span class="k">def</span> <span class="nf">code_name</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cid</span><span class="p">):</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">codetable</span><span class="p">[</span><span class="n">cid</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">code</span><span class="o">.</span><span class="n">co_name</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.code_filename"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.code_filename">[docs]</a>    <span class="k">def</span> <span class="nf">code_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cid</span><span class="p">):</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="n">codetable</span><span class="p">[</span><span class="n">cid</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">code</span><span class="o">.</span><span class="n">co_filename</span>
+
+    <span class="c">#----------called by a DictProxy----------</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.dict_keys"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.dict_keys">[docs]</a>    <span class="k">def</span> <span class="nf">dict_keys</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">did</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="bp">NotImplemented</span><span class="p">(</span><span class="s">&quot;dict_keys not public or pickleable&quot;</span><span class="p">)</span>
+<span class="c">##         dict = dicttable[did]</span>
+<span class="c">##         return dict.keys()</span>
+
+    <span class="c">### Needed until dict_keys is type is finished and pickealable.</span>
+    <span class="c">### Will probably need to extend rpc.py:SocketIO._proxify at that time.</span></div>
+<div class="viewcode-block" id="IdbAdapter.dict_keys_list"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.dict_keys_list">[docs]</a>    <span class="k">def</span> <span class="nf">dict_keys_list</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">did</span><span class="p">):</span>
+        <span class="nb">dict</span> <span class="o">=</span> <span class="n">dicttable</span><span class="p">[</span><span class="n">did</span><span class="p">]</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="nb">dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+</div>
+<div class="viewcode-block" id="IdbAdapter.dict_item"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbAdapter.dict_item">[docs]</a>    <span class="k">def</span> <span class="nf">dict_item</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">did</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="nb">dict</span> <span class="o">=</span> <span class="n">dicttable</span><span class="p">[</span><span class="n">did</span><span class="p">]</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">[</span><span class="n">key</span><span class="p">]</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="c">### can&#39;t pickle module &#39;builtins&#39;</span>
+        <span class="k">return</span> <span class="n">value</span>
+
+<span class="c">#----------end class IdbAdapter----------</span>
+
+</div></div>
+<div class="viewcode-block" id="start_debugger"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.start_debugger">[docs]</a><span class="k">def</span> <span class="nf">start_debugger</span><span class="p">(</span><span class="n">rpchandler</span><span class="p">,</span> <span class="n">gui_adap_oid</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Start the debugger and its RPC link in the Python subprocess</span>
+
+<span class="sd">    Start the subprocess side of the split debugger and set up that side of the</span>
+<span class="sd">    RPC link by instantiating the GUIProxy, Idb debugger, and IdbAdapter</span>
+<span class="sd">    objects and linking them together.  Register the IdbAdapter with the</span>
+<span class="sd">    RPCServer to handle RPC requests from the split debugger GUI via the</span>
+<span class="sd">    IdbProxy.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">gui_proxy</span> <span class="o">=</span> <span class="n">GUIProxy</span><span class="p">(</span><span class="n">rpchandler</span><span class="p">,</span> <span class="n">gui_adap_oid</span><span class="p">)</span>
+    <span class="n">idb</span> <span class="o">=</span> <span class="n">Debugger</span><span class="o">.</span><span class="n">Idb</span><span class="p">(</span><span class="n">gui_proxy</span><span class="p">)</span>
+    <span class="n">idb_adap</span> <span class="o">=</span> <span class="n">IdbAdapter</span><span class="p">(</span><span class="n">idb</span><span class="p">)</span>
+    <span class="n">rpchandler</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">idb_adap_oid</span><span class="p">,</span> <span class="n">idb_adap</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">idb_adap_oid</span>
+
+
+<span class="c">#=======================================</span>
+<span class="c">#</span>
+<span class="c"># In the IDLE process:</span>
+
+</div>
+<div class="viewcode-block" id="FrameProxy"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.FrameProxy">[docs]</a><span class="k">class</span> <span class="nc">FrameProxy</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">fid</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span> <span class="o">=</span> <span class="n">conn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fid</span> <span class="o">=</span> <span class="n">fid</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_oid</span> <span class="o">=</span> <span class="s">&quot;idb_adapter&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_dictcache</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">name</span><span class="p">[:</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;_&quot;</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s">&quot;f_code&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_f_code</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s">&quot;f_globals&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_f_globals</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s">&quot;f_locals&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_f_locals</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="s">&quot;frame_attr&quot;</span><span class="p">,</span>
+                                     <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_fid</span><span class="p">,</span> <span class="n">name</span><span class="p">),</span> <span class="p">{})</span>
+
+    <span class="k">def</span> <span class="nf">_get_f_code</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">cid</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="s">&quot;frame_code&quot;</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_fid</span><span class="p">,),</span> <span class="p">{})</span>
+        <span class="k">return</span> <span class="n">CodeProxy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="n">cid</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_get_f_globals</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">did</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="s">&quot;frame_globals&quot;</span><span class="p">,</span>
+                                    <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_fid</span><span class="p">,),</span> <span class="p">{})</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_dict_proxy</span><span class="p">(</span><span class="n">did</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_get_f_locals</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">did</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="s">&quot;frame_locals&quot;</span><span class="p">,</span>
+                                    <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_fid</span><span class="p">,),</span> <span class="p">{})</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_dict_proxy</span><span class="p">(</span><span class="n">did</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_get_dict_proxy</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">did</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">did</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dictcache</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_dictcache</span><span class="p">[</span><span class="n">did</span><span class="p">]</span>
+        <span class="n">dp</span> <span class="o">=</span> <span class="n">DictProxy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="n">did</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_dictcache</span><span class="p">[</span><span class="n">did</span><span class="p">]</span> <span class="o">=</span> <span class="n">dp</span>
+        <span class="k">return</span> <span class="n">dp</span>
+
+</div>
+<div class="viewcode-block" id="CodeProxy"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.CodeProxy">[docs]</a><span class="k">class</span> <span class="nc">CodeProxy</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">oid</span><span class="p">,</span> <span class="n">cid</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span> <span class="o">=</span> <span class="n">conn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_oid</span> <span class="o">=</span> <span class="n">oid</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cid</span> <span class="o">=</span> <span class="n">cid</span>
+
+    <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s">&quot;co_name&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="s">&quot;code_name&quot;</span><span class="p">,</span>
+                                         <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cid</span><span class="p">,),</span> <span class="p">{})</span>
+        <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s">&quot;co_filename&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="s">&quot;code_filename&quot;</span><span class="p">,</span>
+                                         <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cid</span><span class="p">,),</span> <span class="p">{})</span>
+
+</div>
+<div class="viewcode-block" id="DictProxy"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.DictProxy">[docs]</a><span class="k">class</span> <span class="nc">DictProxy</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">oid</span><span class="p">,</span> <span class="n">did</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span> <span class="o">=</span> <span class="n">conn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_oid</span> <span class="o">=</span> <span class="n">oid</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_did</span> <span class="o">=</span> <span class="n">did</span>
+
+<span class="c">##    def keys(self):</span>
+<span class="c">##        return self._conn.remotecall(self._oid, &quot;dict_keys&quot;, (self._did,), {})</span>
+
+    <span class="c"># &#39;temporary&#39; until dict_keys is a pickleable built-in type</span>
+<div class="viewcode-block" id="DictProxy.keys"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.DictProxy.keys">[docs]</a>    <span class="k">def</span> <span class="nf">keys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span>
+                                     <span class="s">&quot;dict_keys_list&quot;</span><span class="p">,</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_did</span><span class="p">,),</span> <span class="p">{})</span>
+</div>
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oid</span><span class="p">,</span> <span class="s">&quot;dict_item&quot;</span><span class="p">,</span>
+                                     <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_did</span><span class="p">,</span> <span class="n">key</span><span class="p">),</span> <span class="p">{})</span>
+
+    <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="c">##print(&quot;*** Failed DictProxy.__getattr__:&quot;, name)</span>
+        <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="GUIAdapter"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.GUIAdapter">[docs]</a><span class="k">class</span> <span class="nc">GUIAdapter</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">gui</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn</span> <span class="o">=</span> <span class="n">conn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gui</span> <span class="o">=</span> <span class="n">gui</span>
+
+<div class="viewcode-block" id="GUIAdapter.interaction"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.GUIAdapter.interaction">[docs]</a>    <span class="k">def</span> <span class="nf">interaction</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">fid</span><span class="p">,</span> <span class="n">modified_info</span><span class="p">):</span>
+        <span class="c">##print(&quot;*** Interaction: (%s, %s, %s)&quot; % (message, fid, modified_info))</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">FrameProxy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span> <span class="n">fid</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gui</span><span class="o">.</span><span class="n">interaction</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">frame</span><span class="p">,</span> <span class="n">modified_info</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="IdbProxy"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy">[docs]</a><span class="k">class</span> <span class="nc">IdbProxy</span><span class="p">:</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">shell</span><span class="p">,</span> <span class="n">oid</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">oid</span> <span class="o">=</span> <span class="n">oid</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">conn</span> <span class="o">=</span> <span class="n">conn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shell</span> <span class="o">=</span> <span class="n">shell</span>
+
+<div class="viewcode-block" id="IdbProxy.call"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.call">[docs]</a>    <span class="k">def</span> <span class="nf">call</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">methodname</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c">##print(&quot;*** IdbProxy.call %s %s %s&quot; % (methodname, args, kwargs))</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">oid</span><span class="p">,</span> <span class="n">methodname</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">)</span>
+        <span class="c">##print(&quot;*** IdbProxy.call %s returns %r&quot; % (methodname, value))</span>
+        <span class="k">return</span> <span class="n">value</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.run"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="nb">locals</span><span class="p">):</span>
+        <span class="c"># Ignores locals on purpose!</span>
+        <span class="n">seq</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="o">.</span><span class="n">asyncqueue</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">oid</span><span class="p">,</span> <span class="s">&quot;run&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">cmd</span><span class="p">,),</span> <span class="p">{})</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">shell</span><span class="o">.</span><span class="n">interp</span><span class="o">.</span><span class="n">active_seq</span> <span class="o">=</span> <span class="n">seq</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.get_stack"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.get_stack">[docs]</a>    <span class="k">def</span> <span class="nf">get_stack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame</span><span class="p">,</span> <span class="n">tbid</span><span class="p">):</span>
+        <span class="c"># passing frame and traceback IDs, not the objects themselves</span>
+        <span class="n">stack</span><span class="p">,</span> <span class="n">i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;get_stack&quot;</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">_fid</span><span class="p">,</span> <span class="n">tbid</span><span class="p">)</span>
+        <span class="n">stack</span> <span class="o">=</span> <span class="p">[(</span><span class="n">FrameProxy</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">conn</span><span class="p">,</span> <span class="n">fid</span><span class="p">),</span> <span class="n">k</span><span class="p">)</span> <span class="k">for</span> <span class="n">fid</span><span class="p">,</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">stack</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">stack</span><span class="p">,</span> <span class="n">i</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.set_continue"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.set_continue">[docs]</a>    <span class="k">def</span> <span class="nf">set_continue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;set_continue&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.set_step"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.set_step">[docs]</a>    <span class="k">def</span> <span class="nf">set_step</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;set_step&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.set_next"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.set_next">[docs]</a>    <span class="k">def</span> <span class="nf">set_next</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;set_next&quot;</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">_fid</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.set_return"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.set_return">[docs]</a>    <span class="k">def</span> <span class="nf">set_return</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">frame</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;set_return&quot;</span><span class="p">,</span> <span class="n">frame</span><span class="o">.</span><span class="n">_fid</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.set_quit"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.set_quit">[docs]</a>    <span class="k">def</span> <span class="nf">set_quit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;set_quit&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.set_break"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.set_break">[docs]</a>    <span class="k">def</span> <span class="nf">set_break</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;set_break&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">msg</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.clear_break"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.clear_break">[docs]</a>    <span class="k">def</span> <span class="nf">clear_break</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;clear_break&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">msg</span>
+</div>
+<div class="viewcode-block" id="IdbProxy.clear_all_file_breaks"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.IdbProxy.clear_all_file_breaks">[docs]</a>    <span class="k">def</span> <span class="nf">clear_all_file_breaks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">call</span><span class="p">(</span><span class="s">&quot;clear_all_file_breaks&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">msg</span>
+</div></div>
+<div class="viewcode-block" id="start_remote_debugger"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.start_remote_debugger">[docs]</a><span class="k">def</span> <span class="nf">start_remote_debugger</span><span class="p">(</span><span class="n">rpcclt</span><span class="p">,</span> <span class="n">pyshell</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Start the subprocess debugger, initialize the debugger GUI and RPC link</span>
+
+<span class="sd">    Request the RPCServer start the Python subprocess debugger and link.  Set</span>
+<span class="sd">    up the Idle side of the split debugger by instantiating the IdbProxy,</span>
+<span class="sd">    debugger GUI, and debugger GUIAdapter objects and linking them together.</span>
+
+<span class="sd">    Register the GUIAdapter with the RPCClient to handle debugger GUI</span>
+<span class="sd">    interaction requests coming from the subprocess debugger via the GUIProxy.</span>
+
+<span class="sd">    The IdbAdapter will pass execution and environment requests coming from the</span>
+<span class="sd">    Idle debugger GUI to the subprocess debugger via the IdbProxy.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">idb_adap_oid</span>
+
+    <span class="n">idb_adap_oid</span> <span class="o">=</span> <span class="n">rpcclt</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="s">&quot;exec&quot;</span><span class="p">,</span> <span class="s">&quot;start_the_debugger&quot;</span><span class="p">,</span>\
+                                   <span class="p">(</span><span class="n">gui_adap_oid</span><span class="p">,),</span> <span class="p">{})</span>
+    <span class="n">idb_proxy</span> <span class="o">=</span> <span class="n">IdbProxy</span><span class="p">(</span><span class="n">rpcclt</span><span class="p">,</span> <span class="n">pyshell</span><span class="p">,</span> <span class="n">idb_adap_oid</span><span class="p">)</span>
+    <span class="n">gui</span> <span class="o">=</span> <span class="n">Debugger</span><span class="o">.</span><span class="n">Debugger</span><span class="p">(</span><span class="n">pyshell</span><span class="p">,</span> <span class="n">idb_proxy</span><span class="p">)</span>
+    <span class="n">gui_adap</span> <span class="o">=</span> <span class="n">GUIAdapter</span><span class="p">(</span><span class="n">rpcclt</span><span class="p">,</span> <span class="n">gui</span><span class="p">)</span>
+    <span class="n">rpcclt</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">gui_adap_oid</span><span class="p">,</span> <span class="n">gui_adap</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">gui</span>
+</div>
+<div class="viewcode-block" id="close_remote_debugger"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.close_remote_debugger">[docs]</a><span class="k">def</span> <span class="nf">close_remote_debugger</span><span class="p">(</span><span class="n">rpcclt</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Shut down subprocess debugger and Idle side of debugger RPC link</span>
+
+<span class="sd">    Request that the RPCServer shut down the subprocess debugger and link.</span>
+<span class="sd">    Unregister the GUIAdapter, which will cause a GC on the Idle process</span>
+<span class="sd">    debugger and RPC link objects.  (The second reference to the debugger GUI</span>
+<span class="sd">    is deleted in PyShell.close_remote_debugger().)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">close_subprocess_debugger</span><span class="p">(</span><span class="n">rpcclt</span><span class="p">)</span>
+    <span class="n">rpcclt</span><span class="o">.</span><span class="n">unregister</span><span class="p">(</span><span class="n">gui_adap_oid</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="close_subprocess_debugger"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.close_subprocess_debugger">[docs]</a><span class="k">def</span> <span class="nf">close_subprocess_debugger</span><span class="p">(</span><span class="n">rpcclt</span><span class="p">):</span>
+    <span class="n">rpcclt</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="s">&quot;exec&quot;</span><span class="p">,</span> <span class="s">&quot;stop_the_debugger&quot;</span><span class="p">,</span> <span class="p">(</span><span class="n">idb_adap_oid</span><span class="p">,),</span> <span class="p">{})</span>
+</div>
+<div class="viewcode-block" id="restart_subprocess_debugger"><a class="viewcode-back" href="../../idlelib.html#idlelib.RemoteDebugger.restart_subprocess_debugger">[docs]</a><span class="k">def</span> <span class="nf">restart_subprocess_debugger</span><span class="p">(</span><span class="n">rpcclt</span><span class="p">):</span>
+    <span class="n">idb_adap_oid_ret</span> <span class="o">=</span> <span class="n">rpcclt</span><span class="o">.</span><span class="n">remotecall</span><span class="p">(</span><span class="s">&quot;exec&quot;</span><span class="p">,</span> <span class="s">&quot;start_the_debugger&quot;</span><span class="p">,</span>\
+                                         <span class="p">(</span><span class="n">gui_adap_oid</span><span class="p">,),</span> <span class="p">{})</span>
+    <span class="k">assert</span> <span class="n">idb_adap_oid_ret</span> <span class="o">==</span> <span class="n">idb_adap_oid</span><span class="p">,</span> <span class="s">&#39;Idb restarted with different oid&#39;</span></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Radix","A radix with in the range of `2..36`."],["RadixFmt","A helper type for formatting radixes."]],"fn":[["radix","Constructs a radix formatter in the range of `2..36`."]]});
