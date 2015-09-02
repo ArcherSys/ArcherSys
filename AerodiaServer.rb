@@ -1,0 +1,130 @@
+module ArcherSysOS
+require "gdbm"
+require 'ruby_mud'
+require "readline"
+
+class WordDictionary
+      def initialize(title)#creates a hash like a dictionary
+        @title = title
+        @words = GDBM.new("dictionary_of_words.db")
+        
+     end
+def add_entry(word,definition) # Add Definitions
+   @words[word] = definition
+end
+def get_entry(word)
+   return "#{word} : #{@words[word]}"
+end
+end
+
+DICTIONARY_OF_WORDS = WordDictionary.new("Dictionary of Word")
+class MudServer::DefaultController
+   def on_start
+    # Send messages via send_text.
+    send_text "Welcome! Here's a list of available commands"
+    send_text "TIME  : See the current time."
+    send_text "SAY   : Talk."
+    send_text "SECRET: Go somewhere super secret."
+    send_text "QUIT  : Disconnect from the server."
+    
+  end
+   def allowed_methods
+    super + ['time', 'secret', 'say','study'] # Quit is available by default via `super`
+                                      # No need to implement it yourself.
+  end
+  # User input after a command is provided via `params`.
+  def say
+   send_text "You just said: #{params}"
+  end
+
+  def time
+    send_text "The time is now #{Time.now}"
+  end
+  #Transfer people to a different menu / area using `transfer_to`
+  def secret
+    transfer_to PokerRoom # Define the PokerRoom as a controller.
+  end
+  def study
+     transfer_to StudyHall
+  end
+end
+class PokerRoom < MudServer::AbstractController # controllers are inherited.
+  def on_start
+    send_text 'You found the secret poker room!'
+    send_text 'Type DEAL to get a hand of cards.'
+   
+  end
+ 
+
+  def allowed_methods
+    ['quit', 'deal']
+  end
+
+  def deal
+    send_text 'Did I say poker? I meant dice.'
+    send_text "You rolled a #{rand(5)+1}."
+  end
+end
+class StudyHall < MudServer::AbstractController  # Main course of ArcherSys OS Cashew's 
+    def on_start
+       send_text 'You are now in the Study Hall! Use this room to collaborate with study group members'
+       send_text  'Commands: '
+       send_text  'LOOKUP: Looks up a word from the dictionary  '
+       
+     
+    
+    end
+    def allowed_methods
+        super +  ['quiz','lookup','admin','talk','review_notes']
+     end
+    def quiz # goes to F16Cockpit
+       transfer_to F16Cockpit
+     end
+    def admin
+       transfer_to Library
+    end
+
+    def lookup # Looks up a word from a dictionary
+	    word = params
+
+	    send_text DICTIONARY_OF_WORDS.get_entry(word)
+    end
+end
+
+class F16Cockpit < MudServer::AbstractController 
+
+end
+class Library  < MudServer::AbstractController
+   def on_start
+	   send_text 'You Just Entered the Library'
+   end
+   def allowed_methods
+	  super +  ['add_entry','quit','study']
+	  end
+   def add_entry
+	   word  = Readline.readline("Word: ",true)
+	   definition = Readline.readline("Definition: ",true)
+
+	   ArcherSysOS::DICTIONARY_OF_WORDS.add_entry(word,definition)
+            DICTIONARY_OF_WORD.words.close
+	   
+   end
+   def study
+     transfer_to StudyHall
+  end
+end
+
+SERVER = MudServer.new '0.0.0.0', '4321' # Run server on all IPs on port 4321. 
+
+	# Defaults to 0.0.0.0:4000 if none set.
+   
+
+SERVER.start # Accept connections
+begin
+puts 'Press enter to exit.'
+loop{}
+rescue Interrupt => e
+
+SERVER.stop 
+end
+end

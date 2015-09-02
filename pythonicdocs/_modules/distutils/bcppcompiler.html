@@ -1,0 +1,554 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>distutils.bcppcompiler &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>distutils.bcppcompiler</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for distutils.bcppcompiler</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.bcppcompiler</span>
+
+<span class="sd">Contains BorlandCCompiler, an implementation of the abstract CCompiler class</span>
+<span class="sd">for the Borland C++ compiler.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="c"># This implementation by Lyle Johnson, based on the original msvccompiler.py</span>
+<span class="c"># module and using the directions originally published by Gordon Williams.</span>
+
+<span class="c"># XXX looks like there&#39;s a LOT of overlap between these two classes:</span>
+<span class="c"># someone should sit down and factor out the common code as</span>
+<span class="c"># WindowsCCompiler!  --GPW</span>
+
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> \
+     <span class="n">DistutilsExecError</span><span class="p">,</span> <span class="n">DistutilsPlatformError</span><span class="p">,</span> \
+     <span class="n">CompileError</span><span class="p">,</span> <span class="n">LibError</span><span class="p">,</span> <span class="n">LinkError</span><span class="p">,</span> <span class="n">UnknownFileError</span>
+<span class="kn">from</span> <span class="nn">distutils.ccompiler</span> <span class="kn">import</span> \
+     <span class="n">CCompiler</span><span class="p">,</span> <span class="n">gen_preprocess_options</span><span class="p">,</span> <span class="n">gen_lib_options</span>
+<span class="kn">from</span> <span class="nn">distutils.file_util</span> <span class="kn">import</span> <span class="n">write_file</span>
+<span class="kn">from</span> <span class="nn">distutils.dep_util</span> <span class="kn">import</span> <span class="n">newer</span>
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">log</span>
+
+<div class="viewcode-block" id="BCPPCompiler"><a class="viewcode-back" href="../../distutils.html#distutils.bcppcompiler.BCPPCompiler">[docs]</a><span class="k">class</span> <span class="nc">BCPPCompiler</span><span class="p">(</span><span class="n">CCompiler</span><span class="p">)</span> <span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Concrete class that implements an interface to the Borland C/C++</span>
+<span class="sd">    compiler, as defined by the CCompiler abstract class.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">compiler_type</span> <span class="o">=</span> <span class="s">&#39;bcpp&#39;</span>
+
+    <span class="c"># Just set this so CCompiler&#39;s constructor doesn&#39;t barf.  We currently</span>
+    <span class="c"># don&#39;t use the &#39;set_executables()&#39; bureaucracy provided by CCompiler,</span>
+    <span class="c"># as it really isn&#39;t necessary for this sort of single-compiler class.</span>
+    <span class="c"># Would be nice to have a consistent interface with UnixCCompiler,</span>
+    <span class="c"># though, so it&#39;s worth thinking about.</span>
+    <span class="n">executables</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="c"># Private class data (need to distinguish C from C++ source for compiler)</span>
+    <span class="n">_c_extensions</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;.c&#39;</span><span class="p">]</span>
+    <span class="n">_cpp_extensions</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;.cc&#39;</span><span class="p">,</span> <span class="s">&#39;.cpp&#39;</span><span class="p">,</span> <span class="s">&#39;.cxx&#39;</span><span class="p">]</span>
+
+    <span class="c"># Needed for the filename generation methods provided by the</span>
+    <span class="c"># base class, CCompiler.</span>
+    <span class="n">src_extensions</span> <span class="o">=</span> <span class="n">_c_extensions</span> <span class="o">+</span> <span class="n">_cpp_extensions</span>
+    <span class="n">obj_extension</span> <span class="o">=</span> <span class="s">&#39;.obj&#39;</span>
+    <span class="n">static_lib_extension</span> <span class="o">=</span> <span class="s">&#39;.lib&#39;</span>
+    <span class="n">shared_lib_extension</span> <span class="o">=</span> <span class="s">&#39;.dll&#39;</span>
+    <span class="n">static_lib_format</span> <span class="o">=</span> <span class="n">shared_lib_format</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="s">&#39;</span>
+    <span class="n">exe_extension</span> <span class="o">=</span> <span class="s">&#39;.exe&#39;</span>
+
+
+    <span class="k">def</span> <span class="nf">__init__</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                  <span class="n">verbose</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                  <span class="n">dry_run</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                  <span class="n">force</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+
+        <span class="n">CCompiler</span><span class="o">.</span><span class="n">__init__</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">verbose</span><span class="p">,</span> <span class="n">dry_run</span><span class="p">,</span> <span class="n">force</span><span class="p">)</span>
+
+        <span class="c"># These executables are assumed to all be in the path.</span>
+        <span class="c"># Borland doesn&#39;t seem to use any special registry settings to</span>
+        <span class="c"># indicate their installation locations.</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">cc</span> <span class="o">=</span> <span class="s">&quot;bcc32.exe&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">linker</span> <span class="o">=</span> <span class="s">&quot;ilink32.exe&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">lib</span> <span class="o">=</span> <span class="s">&quot;tlib.exe&quot;</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">preprocess_options</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">compile_options</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;/tWM&#39;</span><span class="p">,</span> <span class="s">&#39;/O2&#39;</span><span class="p">,</span> <span class="s">&#39;/q&#39;</span><span class="p">,</span> <span class="s">&#39;/g0&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">compile_options_debug</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;/tWM&#39;</span><span class="p">,</span> <span class="s">&#39;/Od&#39;</span><span class="p">,</span> <span class="s">&#39;/q&#39;</span><span class="p">,</span> <span class="s">&#39;/g0&#39;</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_shared</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;/Tpd&#39;</span><span class="p">,</span> <span class="s">&#39;/Gn&#39;</span><span class="p">,</span> <span class="s">&#39;/q&#39;</span><span class="p">,</span> <span class="s">&#39;/x&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_shared_debug</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;/Tpd&#39;</span><span class="p">,</span> <span class="s">&#39;/Gn&#39;</span><span class="p">,</span> <span class="s">&#39;/q&#39;</span><span class="p">,</span> <span class="s">&#39;/x&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_static</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_exe</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;/Gn&#39;</span><span class="p">,</span> <span class="s">&#39;/q&#39;</span><span class="p">,</span> <span class="s">&#39;/x&#39;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_exe_debug</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;/Gn&#39;</span><span class="p">,</span> <span class="s">&#39;/q&#39;</span><span class="p">,</span> <span class="s">&#39;/x&#39;</span><span class="p">,</span><span class="s">&#39;/r&#39;</span><span class="p">]</span>
+
+
+    <span class="c"># -- Worker methods ------------------------------------------------</span>
+
+<div class="viewcode-block" id="BCPPCompiler.compile"><a class="viewcode-back" href="../../distutils.html#distutils.bcppcompiler.BCPPCompiler.compile">[docs]</a>    <span class="k">def</span> <span class="nf">compile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span>
+                <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">macros</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">include_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">depends</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+
+        <span class="n">macros</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">,</span> <span class="n">pp_opts</span><span class="p">,</span> <span class="n">build</span> <span class="o">=</span> \
+                <span class="bp">self</span><span class="o">.</span><span class="n">_setup_compile</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span>
+                                    <span class="n">depends</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">)</span>
+        <span class="n">compile_opts</span> <span class="o">=</span> <span class="n">extra_preargs</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="n">compile_opts</span><span class="o">.</span><span class="n">append</span> <span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+            <span class="n">compile_opts</span><span class="o">.</span><span class="n">extend</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">compile_options_debug</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">compile_opts</span><span class="o">.</span><span class="n">extend</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">compile_options</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">objects</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">src</span><span class="p">,</span> <span class="n">ext</span> <span class="o">=</span> <span class="n">build</span><span class="p">[</span><span class="n">obj</span><span class="p">]</span>
+            <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="c"># XXX why do the normpath here?</span>
+            <span class="n">src</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">src</span><span class="p">)</span>
+            <span class="n">obj</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+            <span class="c"># XXX _setup_compile() did a mkpath() too but before the normpath.</span>
+            <span class="c"># Is it possible to skip the normpath?</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">mkpath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">obj</span><span class="p">))</span>
+
+            <span class="k">if</span> <span class="n">ext</span> <span class="o">==</span> <span class="s">&#39;.res&#39;</span><span class="p">:</span>
+                <span class="c"># This is already a binary file -- skip it.</span>
+                <span class="k">continue</span> <span class="c"># the &#39;for&#39; loop</span>
+            <span class="k">if</span> <span class="n">ext</span> <span class="o">==</span> <span class="s">&#39;.rc&#39;</span><span class="p">:</span>
+                <span class="c"># This needs to be compiled to a .res file -- do it now.</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span> <span class="p">([</span><span class="s">&quot;brcc32&quot;</span><span class="p">,</span> <span class="s">&quot;-fo&quot;</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">src</span><span class="p">])</span>
+                <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">CompileError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+                <span class="k">continue</span> <span class="c"># the &#39;for&#39; loop</span>
+
+            <span class="c"># The next two are both for the real compiler.</span>
+            <span class="k">if</span> <span class="n">ext</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_c_extensions</span><span class="p">:</span>
+                <span class="n">input_opt</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+            <span class="k">elif</span> <span class="n">ext</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cpp_extensions</span><span class="p">:</span>
+                <span class="n">input_opt</span> <span class="o">=</span> <span class="s">&quot;-P&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># Unknown file type -- no extra options.  The compiler</span>
+                <span class="c"># will probably fail, but let it just in case this is a</span>
+                <span class="c"># file the compiler recognizes even if we don&#39;t.</span>
+                <span class="n">input_opt</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+
+            <span class="n">output_opt</span> <span class="o">=</span> <span class="s">&quot;-o&quot;</span> <span class="o">+</span> <span class="n">obj</span>
+
+            <span class="c"># Compiler command line syntax is: &quot;bcc32 [options] file(s)&quot;.</span>
+            <span class="c"># Note that the source file names must appear at the end of</span>
+            <span class="c"># the command line.</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span> <span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">cc</span><span class="p">]</span> <span class="o">+</span> <span class="n">compile_opts</span> <span class="o">+</span> <span class="n">pp_opts</span> <span class="o">+</span>
+                            <span class="p">[</span><span class="n">input_opt</span><span class="p">,</span> <span class="n">output_opt</span><span class="p">]</span> <span class="o">+</span>
+                            <span class="n">extra_postargs</span> <span class="o">+</span> <span class="p">[</span><span class="n">src</span><span class="p">])</span>
+            <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">CompileError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">objects</span>
+
+    <span class="c"># compile ()</span>
+
+</div>
+<div class="viewcode-block" id="BCPPCompiler.create_static_lib"><a class="viewcode-back" href="../../distutils.html#distutils.bcppcompiler.BCPPCompiler.create_static_lib">[docs]</a>    <span class="k">def</span> <span class="nf">create_static_lib</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                           <span class="n">objects</span><span class="p">,</span>
+                           <span class="n">output_libname</span><span class="p">,</span>
+                           <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                           <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+
+        <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fix_object_args</span> <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
+        <span class="n">output_filename</span> <span class="o">=</span> \
+            <span class="bp">self</span><span class="o">.</span><span class="n">library_filename</span> <span class="p">(</span><span class="n">output_libname</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_need_link</span> <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">):</span>
+            <span class="n">lib_args</span> <span class="o">=</span> <span class="p">[</span><span class="n">output_filename</span><span class="p">,</span> <span class="s">&#39;/u&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="n">objects</span>
+            <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+                <span class="k">pass</span>                    <span class="c"># XXX what goes here?</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span> <span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">lib</span><span class="p">]</span> <span class="o">+</span> <span class="n">lib_args</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">LibError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;skipping </span><span class="si">%s</span><span class="s"> (up-to-date)&quot;</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">)</span>
+
+    <span class="c"># create_static_lib ()</span>
+
+</div>
+<div class="viewcode-block" id="BCPPCompiler.link"><a class="viewcode-back" href="../../distutils.html#distutils.bcppcompiler.BCPPCompiler.link">[docs]</a>    <span class="k">def</span> <span class="nf">link</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+              <span class="n">target_desc</span><span class="p">,</span>
+              <span class="n">objects</span><span class="p">,</span>
+              <span class="n">output_filename</span><span class="p">,</span>
+              <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+              <span class="n">libraries</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+              <span class="n">library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+              <span class="n">runtime_library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+              <span class="n">export_symbols</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+              <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+              <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+              <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+              <span class="n">build_temp</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+              <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+
+        <span class="c"># XXX this ignores &#39;build_temp&#39;!  should follow the lead of</span>
+        <span class="c"># msvccompiler.py</span>
+
+        <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fix_object_args</span> <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
+        <span class="p">(</span><span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">)</span> <span class="o">=</span> \
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fix_lib_args</span> <span class="p">(</span><span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">runtime_library_dirs</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;I don&#39;t know what to do with &#39;runtime_library_dirs&#39;: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span>
+                     <span class="nb">str</span><span class="p">(</span><span class="n">runtime_library_dirs</span><span class="p">))</span>
+
+        <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">output_filename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span> <span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_need_link</span> <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">):</span>
+
+            <span class="c"># Figure out linker args based on type of target.</span>
+            <span class="k">if</span> <span class="n">target_desc</span> <span class="o">==</span> <span class="n">CCompiler</span><span class="o">.</span><span class="n">EXECUTABLE</span><span class="p">:</span>
+                <span class="n">startup_obj</span> <span class="o">=</span> <span class="s">&#39;c0w32&#39;</span>
+                <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+                    <span class="n">ld_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_exe_debug</span><span class="p">[:]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">ld_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_exe</span><span class="p">[:]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">startup_obj</span> <span class="o">=</span> <span class="s">&#39;c0d32&#39;</span>
+                <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+                    <span class="n">ld_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_shared_debug</span><span class="p">[:]</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">ld_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ldflags_shared</span><span class="p">[:]</span>
+
+
+            <span class="c"># Create a temporary exports file for use by the linker</span>
+            <span class="k">if</span> <span class="n">export_symbols</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">def_file</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">head</span><span class="p">,</span> <span class="n">tail</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">split</span> <span class="p">(</span><span class="n">output_filename</span><span class="p">)</span>
+                <span class="n">modname</span><span class="p">,</span> <span class="n">ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span> <span class="p">(</span><span class="n">tail</span><span class="p">)</span>
+                <span class="n">temp_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">objects</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="c"># preserve tree structure</span>
+                <span class="n">def_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span> <span class="p">(</span><span class="n">temp_dir</span><span class="p">,</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">.def&#39;</span> <span class="o">%</span> <span class="n">modname</span><span class="p">)</span>
+                <span class="n">contents</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;EXPORTS&#39;</span><span class="p">]</span>
+                <span class="k">for</span> <span class="n">sym</span> <span class="ow">in</span> <span class="p">(</span><span class="n">export_symbols</span> <span class="ow">or</span> <span class="p">[]):</span>
+                    <span class="n">contents</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;  </span><span class="si">%s</span><span class="s">=_</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">sym</span><span class="p">,</span> <span class="n">sym</span><span class="p">))</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">write_file</span><span class="p">,</span> <span class="p">(</span><span class="n">def_file</span><span class="p">,</span> <span class="n">contents</span><span class="p">),</span>
+                             <span class="s">&quot;writing </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">def_file</span><span class="p">)</span>
+
+            <span class="c"># Borland C++ has problems with &#39;/&#39; in paths</span>
+            <span class="n">objects2</span> <span class="o">=</span> <span class="nb">map</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">,</span> <span class="n">objects</span><span class="p">)</span>
+            <span class="c"># split objects in .obj and .res files</span>
+            <span class="c"># Borland C++ needs them at different positions in the command line</span>
+            <span class="n">objects</span> <span class="o">=</span> <span class="p">[</span><span class="n">startup_obj</span><span class="p">]</span>
+            <span class="n">resources</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="nb">file</span> <span class="ow">in</span> <span class="n">objects2</span><span class="p">:</span>
+                <span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">ext</span><span class="p">)</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">(</span><span class="nb">file</span><span class="p">))</span>
+                <span class="k">if</span> <span class="n">ext</span> <span class="o">==</span> <span class="s">&#39;.res&#39;</span><span class="p">:</span>
+                    <span class="n">resources</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">objects</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+
+
+            <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">library_dirs</span><span class="p">:</span>
+                <span class="n">ld_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;/L</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normpath</span><span class="p">(</span><span class="n">l</span><span class="p">))</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;/L.&quot;</span><span class="p">)</span> <span class="c"># we sometimes use relative paths</span>
+
+            <span class="c"># list of object files</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">objects</span><span class="p">)</span>
+
+            <span class="c"># XXX the command-line syntax for Borland C++ is a bit wonky;</span>
+            <span class="c"># certain filenames are jammed together in one big string, but</span>
+            <span class="c"># comma-delimited.  This doesn&#39;t mesh too well with the</span>
+            <span class="c"># Unix-centric attitude (with a DOS/Windows quoting hack) of</span>
+            <span class="c"># &#39;spawn()&#39;, so constructing the argument list is a bit</span>
+            <span class="c"># awkward.  Note that doing the obvious thing and jamming all</span>
+            <span class="c"># the filenames and commas into one argument would be wrong,</span>
+            <span class="c"># because &#39;spawn()&#39; would quote any filenames with spaces in</span>
+            <span class="c"># them.  Arghghh!.  Apparently it works fine as coded...</span>
+
+            <span class="c"># name of dll/exe file</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s">&#39;,&#39;</span><span class="p">,</span><span class="n">output_filename</span><span class="p">])</span>
+            <span class="c"># no map file and start libraries</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;,,&#39;</span><span class="p">)</span>
+
+            <span class="k">for</span> <span class="n">lib</span> <span class="ow">in</span> <span class="n">libraries</span><span class="p">:</span>
+                <span class="c"># see if we find it and if there is a bcpp specific lib</span>
+                <span class="c"># (xxx_bcpp.lib)</span>
+                <span class="n">libfile</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">find_library_file</span><span class="p">(</span><span class="n">library_dirs</span><span class="p">,</span> <span class="n">lib</span><span class="p">,</span> <span class="n">debug</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">libfile</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="n">ld_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lib</span><span class="p">)</span>
+                    <span class="c"># probably a BCPP internal library -- don&#39;t warn</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># full name which prefers bcpp_xxx.lib over xxx.lib</span>
+                    <span class="n">ld_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">libfile</span><span class="p">)</span>
+
+            <span class="c"># some default libraries</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">append</span> <span class="p">(</span><span class="s">&#39;import32&#39;</span><span class="p">)</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">append</span> <span class="p">(</span><span class="s">&#39;cw32mt&#39;</span><span class="p">)</span>
+
+            <span class="c"># def file for export symbols</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">extend</span><span class="p">([</span><span class="s">&#39;,&#39;</span><span class="p">,</span><span class="n">def_file</span><span class="p">])</span>
+            <span class="c"># add resource files</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)</span>
+            <span class="n">ld_args</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">resources</span><span class="p">)</span>
+
+
+            <span class="k">if</span> <span class="n">extra_preargs</span><span class="p">:</span>
+                <span class="n">ld_args</span><span class="p">[:</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">extra_preargs</span>
+            <span class="k">if</span> <span class="n">extra_postargs</span><span class="p">:</span>
+                <span class="n">ld_args</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">extra_postargs</span><span class="p">)</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">mkpath</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span> <span class="p">(</span><span class="n">output_filename</span><span class="p">))</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span> <span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">linker</span><span class="p">]</span> <span class="o">+</span> <span class="n">ld_args</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">LinkError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&quot;skipping </span><span class="si">%s</span><span class="s"> (up-to-date)&quot;</span><span class="p">,</span> <span class="n">output_filename</span><span class="p">)</span>
+
+    <span class="c"># link ()</span>
+
+    <span class="c"># -- Miscellaneous methods -----------------------------------------</span>
+
+</div>
+<div class="viewcode-block" id="BCPPCompiler.find_library_file"><a class="viewcode-back" href="../../distutils.html#distutils.bcppcompiler.BCPPCompiler.find_library_file">[docs]</a>    <span class="k">def</span> <span class="nf">find_library_file</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirs</span><span class="p">,</span> <span class="n">lib</span><span class="p">,</span> <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="c"># List of effective library names to try, in order of preference:</span>
+        <span class="c"># xxx_bcpp.lib is better than xxx.lib</span>
+        <span class="c"># and xxx_d.lib is better than xxx.lib if debug is set</span>
+        <span class="c">#</span>
+        <span class="c"># The &quot;_bcpp&quot; suffix is to handle a Python installation for people</span>
+        <span class="c"># with multiple compilers (primarily Distutils hackers, I suspect</span>
+        <span class="c"># ;-).  The idea is they&#39;d have one static library for each</span>
+        <span class="c"># compiler they care about, since (almost?) every Windows compiler</span>
+        <span class="c"># seems to have a different format for static libraries.</span>
+        <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+            <span class="n">dlib</span> <span class="o">=</span> <span class="p">(</span><span class="n">lib</span> <span class="o">+</span> <span class="s">&quot;_d&quot;</span><span class="p">)</span>
+            <span class="n">try_names</span> <span class="o">=</span> <span class="p">(</span><span class="n">dlib</span> <span class="o">+</span> <span class="s">&quot;_bcpp&quot;</span><span class="p">,</span> <span class="n">lib</span> <span class="o">+</span> <span class="s">&quot;_bcpp&quot;</span><span class="p">,</span> <span class="n">dlib</span><span class="p">,</span> <span class="n">lib</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">try_names</span> <span class="o">=</span> <span class="p">(</span><span class="n">lib</span> <span class="o">+</span> <span class="s">&quot;_bcpp&quot;</span><span class="p">,</span> <span class="n">lib</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="nb">dir</span> <span class="ow">in</span> <span class="n">dirs</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">try_names</span><span class="p">:</span>
+                <span class="n">libfile</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">dir</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">library_filename</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
+                <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">libfile</span><span class="p">):</span>
+                    <span class="k">return</span> <span class="n">libfile</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># Oops, didn&#39;t find it in *any* of &#39;dirs&#39;</span>
+            <span class="k">return</span> <span class="bp">None</span>
+
+    <span class="c"># overwrite the one from CCompiler to support rc and res-files</span></div>
+<div class="viewcode-block" id="BCPPCompiler.object_filenames"><a class="viewcode-back" href="../../distutils.html#distutils.bcppcompiler.BCPPCompiler.object_filenames">[docs]</a>    <span class="k">def</span> <span class="nf">object_filenames</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                          <span class="n">source_filenames</span><span class="p">,</span>
+                          <span class="n">strip_dir</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                          <span class="n">output_dir</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span> <span class="n">output_dir</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="n">obj_names</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">src_name</span> <span class="ow">in</span> <span class="n">source_filenames</span><span class="p">:</span>
+            <span class="c"># use normcase to make sure &#39;.rc&#39; is really &#39;.rc&#39; and not &#39;.RC&#39;</span>
+            <span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">ext</span><span class="p">)</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">normcase</span><span class="p">(</span><span class="n">src_name</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">ext</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">src_extensions</span> <span class="o">+</span> <span class="p">[</span><span class="s">&#39;.rc&#39;</span><span class="p">,</span><span class="s">&#39;.res&#39;</span><span class="p">]):</span>
+                <span class="k">raise</span> <span class="n">UnknownFileError</span><span class="p">(</span><span class="s">&quot;unknown file type &#39;</span><span class="si">%s</span><span class="s">&#39; (from &#39;</span><span class="si">%s</span><span class="s">&#39;)&quot;</span> <span class="o">%</span> \
+                      <span class="p">(</span><span class="n">ext</span><span class="p">,</span> <span class="n">src_name</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">strip_dir</span><span class="p">:</span>
+                <span class="n">base</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span> <span class="p">(</span><span class="n">base</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ext</span> <span class="o">==</span> <span class="s">&#39;.res&#39;</span><span class="p">:</span>
+                <span class="c"># these can go unchanged</span>
+                <span class="n">obj_names</span><span class="o">.</span><span class="n">append</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span> <span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">base</span> <span class="o">+</span> <span class="n">ext</span><span class="p">))</span>
+            <span class="k">elif</span> <span class="n">ext</span> <span class="o">==</span> <span class="s">&#39;.rc&#39;</span><span class="p">:</span>
+                <span class="c"># these need to be compiled to .res-files</span>
+                <span class="n">obj_names</span><span class="o">.</span><span class="n">append</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span> <span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">base</span> <span class="o">+</span> <span class="s">&#39;.res&#39;</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">obj_names</span><span class="o">.</span><span class="n">append</span> <span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span> <span class="p">(</span><span class="n">output_dir</span><span class="p">,</span>
+                                            <span class="n">base</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">obj_extension</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">obj_names</span>
+
+    <span class="c"># object_filenames ()</span>
+</div>
+<div class="viewcode-block" id="BCPPCompiler.preprocess"><a class="viewcode-back" href="../../distutils.html#distutils.bcppcompiler.BCPPCompiler.preprocess">[docs]</a>    <span class="k">def</span> <span class="nf">preprocess</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                    <span class="n">source</span><span class="p">,</span>
+                    <span class="n">output_file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                    <span class="n">macros</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                    <span class="n">include_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                    <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                    <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+
+        <span class="p">(</span><span class="n">_</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">)</span> <span class="o">=</span> \
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fix_compile_args</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">)</span>
+        <span class="n">pp_opts</span> <span class="o">=</span> <span class="n">gen_preprocess_options</span><span class="p">(</span><span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">)</span>
+        <span class="n">pp_args</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;cpp32.exe&#39;</span><span class="p">]</span> <span class="o">+</span> <span class="n">pp_opts</span>
+        <span class="k">if</span> <span class="n">output_file</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">pp_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;-o&#39;</span> <span class="o">+</span> <span class="n">output_file</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">extra_preargs</span><span class="p">:</span>
+            <span class="n">pp_args</span><span class="p">[:</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">extra_preargs</span>
+        <span class="k">if</span> <span class="n">extra_postargs</span><span class="p">:</span>
+            <span class="n">pp_args</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">extra_postargs</span><span class="p">)</span>
+        <span class="n">pp_args</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+
+        <span class="c"># We need to preprocess: either we&#39;re being forced to, or the</span>
+        <span class="c"># source file is newer than the target (or the target doesn&#39;t</span>
+        <span class="c"># exist).</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="ow">or</span> <span class="n">output_file</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">newer</span><span class="p">(</span><span class="n">source</span><span class="p">,</span> <span class="n">output_file</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">output_file</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">mkpath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">output_file</span><span class="p">))</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">spawn</span><span class="p">(</span><span class="n">pp_args</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">DistutilsExecError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="k">print</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">CompileError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+    <span class="c"># preprocess()</span></div></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

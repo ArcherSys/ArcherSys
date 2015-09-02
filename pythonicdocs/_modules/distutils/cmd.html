@@ -1,0 +1,596 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>distutils.cmd &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>distutils.cmd</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for distutils.cmd</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.cmd</span>
+
+<span class="sd">Provides the Command class, the base class for the command classes</span>
+<span class="sd">in the distutils.command package.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">re</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="n">DistutilsOptionError</span>
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">util</span><span class="p">,</span> <span class="n">dir_util</span><span class="p">,</span> <span class="n">file_util</span><span class="p">,</span> <span class="n">archive_util</span><span class="p">,</span> <span class="n">dep_util</span>
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">log</span>
+
+<div class="viewcode-block" id="Command"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command">[docs]</a><span class="k">class</span> <span class="nc">Command</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Abstract base class for defining command classes, the &quot;worker bees&quot;</span>
+<span class="sd">    of the Distutils.  A useful analogy for command classes is to think of</span>
+<span class="sd">    them as subroutines with local variables called &quot;options&quot;.  The options</span>
+<span class="sd">    are &quot;declared&quot; in &#39;initialize_options()&#39; and &quot;defined&quot; (given their</span>
+<span class="sd">    final values, aka &quot;finalized&quot;) in &#39;finalize_options()&#39;, both of which</span>
+<span class="sd">    must be defined by every command class.  The distinction between the</span>
+<span class="sd">    two is necessary because option values might come from the outside</span>
+<span class="sd">    world (command line, config file, ...), and any options dependent on</span>
+<span class="sd">    other options must be computed *after* these outside influences have</span>
+<span class="sd">    been processed -- hence &#39;finalize_options()&#39;.  The &quot;body&quot; of the</span>
+<span class="sd">    subroutine, where it does all its work based on the values of its</span>
+<span class="sd">    options, is the &#39;run()&#39; method, which must also be implemented by every</span>
+<span class="sd">    command class.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c"># &#39;sub_commands&#39; formalizes the notion of a &quot;family&quot; of commands,</span>
+    <span class="c"># eg. &quot;install&quot; as the parent with sub-commands &quot;install_lib&quot;,</span>
+    <span class="c"># &quot;install_headers&quot;, etc.  The parent of a family of commands</span>
+    <span class="c"># defines &#39;sub_commands&#39; as a class attribute; it&#39;s a list of</span>
+    <span class="c">#    (command_name : string, predicate : unbound_method | string | None)</span>
+    <span class="c"># tuples, where &#39;predicate&#39; is a method of the parent command that</span>
+    <span class="c"># determines whether the corresponding command is applicable in the</span>
+    <span class="c"># current situation.  (Eg. we &quot;install_headers&quot; is only applicable if</span>
+    <span class="c"># we have any C header files to install.)  If &#39;predicate&#39; is None,</span>
+    <span class="c"># that command is always applicable.</span>
+    <span class="c">#</span>
+    <span class="c"># &#39;sub_commands&#39; is usually defined at the *end* of a class, because</span>
+    <span class="c"># predicates can be unbound methods, so they must already have been</span>
+    <span class="c"># defined.  The canonical example is the &quot;install&quot; command.</span>
+    <span class="n">sub_commands</span> <span class="o">=</span> <span class="p">[]</span>
+
+
+    <span class="c"># -- Creation/initialization methods -------------------------------</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dist</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Create and initialize a new Command object.  Most importantly,</span>
+<span class="sd">        invokes the &#39;initialize_options()&#39; method, which is the real</span>
+<span class="sd">        initializer and depends on the actual command being</span>
+<span class="sd">        instantiated.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># late import because of mutual dependence between these classes</span>
+        <span class="kn">from</span> <span class="nn">distutils.dist</span> <span class="kn">import</span> <span class="n">Distribution</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">dist</span><span class="p">,</span> <span class="n">Distribution</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;dist must be a Distribution instance&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span> <span class="ow">is</span> <span class="n">Command</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;Command is an abstract class&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span> <span class="o">=</span> <span class="n">dist</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initialize_options</span><span class="p">()</span>
+
+        <span class="c"># Per-command versions of the global flags, so that the user can</span>
+        <span class="c"># customize Distutils&#39; behaviour command-by-command and let some</span>
+        <span class="c"># commands fall back on the Distribution&#39;s behaviour.  None means</span>
+        <span class="c"># &quot;not defined, check self.distribution&#39;s copy&quot;, while 0 or 1 mean</span>
+        <span class="c"># false and true (duh).  Note that this means figuring out the real</span>
+        <span class="c"># value of each flag is a touch complicated -- hence &quot;self._dry_run&quot;</span>
+        <span class="c"># will be handled by __getattr__, below.</span>
+        <span class="c"># XXX This needs to be fixed.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_dry_run</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># verbose is largely ignored, but needs to be set for</span>
+        <span class="c"># backwards compatibility (I think)?</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="n">dist</span><span class="o">.</span><span class="n">verbose</span>
+
+        <span class="c"># Some commands define a &#39;self.force&#39; option to ignore file</span>
+        <span class="c"># timestamps, but methods defined *here* assume that</span>
+        <span class="c"># &#39;self.force&#39; exists for all commands.  So define it here</span>
+        <span class="c"># just to be safe.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># The &#39;help&#39; flag is just used for command-line parsing, so</span>
+        <span class="c"># none of that complicated bureaucracy is needed.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">help</span> <span class="o">=</span> <span class="mi">0</span>
+
+        <span class="c"># &#39;finalized&#39; records whether or not &#39;finalize_options()&#39; has been</span>
+        <span class="c"># called.  &#39;finalize_options()&#39; itself should not pay attention to</span>
+        <span class="c"># this flag: it is the business of &#39;ensure_finalized()&#39;, which</span>
+        <span class="c"># always calls &#39;finalize_options()&#39;, to respect/update it.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">finalized</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="c"># XXX A more explicit way to customize dry_run would be better.</span>
+    <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">attr</span> <span class="o">==</span> <span class="s">&#39;dry_run&#39;</span><span class="p">:</span>
+            <span class="n">myval</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_&quot;</span> <span class="o">+</span> <span class="n">attr</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">myval</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">myval</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span><span class="n">attr</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Command.ensure_finalized"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.ensure_finalized">[docs]</a>    <span class="k">def</span> <span class="nf">ensure_finalized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">finalized</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finalize_options</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">finalized</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="c"># Subclasses must define:</span>
+    <span class="c">#   initialize_options()</span>
+    <span class="c">#     provide default values for all options; may be customized by</span>
+    <span class="c">#     setup script, by options from config file(s), or by command-line</span>
+    <span class="c">#     options</span>
+    <span class="c">#   finalize_options()</span>
+    <span class="c">#     decide on the final values for all options; this is called</span>
+    <span class="c">#     after all possible intervention from the outside world</span>
+    <span class="c">#     (command-line, option file, etc.) has been processed</span>
+    <span class="c">#   run()</span>
+    <span class="c">#     run the command: do whatever it is we&#39;re here to do,</span>
+    <span class="c">#     controlled by the command&#39;s various option values</span>
+</div>
+<div class="viewcode-block" id="Command.initialize_options"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.initialize_options">[docs]</a>    <span class="k">def</span> <span class="nf">initialize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set default values for all the options that this command</span>
+<span class="sd">        supports.  Note that these defaults may be overridden by other</span>
+<span class="sd">        commands, by the setup script, by config files, or by the</span>
+<span class="sd">        command-line.  Thus, this is not the place to code dependencies</span>
+<span class="sd">        between options; generally, &#39;initialize_options()&#39; implementations</span>
+<span class="sd">        are just a bunch of &quot;self.foo = None&quot; assignments.</span>
+
+<span class="sd">        This method must be implemented by all command classes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;abstract method -- subclass </span><span class="si">%s</span><span class="s"> must override&quot;</span>
+                           <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.finalize_options"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.finalize_options">[docs]</a>    <span class="k">def</span> <span class="nf">finalize_options</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set final values for all the options that this command supports.</span>
+<span class="sd">        This is always called as late as possible, ie.  after any option</span>
+<span class="sd">        assignments from the command-line or from other commands have been</span>
+<span class="sd">        done.  Thus, this is the place to code option dependencies: if</span>
+<span class="sd">        &#39;foo&#39; depends on &#39;bar&#39;, then it is safe to set &#39;foo&#39; from &#39;bar&#39; as</span>
+<span class="sd">        long as &#39;foo&#39; still has the same value it was assigned in</span>
+<span class="sd">        &#39;initialize_options()&#39;.</span>
+
+<span class="sd">        This method must be implemented by all command classes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;abstract method -- subclass </span><span class="si">%s</span><span class="s"> must override&quot;</span>
+                           <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="Command.dump_options"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.dump_options">[docs]</a>    <span class="k">def</span> <span class="nf">dump_options</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="s">&quot;&quot;</span><span class="p">):</span>
+        <span class="kn">from</span> <span class="nn">distutils.fancy_getopt</span> <span class="kn">import</span> <span class="n">longopt_xlate</span>
+        <span class="k">if</span> <span class="n">header</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">header</span> <span class="o">=</span> <span class="s">&quot;command options for &#39;</span><span class="si">%s</span><span class="s">&#39;:&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_command_name</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">announce</span><span class="p">(</span><span class="n">indent</span> <span class="o">+</span> <span class="n">header</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="n">log</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+        <span class="n">indent</span> <span class="o">=</span> <span class="n">indent</span> <span class="o">+</span> <span class="s">&quot;  &quot;</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">_</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">user_options</span><span class="p">:</span>
+            <span class="n">option</span> <span class="o">=</span> <span class="n">option</span><span class="o">.</span><span class="n">translate</span><span class="p">(</span><span class="n">longopt_xlate</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">option</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&quot;=&quot;</span><span class="p">:</span>
+                <span class="n">option</span> <span class="o">=</span> <span class="n">option</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">announce</span><span class="p">(</span><span class="n">indent</span> <span class="o">+</span> <span class="s">&quot;</span><span class="si">%s</span><span class="s"> = </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">value</span><span class="p">),</span>
+                          <span class="n">level</span><span class="o">=</span><span class="n">log</span><span class="o">.</span><span class="n">INFO</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.run"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.run">[docs]</a>    <span class="k">def</span> <span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;A command&#39;s raison d&#39;etre: carry out the action it exists to</span>
+<span class="sd">        perform, controlled by the options initialized in</span>
+<span class="sd">        &#39;initialize_options()&#39;, customized by other commands, the setup</span>
+<span class="sd">        script, the command-line, and config files, and finalized in</span>
+<span class="sd">        &#39;finalize_options()&#39;.  All terminal output and filesystem</span>
+<span class="sd">        interaction should be done by &#39;run()&#39;.</span>
+
+<span class="sd">        This method must be implemented by all command classes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;abstract method -- subclass </span><span class="si">%s</span><span class="s"> must override&quot;</span>
+                           <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.announce"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.announce">[docs]</a>    <span class="k">def</span> <span class="nf">announce</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;If the current verbosity level is of greater than or equal to</span>
+<span class="sd">        &#39;level&#39; print &#39;msg&#39; to stdout.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">log</span><span class="p">(</span><span class="n">level</span><span class="p">,</span> <span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.debug_print"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.debug_print">[docs]</a>    <span class="k">def</span> <span class="nf">debug_print</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Print &#39;msg&#39; to stdout if the global DEBUG (taken from the</span>
+<span class="sd">        DISTUTILS_DEBUG environment variable) flag is true.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="kn">from</span> <span class="nn">distutils.debug</span> <span class="kn">import</span> <span class="n">DEBUG</span>
+        <span class="k">if</span> <span class="n">DEBUG</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+
+
+    <span class="c"># -- Option validation methods -------------------------------------</span>
+    <span class="c"># (these are very handy in writing the &#39;finalize_options()&#39; method)</span>
+    <span class="c">#</span>
+    <span class="c"># NB. the general philosophy here is to ensure that a particular option</span>
+    <span class="c"># value meets certain type and value constraints.  If not, we try to</span>
+    <span class="c"># force it into conformance (eg. if we expect a list but have a string,</span>
+    <span class="c"># split the string on comma and/or whitespace).  If we can&#39;t force the</span>
+    <span class="c"># option into conformance, raise DistutilsOptionError.  Thus, command</span>
+    <span class="c"># classes need do nothing more than (eg.)</span>
+    <span class="c">#   self.ensure_string_list(&#39;foo&#39;)</span>
+    <span class="c"># and they can be guaranteed that thereafter, self.foo will be</span>
+    <span class="c"># a list of strings.</span>
+</div>
+    <span class="k">def</span> <span class="nf">_ensure_stringlike</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">what</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">val</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">default</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span><span class="s">&quot;&#39;</span><span class="si">%s</span><span class="s">&#39; must be a </span><span class="si">%s</span><span class="s"> (got `</span><span class="si">%s</span><span class="s">`)&quot;</span>
+                                       <span class="o">%</span> <span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">what</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">val</span>
+
+<div class="viewcode-block" id="Command.ensure_string"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.ensure_string">[docs]</a>    <span class="k">def</span> <span class="nf">ensure_string</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Ensure that &#39;option&#39; is a string; if not defined, set it to</span>
+<span class="sd">        &#39;default&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_stringlike</span><span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="s">&quot;string&quot;</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.ensure_string_list"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.ensure_string_list">[docs]</a>    <span class="k">def</span> <span class="nf">ensure_string_list</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Ensure that &#39;option&#39; is a list of strings.  If &#39;option&#39; is</span>
+<span class="sd">        currently a string, we split it either on /,\s*/ or /\s+/, so</span>
+<span class="sd">        &quot;foo bar baz&quot;, &quot;foo,bar,baz&quot;, and &quot;foo,   bar baz&quot; all become</span>
+<span class="sd">        [&quot;foo&quot;, &quot;bar&quot;, &quot;baz&quot;].</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">val</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">r&#39;,\s*|\s+&#39;</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                <span class="n">ok</span> <span class="o">=</span> <span class="nb">all</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">v</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">val</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">ok</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">ok</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">(</span>
+                      <span class="s">&quot;&#39;</span><span class="si">%s</span><span class="s">&#39; must be a list of strings (got </span><span class="si">%r</span><span class="s">)&quot;</span>
+                      <span class="o">%</span> <span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_ensure_tested_string</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">,</span> <span class="n">tester</span><span class="p">,</span> <span class="n">what</span><span class="p">,</span> <span class="n">error_fmt</span><span class="p">,</span>
+                              <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_stringlike</span><span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">what</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">val</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">tester</span><span class="p">(</span><span class="n">val</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">DistutilsOptionError</span><span class="p">((</span><span class="s">&quot;error in &#39;</span><span class="si">%s</span><span class="s">&#39; option: &quot;</span> <span class="o">+</span> <span class="n">error_fmt</span><span class="p">)</span>
+                                       <span class="o">%</span> <span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">val</span><span class="p">))</span>
+
+<div class="viewcode-block" id="Command.ensure_filename"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.ensure_filename">[docs]</a>    <span class="k">def</span> <span class="nf">ensure_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Ensure that &#39;option&#39; is the name of an existing file.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_tested_string</span><span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">,</span>
+                                   <span class="s">&quot;filename&quot;</span><span class="p">,</span>
+                                   <span class="s">&quot;&#39;</span><span class="si">%s</span><span class="s">&#39; does not exist or is not a file&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.ensure_dirname"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.ensure_dirname">[docs]</a>    <span class="k">def</span> <span class="nf">ensure_dirname</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">option</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ensure_tested_string</span><span class="p">(</span><span class="n">option</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">,</span>
+                                   <span class="s">&quot;directory name&quot;</span><span class="p">,</span>
+                                   <span class="s">&quot;&#39;</span><span class="si">%s</span><span class="s">&#39; does not exist or is not a directory&quot;</span><span class="p">)</span>
+
+
+    <span class="c"># -- Convenience methods for commands ------------------------------</span>
+</div>
+<div class="viewcode-block" id="Command.get_command_name"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.get_command_name">[docs]</a>    <span class="k">def</span> <span class="nf">get_command_name</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;command_name&#39;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">command_name</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span>
+</div>
+<div class="viewcode-block" id="Command.set_undefined_options"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.set_undefined_options">[docs]</a>    <span class="k">def</span> <span class="nf">set_undefined_options</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src_cmd</span><span class="p">,</span> <span class="o">*</span><span class="n">option_pairs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the values of any &quot;undefined&quot; options from corresponding</span>
+<span class="sd">        option values in some other command object.  &quot;Undefined&quot; here means</span>
+<span class="sd">        &quot;is None&quot;, which is the convention used to indicate that an option</span>
+<span class="sd">        has not been changed between &#39;initialize_options()&#39; and</span>
+<span class="sd">        &#39;finalize_options()&#39;.  Usually called from &#39;finalize_options()&#39; for</span>
+<span class="sd">        options that depend on some other command rather than another</span>
+<span class="sd">        option of the same command.  &#39;src_cmd&#39; is the other command from</span>
+<span class="sd">        which option values will be taken (a command object will be created</span>
+<span class="sd">        for it if necessary); the remaining arguments are</span>
+<span class="sd">        &#39;(src_option,dst_option)&#39; tuples which mean &quot;take the value of</span>
+<span class="sd">        &#39;src_option&#39; in the &#39;src_cmd&#39; command object, and copy it to</span>
+<span class="sd">        &#39;dst_option&#39; in the current command object&quot;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Option_pairs: list of (src_option, dst_option) tuples</span>
+        <span class="n">src_cmd_obj</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">get_command_obj</span><span class="p">(</span><span class="n">src_cmd</span><span class="p">)</span>
+        <span class="n">src_cmd_obj</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">src_option</span><span class="p">,</span> <span class="n">dst_option</span><span class="p">)</span> <span class="ow">in</span> <span class="n">option_pairs</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dst_option</span><span class="p">)</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dst_option</span><span class="p">,</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">src_cmd_obj</span><span class="p">,</span> <span class="n">src_option</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="Command.get_finalized_command"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.get_finalized_command">[docs]</a>    <span class="k">def</span> <span class="nf">get_finalized_command</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">create</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Wrapper around Distribution&#39;s &#39;get_command_obj()&#39; method: find</span>
+<span class="sd">        (create if necessary and &#39;create&#39; is true) the command object for</span>
+<span class="sd">        &#39;command&#39;, call its &#39;ensure_finalized()&#39; method, and return the</span>
+<span class="sd">        finalized command object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">cmd_obj</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">get_command_obj</span><span class="p">(</span><span class="n">command</span><span class="p">,</span> <span class="n">create</span><span class="p">)</span>
+        <span class="n">cmd_obj</span><span class="o">.</span><span class="n">ensure_finalized</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">cmd_obj</span>
+
+    <span class="c"># XXX rename to &#39;get_reinitialized_command()&#39;? (should do the</span>
+    <span class="c"># same in dist.py, if so)</span></div>
+<div class="viewcode-block" id="Command.reinitialize_command"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.reinitialize_command">[docs]</a>    <span class="k">def</span> <span class="nf">reinitialize_command</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">,</span> <span class="n">reinit_subcommands</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">reinitialize_command</span><span class="p">(</span><span class="n">command</span><span class="p">,</span>
+                                                      <span class="n">reinit_subcommands</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.run_command"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.run_command">[docs]</a>    <span class="k">def</span> <span class="nf">run_command</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">command</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Run some other command: uses the &#39;run_command()&#39; method of</span>
+<span class="sd">        Distribution, which creates and finalizes the command object if</span>
+<span class="sd">        necessary and then invokes its &#39;run()&#39; method.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">distribution</span><span class="o">.</span><span class="n">run_command</span><span class="p">(</span><span class="n">command</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.get_sub_commands"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.get_sub_commands">[docs]</a>    <span class="k">def</span> <span class="nf">get_sub_commands</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Determine the sub-commands that are relevant in the current</span>
+<span class="sd">        distribution (ie., that need to be run).  This is based on the</span>
+<span class="sd">        &#39;sub_commands&#39; class attribute: each tuple in that list may include</span>
+<span class="sd">        a method that we call to determine if the subcommand needs to be</span>
+<span class="sd">        run for the current distribution.  Return a list of command names.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">commands</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="p">(</span><span class="n">cmd_name</span><span class="p">,</span> <span class="n">method</span><span class="p">)</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">sub_commands</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">method</span> <span class="ow">is</span> <span class="bp">None</span> <span class="ow">or</span> <span class="n">method</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="n">commands</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">cmd_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">commands</span>
+
+
+    <span class="c"># -- External world manipulation -----------------------------------</span>
+</div>
+<div class="viewcode-block" id="Command.warn"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.warn">[docs]</a>    <span class="k">def</span> <span class="nf">warn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;warning: </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="se">\n</span><span class="s">&quot;</span> <span class="o">%</span>
+                <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_command_name</span><span class="p">(),</span> <span class="n">msg</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="Command.execute"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.execute">[docs]</a>    <span class="k">def</span> <span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">msg</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="n">util</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.mkpath"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.mkpath">[docs]</a>    <span class="k">def</span> <span class="nf">mkpath</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="mi">0</span><span class="n">o777</span><span class="p">):</span>
+        <span class="n">dir_util</span><span class="o">.</span><span class="n">mkpath</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.copy_file"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.copy_file">[docs]</a>    <span class="k">def</span> <span class="nf">copy_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">infile</span><span class="p">,</span> <span class="n">outfile</span><span class="p">,</span> <span class="n">preserve_mode</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">preserve_times</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                  <span class="n">link</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Copy a file respecting verbose, dry-run and force flags.  (The</span>
+<span class="sd">        former two default to whatever is in the Distribution object, and</span>
+<span class="sd">        the latter defaults to false for commands that don&#39;t define it.)&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">file_util</span><span class="o">.</span><span class="n">copy_file</span><span class="p">(</span><span class="n">infile</span><span class="p">,</span> <span class="n">outfile</span><span class="p">,</span> <span class="n">preserve_mode</span><span class="p">,</span>
+                                   <span class="n">preserve_times</span><span class="p">,</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">force</span><span class="p">,</span> <span class="n">link</span><span class="p">,</span>
+                                   <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.copy_tree"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.copy_tree">[docs]</a>    <span class="k">def</span> <span class="nf">copy_tree</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">infile</span><span class="p">,</span> <span class="n">outfile</span><span class="p">,</span> <span class="n">preserve_mode</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">preserve_times</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span>
+                   <span class="n">preserve_symlinks</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Copy an entire directory tree respecting verbose, dry-run,</span>
+<span class="sd">        and force flags.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">dir_util</span><span class="o">.</span><span class="n">copy_tree</span><span class="p">(</span><span class="n">infile</span><span class="p">,</span> <span class="n">outfile</span><span class="p">,</span> <span class="n">preserve_mode</span><span class="p">,</span>
+                                  <span class="n">preserve_times</span><span class="p">,</span> <span class="n">preserve_symlinks</span><span class="p">,</span>
+                                  <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">force</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.move_file"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.move_file">[docs]</a>    <span class="k">def</span> <span class="nf">move_file</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">,</span> <span class="n">dst</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Move a file respecting dry-run flag.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">file_util</span><span class="o">.</span><span class="n">move_file</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">dst</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.spawn"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.spawn">[docs]</a>    <span class="k">def</span> <span class="nf">spawn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">,</span> <span class="n">search_path</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Spawn an external command respecting dry-run flag.&quot;&quot;&quot;</span>
+        <span class="kn">from</span> <span class="nn">distutils.spawn</span> <span class="kn">import</span> <span class="n">spawn</span>
+        <span class="n">spawn</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">search_path</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.make_archive"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.make_archive">[docs]</a>    <span class="k">def</span> <span class="nf">make_archive</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">base_name</span><span class="p">,</span> <span class="n">format</span><span class="p">,</span> <span class="n">root_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">base_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                     <span class="n">owner</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">group</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">archive_util</span><span class="o">.</span><span class="n">make_archive</span><span class="p">(</span><span class="n">base_name</span><span class="p">,</span> <span class="n">format</span><span class="p">,</span> <span class="n">root_dir</span><span class="p">,</span> <span class="n">base_dir</span><span class="p">,</span>
+                                         <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">,</span>
+                                         <span class="n">owner</span><span class="o">=</span><span class="n">owner</span><span class="p">,</span> <span class="n">group</span><span class="o">=</span><span class="n">group</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Command.make_file"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.Command.make_file">[docs]</a>    <span class="k">def</span> <span class="nf">make_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">infiles</span><span class="p">,</span> <span class="n">outfile</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span>
+                  <span class="n">exec_msg</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">skip_msg</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Special case of &#39;execute()&#39; for operations that process one or</span>
+<span class="sd">        more input files and generate one output file.  Works just like</span>
+<span class="sd">        &#39;execute()&#39;, except the operation is skipped and a different</span>
+<span class="sd">        message printed if &#39;outfile&#39; already exists and is newer than all</span>
+<span class="sd">        files listed in &#39;infiles&#39;.  If the command defined &#39;self.force&#39;,</span>
+<span class="sd">        and it is true, then the command is unconditionally run -- does no</span>
+<span class="sd">        timestamp checks.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">skip_msg</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">skip_msg</span> <span class="o">=</span> <span class="s">&quot;skipping </span><span class="si">%s</span><span class="s"> (inputs unchanged)&quot;</span> <span class="o">%</span> <span class="n">outfile</span>
+
+        <span class="c"># Allow &#39;infiles&#39; to be a single string</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">infiles</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="n">infiles</span> <span class="o">=</span> <span class="p">(</span><span class="n">infiles</span><span class="p">,)</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">infiles</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                  <span class="s">&quot;&#39;infiles&#39; must be a string, or a list or tuple of strings&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">exec_msg</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">exec_msg</span> <span class="o">=</span> <span class="s">&quot;generating </span><span class="si">%s</span><span class="s"> from </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">outfile</span><span class="p">,</span> <span class="s">&#39;, &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">infiles</span><span class="p">))</span>
+
+        <span class="c"># If &#39;outfile&#39; must be regenerated (either because it doesn&#39;t</span>
+        <span class="c"># exist, is out-of-date, or the &#39;force&#39; flag is true) then</span>
+        <span class="c"># perform the action that presumably regenerates it</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="ow">or</span> <span class="n">dep_util</span><span class="o">.</span><span class="n">newer_group</span><span class="p">(</span><span class="n">infiles</span><span class="p">,</span> <span class="n">outfile</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">exec_msg</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span>
+        <span class="c"># Otherwise, print the &quot;skip&quot; message</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">skip_msg</span><span class="p">)</span>
+
+<span class="c"># XXX &#39;install_misc&#39; class not currently used -- it was the base class for</span>
+<span class="c"># both &#39;install_scripts&#39; and &#39;install_data&#39;, but they outgrew it.  It might</span>
+<span class="c"># still be useful for &#39;install_headers&#39;, though, so I&#39;m keeping it around</span>
+<span class="c"># for the time being.</span>
+</div></div>
+<div class="viewcode-block" id="install_misc"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.install_misc">[docs]</a><span class="k">class</span> <span class="nc">install_misc</span><span class="p">(</span><span class="n">Command</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Common base class for installing some files in a subdirectory.</span>
+<span class="sd">    Currently used by install_data and install_scripts.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">user_options</span> <span class="o">=</span> <span class="p">[(</span><span class="s">&#39;install-dir=&#39;</span><span class="p">,</span> <span class="s">&#39;d&#39;</span><span class="p">,</span> <span class="s">&quot;directory to install the files to&quot;</span><span class="p">)]</span>
+
+<div class="viewcode-block" id="install_misc.initialize_options"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.install_misc.initialize_options">[docs]</a>    <span class="k">def</span> <span class="nf">initialize_options</span> <span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">install_dir</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">outfiles</span> <span class="o">=</span> <span class="p">[]</span>
+</div>
+    <span class="k">def</span> <span class="nf">_install_dir_from</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirname</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_undefined_options</span><span class="p">(</span><span class="s">&#39;install&#39;</span><span class="p">,</span> <span class="p">(</span><span class="n">dirname</span><span class="p">,</span> <span class="s">&#39;install_dir&#39;</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_copy_files</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filelist</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">outfiles</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">filelist</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">mkpath</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">install_dir</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">filelist</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">copy_file</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">install_dir</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">outfiles</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">install_dir</span><span class="p">,</span> <span class="n">f</span><span class="p">))</span>
+
+<div class="viewcode-block" id="install_misc.get_outputs"><a class="viewcode-back" href="../../distutils.html#distutils.cmd.install_misc.get_outputs">[docs]</a>    <span class="k">def</span> <span class="nf">get_outputs</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">outfiles</span></div></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

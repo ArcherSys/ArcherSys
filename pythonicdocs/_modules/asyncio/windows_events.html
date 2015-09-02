@@ -1,0 +1,795 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>asyncio.windows_events &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>asyncio.windows_events</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for asyncio.windows_events</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Selector and proactor event loops for Windows.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">_winapi</span>
+<span class="kn">import</span> <span class="nn">errno</span>
+<span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+<span class="kn">import</span> <span class="nn">weakref</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">base_subprocess</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">proactor_events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">selector_events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">tasks</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">windows_utils</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">_overlapped</span>
+<span class="kn">from</span> <span class="nn">.coroutines</span> <span class="kn">import</span> <span class="n">coroutine</span>
+<span class="kn">from</span> <span class="nn">.log</span> <span class="kn">import</span> <span class="n">logger</span>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;SelectorEventLoop&#39;</span><span class="p">,</span> <span class="s">&#39;ProactorEventLoop&#39;</span><span class="p">,</span> <span class="s">&#39;IocpProactor&#39;</span><span class="p">,</span>
+           <span class="s">&#39;DefaultEventLoopPolicy&#39;</span><span class="p">,</span>
+           <span class="p">]</span>
+
+
+<span class="n">NULL</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">INFINITE</span> <span class="o">=</span> <span class="mh">0xffffffff</span>
+<span class="n">ERROR_CONNECTION_REFUSED</span> <span class="o">=</span> <span class="mi">1225</span>
+<span class="n">ERROR_CONNECTION_ABORTED</span> <span class="o">=</span> <span class="mi">1236</span>
+
+
+<span class="k">class</span> <span class="nc">_OverlappedFuture</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Subclass of Future which represents an overlapped operation.</span>
+
+<span class="sd">    Cancelling it will immediately cancel the overlapped operation.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span> <span class="o">=</span> <span class="n">ov</span>
+
+    <span class="k">def</span> <span class="nf">_repr_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_repr_info</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">state</span> <span class="o">=</span> <span class="s">&#39;pending&#39;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span><span class="o">.</span><span class="n">pending</span> <span class="k">else</span> <span class="s">&#39;completed&#39;</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&#39;overlapped=&lt;</span><span class="si">%s</span><span class="s">, </span><span class="si">%#x</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span><span class="o">.</span><span class="n">address</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">info</span>
+
+    <span class="k">def</span> <span class="nf">_cancel_overlapped</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">context</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="s">&#39;Cancelling an overlapped future failed&#39;</span><span class="p">,</span>
+                <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                <span class="s">&#39;future&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+                <span class="n">context</span><span class="p">[</span><span class="s">&#39;source_traceback&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cancel_overlapped</span><span class="p">()</span>
+        <span class="k">return</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">set_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exception</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exception</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cancel_overlapped</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">set_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span> <span class="o">=</span> <span class="bp">None</span>
+
+
+<span class="k">class</span> <span class="nc">_WaitHandleFuture</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Subclass of Future which represents a wait handle.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">iocp</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">wait_handle</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="c"># iocp and ov are only used by cancel() to notify IocpProactor</span>
+        <span class="c"># that the wait was cancelled</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span> <span class="o">=</span> <span class="n">iocp</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span> <span class="o">=</span> <span class="n">ov</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span> <span class="o">=</span> <span class="n">handle</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_wait_handle</span> <span class="o">=</span> <span class="n">wait_handle</span>
+
+    <span class="k">def</span> <span class="nf">_poll</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># non-blocking wait: use a timeout of 0 millisecond</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">_winapi</span><span class="o">.</span><span class="n">WaitForSingleObject</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">==</span>
+                <span class="n">_winapi</span><span class="o">.</span><span class="n">WAIT_OBJECT_0</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_repr_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_repr_info</span><span class="p">()</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&#39;handle=</span><span class="si">%#x</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handle</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_handle</span><span class="p">:</span>
+            <span class="n">state</span> <span class="o">=</span> <span class="s">&#39;signaled&#39;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_poll</span><span class="p">()</span> <span class="k">else</span> <span class="s">&#39;waiting&#39;</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&#39;wait_handle=&lt;</span><span class="si">%s</span><span class="s">, </span><span class="si">%#x</span><span class="s">&gt;&#39;</span>
+                           <span class="o">%</span> <span class="p">(</span><span class="n">state</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_handle</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">info</span>
+
+    <span class="k">def</span> <span class="nf">_unregister_wait</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_wait_handle</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_overlapped</span><span class="o">.</span><span class="n">UnregisterWait</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_wait_handle</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="c"># ERROR_IO_PENDING is not an error, the wait was unregistered</span>
+            <span class="k">if</span> <span class="n">exc</span><span class="o">.</span><span class="n">winerror</span> <span class="o">!=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">ERROR_IO_PENDING</span><span class="p">:</span>
+                <span class="n">context</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="s">&#39;Failed to unregister the wait handle&#39;</span><span class="p">,</span>
+                    <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                    <span class="s">&#39;future&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="p">,</span>
+                <span class="p">}</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+                    <span class="n">context</span><span class="p">[</span><span class="s">&#39;source_traceback&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_wait_handle</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># signal the cancellation to the overlapped object</span>
+            <span class="n">_overlapped</span><span class="o">.</span><span class="n">PostQueuedCompletionStatus</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span><span class="p">,</span> <span class="bp">True</span><span class="p">,</span>
+                                                   <span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_ov</span><span class="o">.</span><span class="n">address</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_unregister_wait</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">result</span>
+
+    <span class="k">def</span> <span class="nf">set_exception</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exception</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exception</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_unregister_wait</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">set_result</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_unregister_wait</span><span class="p">()</span>
+
+
+<span class="k">class</span> <span class="nc">PipeServer</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Class representing a pipe server.</span>
+
+<span class="sd">    This is much like a bound, listening socket.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="n">address</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_free_instances</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">WeakSet</span><span class="p">()</span>
+        <span class="c"># initialize the pipe attribute before calling _server_pipe_handle()</span>
+        <span class="c"># because this function can raise an exception and the destructor calls</span>
+        <span class="c"># the close() method</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pipe</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_accept_pipe_future</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_pipe</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_server_pipe_handle</span><span class="p">(</span><span class="bp">True</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_get_unconnected_pipe</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Create new instance and return previous one.  This ensures</span>
+        <span class="c"># that (until the server is closed) there is always at least</span>
+        <span class="c"># one pipe handle for address.  Therefore if a client attempt</span>
+        <span class="c"># to connect it will not fail with FileNotFoundError.</span>
+        <span class="n">tmp</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pipe</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_pipe</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_server_pipe_handle</span><span class="p">(</span><span class="bp">False</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">tmp</span>
+
+    <span class="k">def</span> <span class="nf">_server_pipe_handle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">first</span><span class="p">):</span>
+        <span class="c"># Return a wrapper for a new pipe handle.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+        <span class="n">flags</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_ACCESS_DUPLEX</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_FLAG_OVERLAPPED</span>
+        <span class="k">if</span> <span class="n">first</span><span class="p">:</span>
+            <span class="n">flags</span> <span class="o">|=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">FILE_FLAG_FIRST_PIPE_INSTANCE</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">CreateNamedPipe</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_address</span><span class="p">,</span> <span class="n">flags</span><span class="p">,</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_TYPE_MESSAGE</span> <span class="o">|</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_READMODE_MESSAGE</span> <span class="o">|</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_WAIT</span><span class="p">,</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">PIPE_UNLIMITED_INSTANCES</span><span class="p">,</span>
+            <span class="n">windows_utils</span><span class="o">.</span><span class="n">BUFSIZE</span><span class="p">,</span> <span class="n">windows_utils</span><span class="o">.</span><span class="n">BUFSIZE</span><span class="p">,</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">NMPWAIT_WAIT_FOREVER</span><span class="p">,</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">NULL</span><span class="p">)</span>
+        <span class="n">pipe</span> <span class="o">=</span> <span class="n">windows_utils</span><span class="o">.</span><span class="n">PipeHandle</span><span class="p">(</span><span class="n">h</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_free_instances</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">pipe</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">pipe</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_accept_pipe_future</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_accept_pipe_future</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_accept_pipe_future</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="c"># Close all instances which have not been connected to by a client.</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">pipe</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_free_instances</span><span class="p">:</span>
+                <span class="n">pipe</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_pipe</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_address</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_free_instances</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+    <span class="n">__del__</span> <span class="o">=</span> <span class="n">close</span>
+
+
+<span class="k">class</span> <span class="nc">_WindowsSelectorEventLoop</span><span class="p">(</span><span class="n">selector_events</span><span class="o">.</span><span class="n">BaseSelectorEventLoop</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Windows version of selector event loop.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">_socketpair</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">windows_utils</span><span class="o">.</span><span class="n">socketpair</span><span class="p">()</span>
+
+
+<div class="viewcode-block" id="ProactorEventLoop"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.ProactorEventLoop">[docs]</a><span class="k">class</span> <span class="nc">ProactorEventLoop</span><span class="p">(</span><span class="n">proactor_events</span><span class="o">.</span><span class="n">BaseProactorEventLoop</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Windows version of proactor event loop using IOCP.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">proactor</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">proactor</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">proactor</span> <span class="o">=</span> <span class="n">IocpProactor</span><span class="p">()</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">proactor</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_socketpair</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">windows_utils</span><span class="o">.</span><span class="n">socketpair</span><span class="p">()</span>
+
+    <span class="nd">@coroutine</span>
+<div class="viewcode-block" id="ProactorEventLoop.create_pipe_connection"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.ProactorEventLoop.create_pipe_connection">[docs]</a>    <span class="k">def</span> <span class="nf">create_pipe_connection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">protocol_factory</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">connect_pipe</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="n">pipe</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">f</span>
+        <span class="n">protocol</span> <span class="o">=</span> <span class="n">protocol_factory</span><span class="p">()</span>
+        <span class="n">trans</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_make_duplex_pipe_transport</span><span class="p">(</span><span class="n">pipe</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span>
+                                                 <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;addr&#39;</span><span class="p">:</span> <span class="n">address</span><span class="p">})</span>
+        <span class="k">return</span> <span class="n">trans</span><span class="p">,</span> <span class="n">protocol</span>
+</div>
+    <span class="nd">@coroutine</span>
+<div class="viewcode-block" id="ProactorEventLoop.start_serving_pipe"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.ProactorEventLoop.start_serving_pipe">[docs]</a>    <span class="k">def</span> <span class="nf">start_serving_pipe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">protocol_factory</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="n">server</span> <span class="o">=</span> <span class="n">PipeServer</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">loop_accept_pipe</span><span class="p">(</span><span class="n">f</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="n">pipe</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">f</span><span class="p">:</span>
+                    <span class="n">pipe</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+                    <span class="n">server</span><span class="o">.</span><span class="n">_free_instances</span><span class="o">.</span><span class="n">discard</span><span class="p">(</span><span class="n">pipe</span><span class="p">)</span>
+                    <span class="n">protocol</span> <span class="o">=</span> <span class="n">protocol_factory</span><span class="p">()</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_make_duplex_pipe_transport</span><span class="p">(</span>
+                        <span class="n">pipe</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;addr&#39;</span><span class="p">:</span> <span class="n">address</span><span class="p">})</span>
+                <span class="n">pipe</span> <span class="o">=</span> <span class="n">server</span><span class="o">.</span><span class="n">_get_unconnected_pipe</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">pipe</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="k">return</span>
+                <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">accept_pipe</span><span class="p">(</span><span class="n">pipe</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">pipe</span> <span class="ow">and</span> <span class="n">pipe</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span> <span class="o">!=</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">({</span>
+                        <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="s">&#39;Pipe accept failed&#39;</span><span class="p">,</span>
+                        <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                        <span class="s">&#39;pipe&#39;</span><span class="p">:</span> <span class="n">pipe</span><span class="p">,</span>
+                    <span class="p">})</span>
+                    <span class="n">pipe</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_debug</span><span class="p">:</span>
+                    <span class="n">logger</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;Accept pipe failed on pipe </span><span class="si">%r</span><span class="s">&quot;</span><span class="p">,</span>
+                                   <span class="n">pipe</span><span class="p">,</span> <span class="n">exc_info</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">pipe</span><span class="p">:</span>
+                    <span class="n">pipe</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">server</span><span class="o">.</span><span class="n">_accept_pipe_future</span> <span class="o">=</span> <span class="n">f</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">loop_accept_pipe</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="n">loop_accept_pipe</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">server</span><span class="p">]</span>
+</div>
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">_make_subprocess_transport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">shell</span><span class="p">,</span>
+                                   <span class="n">stdin</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">,</span> <span class="n">bufsize</span><span class="p">,</span>
+                                   <span class="n">extra</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">transp</span> <span class="o">=</span> <span class="n">_WindowsSubprocessTransport</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">protocol</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">shell</span><span class="p">,</span>
+                                             <span class="n">stdin</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">,</span> <span class="n">bufsize</span><span class="p">,</span>
+                                             <span class="n">extra</span><span class="o">=</span><span class="n">extra</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="k">yield from</span> <span class="n">transp</span><span class="o">.</span><span class="n">_post_init</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">transp</span>
+
+</div>
+<div class="viewcode-block" id="IocpProactor"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor">[docs]</a><span class="k">class</span> <span class="nc">IocpProactor</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Proactor implementation using IOCP.&quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">concurrency</span><span class="o">=</span><span class="mh">0xffffffff</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_results</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">CreateIoCompletionPort</span><span class="p">(</span>
+            <span class="n">_overlapped</span><span class="o">.</span><span class="n">INVALID_HANDLE_VALUE</span><span class="p">,</span> <span class="n">NULL</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">concurrency</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_registered</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">WeakSet</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stopped_serving</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">WeakSet</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">(</span><span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s"> overlapped#=</span><span class="si">%s</span><span class="s"> result#=</span><span class="si">%s</span><span class="s">&gt;&#39;</span>
+                <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">),</span>
+                   <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_results</span><span class="p">)))</span>
+
+<div class="viewcode-block" id="IocpProactor.set_loop"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.set_loop">[docs]</a>    <span class="k">def</span> <span class="nf">set_loop</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">loop</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="o">=</span> <span class="n">loop</span>
+</div>
+<div class="viewcode-block" id="IocpProactor.select"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.select">[docs]</a>    <span class="k">def</span> <span class="nf">select</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_results</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_poll</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+        <span class="n">tmp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_results</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_results</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">return</span> <span class="n">tmp</span>
+</div>
+<div class="viewcode-block" id="IocpProactor.recv"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.recv">[docs]</a>    <span class="k">def</span> <span class="nf">recv</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">nbytes</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_register_with_iocp</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
+        <span class="n">ov</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">Overlapped</span><span class="p">(</span><span class="n">NULL</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">):</span>
+            <span class="n">ov</span><span class="o">.</span><span class="n">WSARecv</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">nbytes</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ov</span><span class="o">.</span><span class="n">ReadFile</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">nbytes</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">finish_recv</span><span class="p">(</span><span class="n">trans</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">ov</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">ov</span><span class="o">.</span><span class="n">getresult</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">exc</span><span class="o">.</span><span class="n">winerror</span> <span class="o">==</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">ERROR_NETNAME_DELETED</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">ConnectionResetError</span><span class="p">(</span><span class="o">*</span><span class="n">exc</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register</span><span class="p">(</span><span class="n">ov</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">finish_recv</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IocpProactor.send"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.send">[docs]</a>    <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">flags</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_register_with_iocp</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
+        <span class="n">ov</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">Overlapped</span><span class="p">(</span><span class="n">NULL</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">conn</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">):</span>
+            <span class="n">ov</span><span class="o">.</span><span class="n">WSASend</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">buf</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ov</span><span class="o">.</span><span class="n">WriteFile</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">buf</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">finish_send</span><span class="p">(</span><span class="n">trans</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">ov</span><span class="p">):</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">ov</span><span class="o">.</span><span class="n">getresult</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">exc</span><span class="o">.</span><span class="n">winerror</span> <span class="o">==</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">ERROR_NETNAME_DELETED</span><span class="p">:</span>
+                    <span class="k">raise</span> <span class="n">ConnectionResetError</span><span class="p">(</span><span class="o">*</span><span class="n">exc</span><span class="o">.</span><span class="n">args</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="k">raise</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register</span><span class="p">(</span><span class="n">ov</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">finish_send</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IocpProactor.accept"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.accept">[docs]</a>    <span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">listener</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_register_with_iocp</span><span class="p">(</span><span class="n">listener</span><span class="p">)</span>
+        <span class="n">conn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_accept_socket</span><span class="p">(</span><span class="n">listener</span><span class="o">.</span><span class="n">family</span><span class="p">)</span>
+        <span class="n">ov</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">Overlapped</span><span class="p">(</span><span class="n">NULL</span><span class="p">)</span>
+        <span class="n">ov</span><span class="o">.</span><span class="n">AcceptEx</span><span class="p">(</span><span class="n">listener</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+
+        <span class="k">def</span> <span class="nf">finish_accept</span><span class="p">(</span><span class="n">trans</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">ov</span><span class="p">):</span>
+            <span class="n">ov</span><span class="o">.</span><span class="n">getresult</span><span class="p">()</span>
+            <span class="c"># Use SO_UPDATE_ACCEPT_CONTEXT so getsockname() etc work.</span>
+            <span class="n">buf</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&#39;@P&#39;</span><span class="p">,</span> <span class="n">listener</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">setsockopt</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span>
+                            <span class="n">_overlapped</span><span class="o">.</span><span class="n">SO_UPDATE_ACCEPT_CONTEXT</span><span class="p">,</span> <span class="n">buf</span><span class="p">)</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">settimeout</span><span class="p">(</span><span class="n">listener</span><span class="o">.</span><span class="n">gettimeout</span><span class="p">())</span>
+            <span class="k">return</span> <span class="n">conn</span><span class="p">,</span> <span class="n">conn</span><span class="o">.</span><span class="n">getpeername</span><span class="p">()</span>
+
+        <span class="nd">@coroutine</span>
+        <span class="k">def</span> <span class="nf">accept_coro</span><span class="p">(</span><span class="n">future</span><span class="p">,</span> <span class="n">conn</span><span class="p">):</span>
+            <span class="c"># Coroutine closing the accept socket if the future is cancelled</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">yield from</span> <span class="n">future</span>
+            <span class="k">except</span> <span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">:</span>
+                <span class="n">conn</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">raise</span>
+
+        <span class="n">future</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register</span><span class="p">(</span><span class="n">ov</span><span class="p">,</span> <span class="n">listener</span><span class="p">,</span> <span class="n">finish_accept</span><span class="p">)</span>
+        <span class="n">coro</span> <span class="o">=</span> <span class="n">accept_coro</span><span class="p">(</span><span class="n">future</span><span class="p">,</span> <span class="n">conn</span><span class="p">)</span>
+        <span class="n">tasks</span><span class="o">.</span><span class="n">async</span><span class="p">(</span><span class="n">coro</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">future</span>
+</div>
+<div class="viewcode-block" id="IocpProactor.connect"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.connect">[docs]</a>    <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_register_with_iocp</span><span class="p">(</span><span class="n">conn</span><span class="p">)</span>
+        <span class="c"># The socket needs to be locally bound before we call ConnectEx().</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">_overlapped</span><span class="o">.</span><span class="n">BindLocal</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">conn</span><span class="o">.</span><span class="n">family</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">winerror</span> <span class="o">!=</span> <span class="n">errno</span><span class="o">.</span><span class="n">WSAEINVAL</span><span class="p">:</span>
+                <span class="k">raise</span>
+            <span class="c"># Probably already locally bound; check using getsockname().</span>
+            <span class="k">if</span> <span class="n">conn</span><span class="o">.</span><span class="n">getsockname</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">raise</span>
+        <span class="n">ov</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">Overlapped</span><span class="p">(</span><span class="n">NULL</span><span class="p">)</span>
+        <span class="n">ov</span><span class="o">.</span><span class="n">ConnectEx</span><span class="p">(</span><span class="n">conn</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="n">address</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">finish_connect</span><span class="p">(</span><span class="n">trans</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">ov</span><span class="p">):</span>
+            <span class="n">ov</span><span class="o">.</span><span class="n">getresult</span><span class="p">()</span>
+            <span class="c"># Use SO_UPDATE_CONNECT_CONTEXT so getsockname() etc work.</span>
+            <span class="n">conn</span><span class="o">.</span><span class="n">setsockopt</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span>
+                            <span class="n">_overlapped</span><span class="o">.</span><span class="n">SO_UPDATE_CONNECT_CONTEXT</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">conn</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register</span><span class="p">(</span><span class="n">ov</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">finish_connect</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IocpProactor.accept_pipe"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.accept_pipe">[docs]</a>    <span class="k">def</span> <span class="nf">accept_pipe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pipe</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_register_with_iocp</span><span class="p">(</span><span class="n">pipe</span><span class="p">)</span>
+        <span class="n">ov</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">Overlapped</span><span class="p">(</span><span class="n">NULL</span><span class="p">)</span>
+        <span class="n">ov</span><span class="o">.</span><span class="n">ConnectNamedPipe</span><span class="p">(</span><span class="n">pipe</span><span class="o">.</span><span class="n">fileno</span><span class="p">())</span>
+
+        <span class="k">def</span> <span class="nf">finish_accept_pipe</span><span class="p">(</span><span class="n">trans</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">ov</span><span class="p">):</span>
+            <span class="n">ov</span><span class="o">.</span><span class="n">getresult</span><span class="p">()</span>
+            <span class="k">return</span> <span class="n">pipe</span>
+
+        <span class="c"># FIXME: Tulip issue 196: why to we neeed register=False?</span>
+        <span class="c"># See also the comment in the _register() method</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register</span><span class="p">(</span><span class="n">ov</span><span class="p">,</span> <span class="n">pipe</span><span class="p">,</span> <span class="n">finish_accept_pipe</span><span class="p">,</span>
+                              <span class="n">register</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IocpProactor.connect_pipe"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.connect_pipe">[docs]</a>    <span class="k">def</span> <span class="nf">connect_pipe</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="n">ov</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">Overlapped</span><span class="p">(</span><span class="n">NULL</span><span class="p">)</span>
+        <span class="n">ov</span><span class="o">.</span><span class="n">WaitNamedPipeAndConnect</span><span class="p">(</span><span class="n">address</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span><span class="p">,</span> <span class="n">ov</span><span class="o">.</span><span class="n">address</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">finish_connect_pipe</span><span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">ov</span><span class="p">):</span>
+            <span class="c"># err, handle were arguments passed to PostQueuedCompletionStatus()</span>
+            <span class="c"># in a function run in a thread pool.</span>
+            <span class="k">if</span> <span class="n">err</span> <span class="o">==</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">ERROR_SEM_TIMEOUT</span><span class="p">:</span>
+                <span class="c"># Connection did not succeed within time limit.</span>
+                <span class="n">msg</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">FormatMessage</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="n">ConnectionRefusedError</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">err</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">msg</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">FormatMessage</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+                <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">windows_utils</span><span class="o">.</span><span class="n">PipeHandle</span><span class="p">(</span><span class="n">handle</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_register</span><span class="p">(</span><span class="n">ov</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">finish_connect_pipe</span><span class="p">,</span> <span class="n">wait_for_post</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="IocpProactor.wait_for_handle"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.wait_for_handle">[docs]</a>    <span class="k">def</span> <span class="nf">wait_for_handle</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">ms</span> <span class="o">=</span> <span class="n">_winapi</span><span class="o">.</span><span class="n">INFINITE</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># RegisterWaitForSingleObject() has a resolution of 1 millisecond,</span>
+            <span class="c"># round away from zero to wait *at least* timeout seconds.</span>
+            <span class="n">ms</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">timeout</span> <span class="o">*</span> <span class="mf">1e3</span><span class="p">)</span>
+
+        <span class="c"># We only create ov so we can use ov.address as a key for the cache.</span>
+        <span class="n">ov</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">Overlapped</span><span class="p">(</span><span class="n">NULL</span><span class="p">)</span>
+        <span class="n">wh</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">RegisterWaitWithQueue</span><span class="p">(</span>
+            <span class="n">handle</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span><span class="p">,</span> <span class="n">ov</span><span class="o">.</span><span class="n">address</span><span class="p">,</span> <span class="n">ms</span><span class="p">)</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">_WaitHandleFuture</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="n">handle</span><span class="p">,</span> <span class="n">wh</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">f</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+        <span class="k">def</span> <span class="nf">finish_wait_for_handle</span><span class="p">(</span><span class="n">trans</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">ov</span><span class="p">):</span>
+            <span class="c"># Note that this second wait means that we should only use</span>
+            <span class="c"># this with handles types where a successful wait has no</span>
+            <span class="c"># effect.  So events or processes are all right, but locks</span>
+            <span class="c"># or semaphores are not.  Also note if the handle is</span>
+            <span class="c"># signalled and then quickly reset, then we may return</span>
+            <span class="c"># False even though we have not timed out.</span>
+            <span class="k">return</span> <span class="n">f</span><span class="o">.</span><span class="n">_poll</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">_poll</span><span class="p">():</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">_poll</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="n">ov</span><span class="o">.</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">finish_wait_for_handle</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">f</span>
+</div>
+    <span class="k">def</span> <span class="nf">_register_with_iocp</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="c"># To get notifications of finished ops on this objects sent to the</span>
+        <span class="c"># completion port, were must register the handle.</span>
+        <span class="k">if</span> <span class="n">obj</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_registered</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_registered</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+            <span class="n">_overlapped</span><span class="o">.</span><span class="n">CreateIoCompletionPort</span><span class="p">(</span><span class="n">obj</span><span class="o">.</span><span class="n">fileno</span><span class="p">(),</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="c"># XXX We could also use SetFileCompletionNotificationModes()</span>
+            <span class="c"># to avoid sending notifications to completion port of ops</span>
+            <span class="c"># that succeed immediately.</span>
+
+    <span class="k">def</span> <span class="nf">_register</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span>
+                  <span class="n">wait_for_post</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">register</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="c"># Return a future which will be set with the result of the</span>
+        <span class="c"># operation when it completes.  The future&#39;s value is actually</span>
+        <span class="c"># the value returned by callback().</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">_OverlappedFuture</span><span class="p">(</span><span class="n">ov</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">f</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">ov</span><span class="o">.</span><span class="n">pending</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">wait_for_post</span><span class="p">:</span>
+            <span class="c"># The operation has completed, so no need to postpone the</span>
+            <span class="c"># work.  We cannot take this short cut if we need the</span>
+            <span class="c"># NumberOfBytes, CompletionKey values returned by</span>
+            <span class="c"># PostQueuedCompletionStatus().</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">ov</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="c"># Even if GetOverlappedResult() was called, we have to wait for the</span>
+            <span class="c"># notification of the completion in GetQueuedCompletionStatus().</span>
+            <span class="c"># Register the overlapped operation to keep a reference to the</span>
+            <span class="c"># OVERLAPPED object, otherwise the memory is freed and Windows may</span>
+            <span class="c"># read uninitialized memory.</span>
+            <span class="c">#</span>
+            <span class="c"># For an unknown reason, ConnectNamedPipe() behaves differently:</span>
+            <span class="c"># the completion is not notified by GetOverlappedResult() if we</span>
+            <span class="c"># already called GetOverlappedResult(). For this specific case, we</span>
+            <span class="c"># don&#39;t expect notification (register is set to False).</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">register</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="n">register</span><span class="p">:</span>
+            <span class="c"># Register the overlapped operation for later.  Note that</span>
+            <span class="c"># we only store obj to prevent it from being garbage</span>
+            <span class="c"># collected too early.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="n">ov</span><span class="o">.</span><span class="n">address</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">f</span>
+
+    <span class="k">def</span> <span class="nf">_get_accept_socket</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">family</span><span class="p">):</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">(</span><span class="n">family</span><span class="p">)</span>
+        <span class="n">s</span><span class="o">.</span><span class="n">settimeout</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">s</span>
+
+    <span class="k">def</span> <span class="nf">_poll</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">ms</span> <span class="o">=</span> <span class="n">INFINITE</span>
+        <span class="k">elif</span> <span class="n">timeout</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;negative timeout&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># GetQueuedCompletionStatus() has a resolution of 1 millisecond,</span>
+            <span class="c"># round away from zero to wait *at least* timeout seconds.</span>
+            <span class="n">ms</span> <span class="o">=</span> <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">timeout</span> <span class="o">*</span> <span class="mf">1e3</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">ms</span> <span class="o">&gt;=</span> <span class="n">INFINITE</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;timeout too big&quot;</span><span class="p">)</span>
+
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">status</span> <span class="o">=</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">GetQueuedCompletionStatus</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span><span class="p">,</span> <span class="n">ms</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">status</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="n">ms</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="n">err</span><span class="p">,</span> <span class="n">transferred</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">address</span> <span class="o">=</span> <span class="n">status</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">f</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">callback</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">get_debug</span><span class="p">():</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">({</span>
+                        <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;GetQueuedCompletionStatus() returned an &#39;</span>
+                                    <span class="s">&#39;unexpected event&#39;</span><span class="p">),</span>
+                        <span class="s">&#39;status&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;err=</span><span class="si">%s</span><span class="s"> transferred=</span><span class="si">%s</span><span class="s"> key=</span><span class="si">%#x</span><span class="s"> address=</span><span class="si">%#x</span><span class="s">&#39;</span>
+                                   <span class="o">%</span> <span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="n">transferred</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">address</span><span class="p">)),</span>
+                    <span class="p">})</span>
+
+                <span class="c"># key is either zero, or it is used to return a pipe</span>
+                <span class="c"># handle which should be closed to avoid a leak.</span>
+                <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">_overlapped</span><span class="o">.</span><span class="n">INVALID_HANDLE_VALUE</span><span class="p">):</span>
+                    <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+                <span class="k">continue</span>
+
+            <span class="k">if</span> <span class="n">obj</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stopped_serving</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="c"># Don&#39;t call the callback if _register() already read the result or</span>
+            <span class="c"># if the overlapped has been cancelled</span>
+            <span class="k">elif</span> <span class="ow">not</span> <span class="n">f</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">value</span> <span class="o">=</span> <span class="n">callback</span><span class="p">(</span><span class="n">transferred</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">ov</span><span class="p">)</span>
+                <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">f</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_results</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_stop_serving</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">):</span>
+        <span class="c"># obj is a socket or pipe handle.  It will be closed in</span>
+        <span class="c"># BaseProactorEventLoop._stop_serving() which will make any</span>
+        <span class="c"># pending operations fail quickly.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_stopped_serving</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+
+<div class="viewcode-block" id="IocpProactor.close"><a class="viewcode-back" href="../../asyncio.html#asyncio.windows_events.IocpProactor.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Cancel remaining registered operations.</span>
+        <span class="k">for</span> <span class="n">address</span><span class="p">,</span> <span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="n">ov</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+            <span class="k">if</span> <span class="n">obj</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="c"># The operation was started with connect_pipe() which</span>
+                <span class="c"># queues a task to Windows&#39; thread pool.  This cannot</span>
+                <span class="c"># be cancelled, so just forget it.</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
+            <span class="c"># FIXME: Tulip issue 196: remove this case, it should not happen</span>
+            <span class="k">elif</span> <span class="n">fut</span><span class="o">.</span><span class="n">done</span><span class="p">()</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">fut</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="n">address</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">fut</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+                <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                        <span class="n">context</span> <span class="o">=</span> <span class="p">{</span>
+                            <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="s">&#39;Cancelling a future failed&#39;</span><span class="p">,</span>
+                            <span class="s">&#39;exception&#39;</span><span class="p">:</span> <span class="n">exc</span><span class="p">,</span>
+                            <span class="s">&#39;future&#39;</span><span class="p">:</span> <span class="n">fut</span><span class="p">,</span>
+                        <span class="p">}</span>
+                        <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+                            <span class="n">context</span><span class="p">[</span><span class="s">&#39;source_traceback&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">fut</span><span class="o">.</span><span class="n">_source_traceback</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+
+        <span class="k">while</span> <span class="bp">self</span><span class="o">.</span><span class="n">_cache</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_poll</span><span class="p">(</span><span class="mi">1</span><span class="p">):</span>
+                <span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="s">&#39;taking long time to close proactor&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_results</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">_winapi</span><span class="o">.</span><span class="n">CloseHandle</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_iocp</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+</div>
+<span class="k">class</span> <span class="nc">_WindowsSubprocessTransport</span><span class="p">(</span><span class="n">base_subprocess</span><span class="o">.</span><span class="n">BaseSubprocessTransport</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">_start</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">shell</span><span class="p">,</span> <span class="n">stdin</span><span class="p">,</span> <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="p">,</span> <span class="n">bufsize</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_proc</span> <span class="o">=</span> <span class="n">windows_utils</span><span class="o">.</span><span class="n">Popen</span><span class="p">(</span>
+            <span class="n">args</span><span class="p">,</span> <span class="n">shell</span><span class="o">=</span><span class="n">shell</span><span class="p">,</span> <span class="n">stdin</span><span class="o">=</span><span class="n">stdin</span><span class="p">,</span> <span class="n">stdout</span><span class="o">=</span><span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span><span class="o">=</span><span class="n">stderr</span><span class="p">,</span>
+            <span class="n">bufsize</span><span class="o">=</span><span class="n">bufsize</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">callback</span><span class="p">(</span><span class="n">f</span><span class="p">):</span>
+            <span class="n">returncode</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_proc</span><span class="o">.</span><span class="n">poll</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_process_exited</span><span class="p">(</span><span class="n">returncode</span><span class="p">)</span>
+
+        <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">_proactor</span><span class="o">.</span><span class="n">wait_for_handle</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_proc</span><span class="o">.</span><span class="n">_handle</span><span class="p">))</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">callback</span><span class="p">)</span>
+
+
+<span class="n">SelectorEventLoop</span> <span class="o">=</span> <span class="n">_WindowsSelectorEventLoop</span>
+
+
+<span class="k">class</span> <span class="nc">_WindowsDefaultEventLoopPolicy</span><span class="p">(</span><span class="n">events</span><span class="o">.</span><span class="n">BaseDefaultEventLoopPolicy</span><span class="p">):</span>
+    <span class="n">_loop_factory</span> <span class="o">=</span> <span class="n">SelectorEventLoop</span>
+
+
+<span class="n">DefaultEventLoopPolicy</span> <span class="o">=</span> <span class="n">_WindowsDefaultEventLoopPolicy</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

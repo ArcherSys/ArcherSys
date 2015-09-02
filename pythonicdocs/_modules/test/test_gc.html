@@ -1,0 +1,1174 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>test.test_gc &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>test.test_gc</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for test.test_gc</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">from</span> <span class="nn">test.support</span> <span class="kn">import</span> <span class="p">(</span><span class="n">verbose</span><span class="p">,</span> <span class="n">refcount_test</span><span class="p">,</span> <span class="n">run_unittest</span><span class="p">,</span>
+                            <span class="n">strip_python_stderr</span><span class="p">,</span> <span class="n">cpython_only</span><span class="p">)</span>
+<span class="kn">from</span> <span class="nn">test.script_helper</span> <span class="kn">import</span> <span class="n">assert_python_ok</span><span class="p">,</span> <span class="n">make_script</span><span class="p">,</span> <span class="n">temp_dir</span>
+
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">gc</span>
+<span class="kn">import</span> <span class="nn">weakref</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">threading</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">threading</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">_testcapi</span> <span class="kn">import</span> <span class="n">with_tp_del</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">with_tp_del</span><span class="p">(</span><span class="n">cls</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">C</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">__new__</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;requires _testcapi.with_tp_del&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">C</span>
+
+<span class="c">### Support code</span>
+<span class="c">###############################################################################</span>
+
+<span class="c"># Bug 1055820 has several tests of longstanding bugs involving weakrefs and</span>
+<span class="c"># cyclic gc.</span>
+
+<span class="c"># An instance of C1055820 has a self-loop, so becomes cyclic trash when</span>
+<span class="c"># unreachable.</span>
+<div class="viewcode-block" id="C1055820"><a class="viewcode-back" href="../../test.html#test.test_gc.C1055820">[docs]</a><span class="k">class</span> <span class="nc">C1055820</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">i</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">i</span> <span class="o">=</span> <span class="n">i</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">loop</span> <span class="o">=</span> <span class="bp">self</span>
+</div>
+<div class="viewcode-block" id="GC_Detector"><a class="viewcode-back" href="../../test.html#test.test_gc.GC_Detector">[docs]</a><span class="k">class</span> <span class="nc">GC_Detector</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="c"># Create an instance I.  Then gc hasn&#39;t happened again so long as</span>
+    <span class="c"># I.gc_happened is false.</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gc_happened</span> <span class="o">=</span> <span class="bp">False</span>
+
+        <span class="k">def</span> <span class="nf">it_happened</span><span class="p">(</span><span class="n">ignored</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">gc_happened</span> <span class="o">=</span> <span class="bp">True</span>
+
+        <span class="c"># Create a piece of cyclic trash that triggers it_happened when</span>
+        <span class="c"># gc collects it.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">C1055820</span><span class="p">(</span><span class="mi">666</span><span class="p">),</span> <span class="n">it_happened</span><span class="p">)</span>
+</div>
+<span class="nd">@with_tp_del</span>
+<div class="viewcode-block" id="Uncollectable"><a class="viewcode-back" href="../../test.html#test.test_gc.Uncollectable">[docs]</a><span class="k">class</span> <span class="nc">Uncollectable</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Create a reference cycle with multiple __del__ methods.</span>
+
+<span class="sd">    An object in a reference cycle will never have zero references,</span>
+<span class="sd">    and so must be garbage collected.  If one or more objects in the</span>
+<span class="sd">    cycle have __del__ methods, the gc refuses to guess an order,</span>
+<span class="sd">    and leaves the cycle uncollected.&quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">partner</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">partner</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">partner</span> <span class="o">=</span> <span class="n">Uncollectable</span><span class="p">(</span><span class="n">partner</span><span class="o">=</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">partner</span> <span class="o">=</span> <span class="n">partner</span>
+    <span class="k">def</span> <span class="nf">__tp_del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+<span class="c">### Tests</span>
+<span class="c">###############################################################################</span>
+</div>
+<div class="viewcode-block" id="GCTests"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests">[docs]</a><span class="k">class</span> <span class="nc">GCTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="GCTests.test_list"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_list">[docs]</a>    <span class="k">def</span> <span class="nf">test_list</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">l</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">l</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">l</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_dict"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_dict">[docs]</a>    <span class="k">def</span> <span class="nf">test_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">d</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">d</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">d</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_tuple"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_tuple">[docs]</a>    <span class="k">def</span> <span class="nf">test_tuple</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># since tuples are immutable we close the loop with a list</span>
+        <span class="n">l</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">t</span> <span class="o">=</span> <span class="p">(</span><span class="n">l</span><span class="p">,)</span>
+        <span class="n">l</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">t</span>
+        <span class="k">del</span> <span class="n">l</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">2</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_class"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_class">[docs]</a>    <span class="k">def</span> <span class="nf">test_class</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">A</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="n">A</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="n">A</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">A</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_newstyleclass"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_newstyleclass">[docs]</a>    <span class="k">def</span> <span class="nf">test_newstyleclass</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">A</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">A</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_instance"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_instance">[docs]</a>    <span class="k">def</span> <span class="nf">test_instance</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">A</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="n">a</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">a</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_newinstance"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_newinstance">[docs]</a>    <span class="k">def</span> <span class="nf">test_newinstance</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">A</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="n">a</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">a</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">class</span> <span class="nc">B</span><span class="p">(</span><span class="nb">list</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="k">class</span> <span class="nc">C</span><span class="p">(</span><span class="n">B</span><span class="p">,</span> <span class="n">A</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">C</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="n">a</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">a</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">B</span><span class="p">,</span> <span class="n">C</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">A</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">A</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_method"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_method">[docs]</a>    <span class="k">def</span> <span class="nf">test_method</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Tricky: self.__init__ is a bound method, it references the instance.</span>
+        <span class="k">class</span> <span class="nc">A</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">init</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">__init__</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">a</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+    <span class="nd">@cpython_only</span>
+<div class="viewcode-block" id="GCTests.test_legacy_finalizer"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_legacy_finalizer">[docs]</a>    <span class="k">def</span> <span class="nf">test_legacy_finalizer</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># A() is uncollectable if it is part of a cycle, make sure it shows up</span>
+        <span class="c"># in gc.garbage.</span>
+        <span class="nd">@with_tp_del</span>
+        <span class="k">class</span> <span class="nc">A</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">__tp_del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span> <span class="k">pass</span>
+        <span class="k">class</span> <span class="nc">B</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="n">a</span>
+        <span class="n">id_a</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">B</span><span class="p">()</span>
+        <span class="n">b</span><span class="o">.</span><span class="n">b</span> <span class="o">=</span> <span class="n">b</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">a</span>
+        <span class="k">del</span> <span class="n">b</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">id</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="o">==</span> <span class="n">id_a</span><span class="p">:</span>
+                <span class="k">del</span> <span class="n">obj</span><span class="o">.</span><span class="n">a</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;didn&#39;t find obj in garbage (finalizer)&quot;</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+</div>
+    <span class="nd">@cpython_only</span>
+<div class="viewcode-block" id="GCTests.test_legacy_finalizer_newclass"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_legacy_finalizer_newclass">[docs]</a>    <span class="k">def</span> <span class="nf">test_legacy_finalizer_newclass</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># A() is uncollectable if it is part of a cycle, make sure it shows up</span>
+        <span class="c"># in gc.garbage.</span>
+        <span class="nd">@with_tp_del</span>
+        <span class="k">class</span> <span class="nc">A</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">__tp_del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span> <span class="k">pass</span>
+        <span class="k">class</span> <span class="nc">B</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">pass</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">a</span> <span class="o">=</span> <span class="n">a</span>
+        <span class="n">id_a</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">B</span><span class="p">()</span>
+        <span class="n">b</span><span class="o">.</span><span class="n">b</span> <span class="o">=</span> <span class="n">b</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">a</span>
+        <span class="k">del</span> <span class="n">b</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">id</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span> <span class="o">==</span> <span class="n">id_a</span><span class="p">:</span>
+                <span class="k">del</span> <span class="n">obj</span><span class="o">.</span><span class="n">a</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;didn&#39;t find obj in garbage (finalizer)&quot;</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_function"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_function">[docs]</a>    <span class="k">def</span> <span class="nf">test_function</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Tricky: f -&gt; d -&gt; f, code should call d.clear() after the exec to</span>
+        <span class="c"># break the cycle.</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">exec</span><span class="p">(</span><span class="s">&quot;def f(): pass</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">d</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">d</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">2</span><span class="p">)</span>
+</div>
+    <span class="nd">@refcount_test</span>
+<div class="viewcode-block" id="GCTests.test_frame"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_frame">[docs]</a>    <span class="k">def</span> <span class="nf">test_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">def</span> <span class="nf">f</span><span class="p">():</span>
+            <span class="n">frame</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">_getframe</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">f</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">1</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_saveall"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_saveall">[docs]</a>    <span class="k">def</span> <span class="nf">test_saveall</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Verify that cyclic garbage like lists show up in gc.garbage if the</span>
+        <span class="c"># SAVEALL option is enabled.</span>
+
+        <span class="c"># First make sure we don&#39;t save away other stuff that just happens to</span>
+        <span class="c"># be waiting for collection.</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="c"># if this fails, someone else created immortal trash</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">,</span> <span class="p">[])</span>
+
+        <span class="n">L</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">L</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">L</span><span class="p">)</span>
+        <span class="n">id_L</span> <span class="o">=</span> <span class="nb">id</span><span class="p">(</span><span class="n">L</span><span class="p">)</span>
+
+        <span class="n">debug</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_debug</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_debug</span><span class="p">(</span><span class="n">debug</span> <span class="o">|</span> <span class="n">gc</span><span class="o">.</span><span class="n">DEBUG_SAVEALL</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">L</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_debug</span><span class="p">(</span><span class="n">debug</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="n">obj</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">id</span><span class="p">(</span><span class="n">obj</span><span class="p">),</span> <span class="n">id_L</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_del"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_del">[docs]</a>    <span class="k">def</span> <span class="nf">test_del</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># __del__ methods can trigger collection, make this to happen</span>
+        <span class="n">thresholds</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_threshold</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_threshold</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">class</span> <span class="nc">A</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="nb">dir</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">a</span>
+
+        <span class="n">gc</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_threshold</span><span class="p">(</span><span class="o">*</span><span class="n">thresholds</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_del_newclass"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_del_newclass">[docs]</a>    <span class="k">def</span> <span class="nf">test_del_newclass</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># __del__ methods can trigger collection, make this to happen</span>
+        <span class="n">thresholds</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_threshold</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_threshold</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">class</span> <span class="nc">A</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="nb">dir</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+        <span class="k">del</span> <span class="n">a</span>
+
+        <span class="n">gc</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_threshold</span><span class="p">(</span><span class="o">*</span><span class="n">thresholds</span><span class="p">)</span>
+
+    <span class="c"># The following two tests are fragile:</span>
+    <span class="c"># They precisely count the number of allocations,</span>
+    <span class="c"># which is highly implementation-dependent.</span>
+    <span class="c"># For example, disposed tuples are not freed, but reused.</span>
+    <span class="c"># To minimize variations, though, we first store the get_count() results</span>
+    <span class="c"># and check them at the end.</span></div>
+    <span class="nd">@refcount_test</span>
+<div class="viewcode-block" id="GCTests.test_get_count"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_get_count">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_count</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_count</span><span class="p">()</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_count</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">((</span><span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">((</span><span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="c"># This is less fragile than asserting that a equals 0.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertLess</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span>
+        <span class="c"># Between the two calls to get_count(), at least one object was</span>
+        <span class="c"># created (the list).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertGreater</span><span class="p">(</span><span class="n">d</span><span class="p">,</span> <span class="n">a</span><span class="p">)</span>
+</div>
+    <span class="nd">@refcount_test</span>
+<div class="viewcode-block" id="GCTests.test_collect_generations"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_collect_generations">[docs]</a>    <span class="k">def</span> <span class="nf">test_collect_generations</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="c"># This object will &quot;trickle&quot; into generation N + 1 after</span>
+        <span class="c"># each call to collect(N)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="c"># x is now in gen 1</span>
+        <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">c</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_count</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="c"># x is now in gen 2</span>
+        <span class="n">d</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">f</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_count</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="c"># x is now in gen 3</span>
+        <span class="n">g</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">i</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_count</span><span class="p">()</span>
+        <span class="c"># We don&#39;t check a, d, g since their exact values depends on</span>
+        <span class="c"># internal implementation details of the interpreter.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">((</span><span class="n">b</span><span class="p">,</span> <span class="n">c</span><span class="p">),</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">((</span><span class="n">e</span><span class="p">,</span> <span class="n">f</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">((</span><span class="n">h</span><span class="p">,</span> <span class="n">i</span><span class="p">),</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_trashcan"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_trashcan">[docs]</a>    <span class="k">def</span> <span class="nf">test_trashcan</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">Ouch</span><span class="p">:</span>
+            <span class="n">n</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="n">Ouch</span><span class="o">.</span><span class="n">n</span> <span class="o">=</span> <span class="n">Ouch</span><span class="o">.</span><span class="n">n</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="k">if</span> <span class="n">Ouch</span><span class="o">.</span><span class="n">n</span> <span class="o">%</span> <span class="mi">17</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+
+        <span class="c"># &quot;trashcan&quot; is a hack to prevent stack overflow when deallocating</span>
+        <span class="c"># very deeply nested tuples etc.  It works in part by abusing the</span>
+        <span class="c"># type pointer and refcount fields, and that can yield horrible</span>
+        <span class="c"># problems when gc tries to traverse the structures.</span>
+        <span class="c"># If this test fails (as it does in 2.0, 2.1 and 2.2), it will</span>
+        <span class="c"># most likely die via segfault.</span>
+
+        <span class="c"># Note:  In 2.3 the possibility for compiling without cyclic gc was</span>
+        <span class="c"># removed, and that in turn allows the trashcan mechanism to work</span>
+        <span class="c"># via much simpler means (e.g., it never abuses the type pointer or</span>
+        <span class="c"># refcount fields anymore).  Since it&#39;s much less likely to cause a</span>
+        <span class="c"># problem now, the various constants in this expensive (we force a lot</span>
+        <span class="c"># of full collections) test are cut back from the 2.2 version.</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+        <span class="n">N</span> <span class="o">=</span> <span class="mi">150</span>
+        <span class="k">for</span> <span class="n">count</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">):</span>
+            <span class="n">t</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
+                <span class="n">t</span> <span class="o">=</span> <span class="p">[</span><span class="n">t</span><span class="p">,</span> <span class="n">Ouch</span><span class="p">()]</span>
+            <span class="n">u</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
+                <span class="n">u</span> <span class="o">=</span> <span class="p">[</span><span class="n">u</span><span class="p">,</span> <span class="n">Ouch</span><span class="p">()]</span>
+            <span class="n">v</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N</span><span class="p">):</span>
+                <span class="n">v</span> <span class="o">=</span> <span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="n">v</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="n">Ouch</span><span class="p">()}</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+</div>
+    <span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">threading</span><span class="p">,</span> <span class="s">&quot;test meaningless on builds without threads&quot;</span><span class="p">)</span>
+<div class="viewcode-block" id="GCTests.test_trashcan_threads"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_trashcan_threads">[docs]</a>    <span class="k">def</span> <span class="nf">test_trashcan_threads</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue #13992: trashcan mechanism should be thread-safe</span>
+        <span class="n">NESTING</span> <span class="o">=</span> <span class="mi">60</span>
+        <span class="n">N_THREADS</span> <span class="o">=</span> <span class="mi">2</span>
+
+        <span class="k">def</span> <span class="nf">sleeper_gen</span><span class="p">():</span>
+            <span class="sd">&quot;&quot;&quot;A generator that releases the GIL when closed or dealloc&#39;ed.&quot;&quot;&quot;</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="k">yield</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.000001</span><span class="p">)</span>
+
+        <span class="k">class</span> <span class="nc">C</span><span class="p">(</span><span class="nb">list</span><span class="p">):</span>
+            <span class="c"># Appending to a list is atomic, which avoids the use of a lock.</span>
+            <span class="n">inits</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="n">dels</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">alist</span><span class="p">):</span>
+                <span class="bp">self</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">alist</span>
+                <span class="n">C</span><span class="o">.</span><span class="n">inits</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="c"># This __del__ is called by subtype_dealloc().</span>
+                <span class="n">C</span><span class="o">.</span><span class="n">dels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+                <span class="c"># `g` will release the GIL when garbage-collected.  This</span>
+                <span class="c"># helps assert subtype_dealloc&#39;s behaviour when threads</span>
+                <span class="c"># switch in the middle of it.</span>
+                <span class="n">g</span> <span class="o">=</span> <span class="n">sleeper_gen</span><span class="p">()</span>
+                <span class="nb">next</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+                <span class="c"># Now that __del__ is finished, subtype_dealloc will proceed</span>
+                <span class="c"># to call list_dealloc, which also uses the trashcan mechanism.</span>
+
+        <span class="k">def</span> <span class="nf">make_nested</span><span class="p">():</span>
+            <span class="sd">&quot;&quot;&quot;Create a sufficiently nested container object so that the</span>
+<span class="sd">            trashcan mechanism is invoked when deallocating it.&quot;&quot;&quot;</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">C</span><span class="p">([])</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">NESTING</span><span class="p">):</span>
+                <span class="n">x</span> <span class="o">=</span> <span class="p">[</span><span class="n">C</span><span class="p">([</span><span class="n">x</span><span class="p">])]</span>
+            <span class="k">del</span> <span class="n">x</span>
+
+        <span class="k">def</span> <span class="nf">run_thread</span><span class="p">():</span>
+            <span class="sd">&quot;&quot;&quot;Exercise make_nested() in a loop.&quot;&quot;&quot;</span>
+            <span class="k">while</span> <span class="ow">not</span> <span class="nb">exit</span><span class="p">:</span>
+                <span class="n">make_nested</span><span class="p">()</span>
+
+        <span class="n">old_switchinterval</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">getswitchinterval</span><span class="p">()</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">setswitchinterval</span><span class="p">(</span><span class="mf">1e-5</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="nb">exit</span> <span class="o">=</span> <span class="bp">False</span>
+            <span class="n">threads</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">N_THREADS</span><span class="p">):</span>
+                <span class="n">t</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">run_thread</span><span class="p">)</span>
+                <span class="n">threads</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">t</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">1.0</span><span class="p">)</span>
+            <span class="nb">exit</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">threads</span><span class="p">:</span>
+                <span class="n">t</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">setswitchinterval</span><span class="p">(</span><span class="n">old_switchinterval</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">C</span><span class="o">.</span><span class="n">inits</span><span class="p">),</span> <span class="nb">len</span><span class="p">(</span><span class="n">C</span><span class="o">.</span><span class="n">dels</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_boom"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_boom">[docs]</a>    <span class="k">def</span> <span class="nf">test_boom</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">Boom</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">someattribute</span><span class="p">):</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr</span>
+                <span class="k">raise</span> <span class="ne">AttributeError</span>
+
+        <span class="n">a</span> <span class="o">=</span> <span class="n">Boom</span><span class="p">()</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">Boom</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">b</span>
+        <span class="n">b</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">a</span>
+
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">garbagelen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span>
+        <span class="c"># a&lt;-&gt;b are in a trash cycle now.  Collection will invoke</span>
+        <span class="c"># Boom.__getattr__ (to see whether a and b have __del__ methods), and</span>
+        <span class="c"># __getattr__ deletes the internal &quot;attr&quot; attributes as a side effect.</span>
+        <span class="c"># That causes the trash cycle to get reclaimed via refcounts falling to</span>
+        <span class="c"># 0, thus mutating the trash graph as a side effect of merely asking</span>
+        <span class="c"># whether __del__ exists.  This used to (before 2.3b1) crash Python.</span>
+        <span class="c"># Now __getattr__ isn&#39;t called.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">),</span> <span class="n">garbagelen</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_boom2"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_boom2">[docs]</a>    <span class="k">def</span> <span class="nf">test_boom2</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">Boom2</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">someattribute</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr</span>
+                <span class="k">raise</span> <span class="ne">AttributeError</span>
+
+        <span class="n">a</span> <span class="o">=</span> <span class="n">Boom2</span><span class="p">()</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">Boom2</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">b</span>
+        <span class="n">b</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">a</span>
+
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">garbagelen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span>
+        <span class="c"># Much like test_boom(), except that __getattr__ doesn&#39;t break the</span>
+        <span class="c"># cycle until the second time gc checks for __del__.  As of 2.3b1,</span>
+        <span class="c"># there isn&#39;t a second time, so this simply cleans up the trash cycle.</span>
+        <span class="c"># We expect a, b, a.__dict__ and b.__dict__ (4 objects) to get</span>
+        <span class="c"># reclaimed this way.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">),</span> <span class="n">garbagelen</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_boom_new"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_boom_new">[docs]</a>    <span class="k">def</span> <span class="nf">test_boom_new</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># boom__new and boom2_new are exactly like boom and boom2, except use</span>
+        <span class="c"># new-style classes.</span>
+
+        <span class="k">class</span> <span class="nc">Boom_New</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">someattribute</span><span class="p">):</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr</span>
+                <span class="k">raise</span> <span class="ne">AttributeError</span>
+
+        <span class="n">a</span> <span class="o">=</span> <span class="n">Boom_New</span><span class="p">()</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">Boom_New</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">b</span>
+        <span class="n">b</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">a</span>
+
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">garbagelen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">),</span> <span class="n">garbagelen</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_boom2_new"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_boom2_new">[docs]</a>    <span class="k">def</span> <span class="nf">test_boom2_new</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">Boom2_New</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">someattribute</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">attr</span>
+                <span class="k">raise</span> <span class="ne">AttributeError</span>
+
+        <span class="n">a</span> <span class="o">=</span> <span class="n">Boom2_New</span><span class="p">()</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="n">Boom2_New</span><span class="p">()</span>
+        <span class="n">a</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">b</span>
+        <span class="n">b</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">a</span>
+
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">garbagelen</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">)</span>
+        <span class="k">del</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(),</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">),</span> <span class="n">garbagelen</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_get_referents"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_get_referents">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_referents</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">alist</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">]</span>
+        <span class="n">got</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_referents</span><span class="p">(</span><span class="n">alist</span><span class="p">)</span>
+        <span class="n">got</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">got</span><span class="p">,</span> <span class="n">alist</span><span class="p">)</span>
+
+        <span class="n">atuple</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">alist</span><span class="p">)</span>
+        <span class="n">got</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_referents</span><span class="p">(</span><span class="n">atuple</span><span class="p">)</span>
+        <span class="n">got</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">got</span><span class="p">,</span> <span class="n">alist</span><span class="p">)</span>
+
+        <span class="n">adict</span> <span class="o">=</span> <span class="p">{</span><span class="mi">1</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">:</span> <span class="mi">7</span><span class="p">}</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">7</span><span class="p">]</span>
+        <span class="n">got</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_referents</span><span class="p">(</span><span class="n">adict</span><span class="p">)</span>
+        <span class="n">got</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">got</span><span class="p">,</span> <span class="n">expected</span><span class="p">)</span>
+
+        <span class="n">got</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_referents</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span> <span class="p">{</span><span class="mi">3</span><span class="p">:</span> <span class="mi">4</span><span class="p">},</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="n">got</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">got</span><span class="p">,</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="mi">5</span><span class="p">)))</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">get_referents</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&#39;a&#39;</span><span class="p">,</span> <span class="mi">4j</span><span class="p">),</span> <span class="p">[])</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_is_tracked"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_is_tracked">[docs]</a>    <span class="k">def</span> <span class="nf">test_is_tracked</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Atomic built-in types are not tracked, user-defined objects and</span>
+        <span class="c"># mutable containers are.</span>
+        <span class="c"># NOTE: types with special optimizations (e.g. tuple) have tests</span>
+        <span class="c"># in their own test files instead.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="bp">None</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="mf">1.0</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="mf">5.0j</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="bp">True</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="bp">False</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;a&quot;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="s">&quot;a&quot;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="nb">bytearray</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;a&quot;</span><span class="p">)))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="nb">type</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="nb">int</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="nb">object</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="nb">object</span><span class="p">()))</span>
+
+        <span class="k">class</span> <span class="nc">UserClass</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="n">gc</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="n">UserClass</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="n">UserClass</span><span class="p">()))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">([]))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">is_tracked</span><span class="p">(</span><span class="nb">set</span><span class="p">()))</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_bug1055820b"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_bug1055820b">[docs]</a>    <span class="k">def</span> <span class="nf">test_bug1055820b</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Corresponds to temp2b.py in the bug report.</span>
+
+        <span class="n">ouch</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">def</span> <span class="nf">callback</span><span class="p">(</span><span class="n">ignored</span><span class="p">):</span>
+            <span class="n">ouch</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[</span><span class="n">wr</span><span class="p">()</span> <span class="k">for</span> <span class="n">wr</span> <span class="ow">in</span> <span class="n">WRs</span><span class="p">]</span>
+
+        <span class="n">Cs</span> <span class="o">=</span> <span class="p">[</span><span class="n">C1055820</span><span class="p">(</span><span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">2</span><span class="p">)]</span>
+        <span class="n">WRs</span> <span class="o">=</span> <span class="p">[</span><span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">Cs</span><span class="p">]</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ouch</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="c"># Make the two instances trash, and collect again.  The bug was that</span>
+        <span class="c"># the callback materialized a strong reference to an instance, but gc</span>
+        <span class="c"># cleared the instance&#39;s dict anyway.</span>
+        <span class="n">Cs</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ouch</span><span class="p">),</span> <span class="mi">2</span><span class="p">)</span>  <span class="c"># else the callbacks didn&#39;t run</span>
+        <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ouch</span><span class="p">:</span>
+            <span class="c"># If the callback resurrected one of these guys, the instance</span>
+            <span class="c"># would be damaged, with an empty __dict__.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_bug21435"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_bug21435">[docs]</a>    <span class="k">def</span> <span class="nf">test_bug21435</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># This is a poor test - its only virtue is that it happened to</span>
+        <span class="c"># segfault on Tim&#39;s Windows box before the patch for 21435 was</span>
+        <span class="c"># applied.  That&#39;s a nasty bug relying on specific pieces of cyclic</span>
+        <span class="c"># trash appearing in exactly the right order in finalize_garbage()&#39;s</span>
+        <span class="c"># input list.</span>
+        <span class="c"># But there&#39;s no reliable way to force that order from Python code,</span>
+        <span class="c"># so over time chances are good this test won&#39;t really be testing much</span>
+        <span class="c"># of anything anymore.  Still, if it blows up, there&#39;s _some_</span>
+        <span class="c"># problem ;-)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+
+        <span class="k">class</span> <span class="nc">A</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+        <span class="k">class</span> <span class="nc">B</span><span class="p">:</span>
+            <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">x</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">x</span> <span class="o">=</span> <span class="n">x</span>
+
+            <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">def</span> <span class="nf">do_work</span><span class="p">():</span>
+            <span class="n">a</span> <span class="o">=</span> <span class="n">A</span><span class="p">()</span>
+            <span class="n">b</span> <span class="o">=</span> <span class="n">B</span><span class="p">(</span><span class="n">A</span><span class="p">())</span>
+
+            <span class="n">a</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">b</span>
+            <span class="n">b</span><span class="o">.</span><span class="n">attr</span> <span class="o">=</span> <span class="n">a</span>
+
+        <span class="n">do_work</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span> <span class="c"># this blows up (bad C pointer) when it fails</span>
+</div>
+    <span class="nd">@cpython_only</span>
+<div class="viewcode-block" id="GCTests.test_garbage_at_shutdown"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_garbage_at_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_garbage_at_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="kn">import</span> <span class="nn">subprocess</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import gc</span>
+<span class="s">            import _testcapi</span>
+<span class="s">            @_testcapi.with_tp_del</span>
+<span class="s">            class X:</span>
+<span class="s">                def __init__(self, name):</span>
+<span class="s">                    self.name = name</span>
+<span class="s">                def __repr__(self):</span>
+<span class="s">                    return &quot;&lt;X </span><span class="si">%%</span><span class="s">r&gt;&quot; </span><span class="si">%%</span><span class="s"> self.name</span>
+<span class="s">                def __tp_del__(self):</span>
+<span class="s">                    pass</span>
+
+<span class="s">            x = X(&#39;first&#39;)</span>
+<span class="s">            x.x = x</span>
+<span class="s">            x.y = X(&#39;second&#39;)</span>
+<span class="s">            del x</span>
+<span class="s">            gc.set_debug(</span><span class="si">%s</span><span class="s">)</span>
+<span class="s">        &quot;&quot;&quot;</span>
+        <span class="k">def</span> <span class="nf">run_command</span><span class="p">(</span><span class="n">code</span><span class="p">):</span>
+            <span class="n">p</span> <span class="o">=</span> <span class="n">subprocess</span><span class="o">.</span><span class="n">Popen</span><span class="p">([</span><span class="n">sys</span><span class="o">.</span><span class="n">executable</span><span class="p">,</span> <span class="s">&quot;-Wd&quot;</span><span class="p">,</span> <span class="s">&quot;-c&quot;</span><span class="p">,</span> <span class="n">code</span><span class="p">],</span>
+                <span class="n">stdout</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">,</span>
+                <span class="n">stderr</span><span class="o">=</span><span class="n">subprocess</span><span class="o">.</span><span class="n">PIPE</span><span class="p">)</span>
+            <span class="n">stdout</span><span class="p">,</span> <span class="n">stderr</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">communicate</span><span class="p">()</span>
+            <span class="n">p</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="n">p</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">returncode</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">stdout</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">b</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">strip_python_stderr</span><span class="p">(</span><span class="n">stderr</span><span class="p">)</span>
+
+        <span class="n">stderr</span> <span class="o">=</span> <span class="n">run_command</span><span class="p">(</span><span class="n">code</span> <span class="o">%</span> <span class="s">&quot;0&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;ResourceWarning: gc: 2 uncollectable objects at &quot;</span>
+                      <span class="n">b</span><span class="s">&quot;shutdown; use&quot;</span><span class="p">,</span> <span class="n">stderr</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotIn</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;&lt;X &#39;first&#39;&gt;&quot;</span><span class="p">,</span> <span class="n">stderr</span><span class="p">)</span>
+        <span class="c"># With DEBUG_UNCOLLECTABLE, the garbage list gets printed</span>
+        <span class="n">stderr</span> <span class="o">=</span> <span class="n">run_command</span><span class="p">(</span><span class="n">code</span> <span class="o">%</span> <span class="s">&quot;gc.DEBUG_UNCOLLECTABLE&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;ResourceWarning: gc: 2 uncollectable objects at &quot;</span>
+                      <span class="n">b</span><span class="s">&quot;shutdown&quot;</span><span class="p">,</span> <span class="n">stderr</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span>
+            <span class="p">(</span><span class="n">b</span><span class="s">&quot;[&lt;X &#39;first&#39;&gt;, &lt;X &#39;second&#39;&gt;]&quot;</span> <span class="ow">in</span> <span class="n">stderr</span><span class="p">)</span> <span class="ow">or</span>
+            <span class="p">(</span><span class="n">b</span><span class="s">&quot;[&lt;X &#39;second&#39;&gt;, &lt;X &#39;first&#39;&gt;]&quot;</span> <span class="ow">in</span> <span class="n">stderr</span><span class="p">),</span> <span class="n">stderr</span><span class="p">)</span>
+        <span class="c"># With DEBUG_SAVEALL, no additional message should get printed</span>
+        <span class="c"># (because gc.garbage also contains normally reclaimable cyclic</span>
+        <span class="c"># references, and its elements get printed at runtime anyway).</span>
+        <span class="n">stderr</span> <span class="o">=</span> <span class="n">run_command</span><span class="p">(</span><span class="n">code</span> <span class="o">%</span> <span class="s">&quot;gc.DEBUG_SAVEALL&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotIn</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;uncollectable objects at shutdown&quot;</span><span class="p">,</span> <span class="n">stderr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_gc_main_module_at_shutdown"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_gc_main_module_at_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_gc_main_module_at_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Create a reference cycle through the __main__ module and check</span>
+        <span class="c"># it gets collected at interpreter shutdown.</span>
+        <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">            import weakref</span>
+<span class="s">            class C:</span>
+<span class="s">                def __del__(self):</span>
+<span class="s">                    print(&#39;__del__ called&#39;)</span>
+<span class="s">            l = [C()]</span>
+<span class="s">            l.append(l)</span>
+<span class="s">            &quot;&quot;&quot;</span>
+        <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">b</span><span class="s">&#39;__del__ called&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_gc_ordinary_module_at_shutdown"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_gc_ordinary_module_at_shutdown">[docs]</a>    <span class="k">def</span> <span class="nf">test_gc_ordinary_module_at_shutdown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Same as above, but with a non-__main__ module.</span>
+        <span class="k">with</span> <span class="n">temp_dir</span><span class="p">()</span> <span class="k">as</span> <span class="n">script_dir</span><span class="p">:</span>
+            <span class="n">module</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">                import weakref</span>
+<span class="s">                class C:</span>
+<span class="s">                    def __del__(self):</span>
+<span class="s">                        print(&#39;__del__ called&#39;)</span>
+<span class="s">                l = [C()]</span>
+<span class="s">                l.append(l)</span>
+<span class="s">                &quot;&quot;&quot;</span>
+            <span class="n">code</span> <span class="o">=</span> <span class="s">&quot;&quot;&quot;if 1:</span>
+<span class="s">                import sys</span>
+<span class="s">                sys.path.insert(0, </span><span class="si">%r</span><span class="s">)</span>
+<span class="s">                import gctest</span>
+<span class="s">                &quot;&quot;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">script_dir</span><span class="p">,)</span>
+            <span class="n">make_script</span><span class="p">(</span><span class="n">script_dir</span><span class="p">,</span> <span class="s">&#39;gctest&#39;</span><span class="p">,</span> <span class="n">module</span><span class="p">)</span>
+            <span class="n">rc</span><span class="p">,</span> <span class="n">out</span><span class="p">,</span> <span class="n">err</span> <span class="o">=</span> <span class="n">assert_python_ok</span><span class="p">(</span><span class="s">&#39;-c&#39;</span><span class="p">,</span> <span class="n">code</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">out</span><span class="o">.</span><span class="n">strip</span><span class="p">(),</span> <span class="n">b</span><span class="s">&#39;__del__ called&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTests.test_get_stats"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTests.test_get_stats">[docs]</a>    <span class="k">def</span> <span class="nf">test_get_stats</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">stats</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_stats</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">stats</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">st</span> <span class="ow">in</span> <span class="n">stats</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIsInstance</span><span class="p">(</span><span class="n">st</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">st</span><span class="p">),</span>
+                             <span class="p">{</span><span class="s">&quot;collected&quot;</span><span class="p">,</span> <span class="s">&quot;collections&quot;</span><span class="p">,</span> <span class="s">&quot;uncollectable&quot;</span><span class="p">})</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">st</span><span class="p">[</span><span class="s">&quot;collected&quot;</span><span class="p">],</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">st</span><span class="p">[</span><span class="s">&quot;collections&quot;</span><span class="p">],</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertGreaterEqual</span><span class="p">(</span><span class="n">st</span><span class="p">[</span><span class="s">&quot;uncollectable&quot;</span><span class="p">],</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="c"># Check that collection counts are incremented correctly</span>
+        <span class="k">if</span> <span class="n">gc</span><span class="o">.</span><span class="n">isenabled</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">addCleanup</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">enable</span><span class="p">)</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+        <span class="n">old</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_stats</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">new</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_stats</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">new</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">],</span> <span class="n">old</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">new</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">],</span> <span class="n">old</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">new</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">],</span> <span class="n">old</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">])</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">new</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_stats</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">new</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">],</span> <span class="n">old</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">new</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">],</span> <span class="n">old</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">new</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">],</span> <span class="n">old</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="s">&quot;collections&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="GCCallbackTests"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests">[docs]</a><span class="k">class</span> <span class="nc">GCCallbackTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="GCCallbackTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Save gc state and disable it.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">enabled</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">isenabled</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">debug</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_debug</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_debug</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">callbacks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cb1</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">callbacks</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cb2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">othergarbage</span> <span class="o">=</span> <span class="p">[]</span>
+</div>
+<div class="viewcode-block" id="GCCallbackTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Restore gc state</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">callbacks</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cb1</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">callbacks</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">cb2</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_debug</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">enabled</span><span class="p">:</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+        <span class="c"># destroy any uncollectables</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">Uncollectable</span><span class="p">):</span>
+                <span class="n">obj</span><span class="o">.</span><span class="n">partner</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">del</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">[:]</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">othergarbage</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GCCallbackTests.preclean"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests.preclean">[docs]</a>    <span class="k">def</span> <span class="nf">preclean</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Remove all fluff from the system.  Invoke this function</span>
+        <span class="c"># manually rather than through self.setUp() for maximum</span>
+        <span class="c"># safety.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visit</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="n">garbage</span><span class="p">,</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">[:],</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">othergarbage</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">garbage</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visit</span> <span class="o">=</span> <span class="p">[]</span>
+</div>
+<div class="viewcode-block" id="GCCallbackTests.cb1"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests.cb1">[docs]</a>    <span class="k">def</span> <span class="nf">cb1</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">phase</span><span class="p">,</span> <span class="n">info</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="n">phase</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">info</span><span class="p">)))</span>
+</div>
+<div class="viewcode-block" id="GCCallbackTests.cb2"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests.cb2">[docs]</a>    <span class="k">def</span> <span class="nf">cb2</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">phase</span><span class="p">,</span> <span class="n">info</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="mi">2</span><span class="p">,</span> <span class="n">phase</span><span class="p">,</span> <span class="nb">dict</span><span class="p">(</span><span class="n">info</span><span class="p">)))</span>
+        <span class="k">if</span> <span class="n">phase</span> <span class="o">==</span> <span class="s">&quot;stop&quot;</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;cleanup&quot;</span><span class="p">):</span>
+            <span class="c"># Clean Uncollectable from garbage</span>
+            <span class="n">uc</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">Uncollectable</span><span class="p">)]</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span>
+                             <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">Uncollectable</span><span class="p">)]</span>
+            <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">uc</span><span class="p">:</span>
+                <span class="n">e</span><span class="o">.</span><span class="n">partner</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="GCCallbackTests.test_collect"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests.test_collect">[docs]</a>    <span class="k">def</span> <span class="nf">test_collect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">preclean</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="c"># Algorithmically verify the contents of self.visit</span>
+        <span class="c"># because it is long and tortuous.</span>
+
+        <span class="c"># Count the number of visits to each callback</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="p">[</span><span class="n">v</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">]</span>
+        <span class="n">n1</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">n</span> <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">n2</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">n</span> <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">2</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">n1</span><span class="p">,</span> <span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">*</span><span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">n2</span><span class="p">,</span> <span class="p">[</span><span class="mi">2</span><span class="p">]</span><span class="o">*</span><span class="mi">2</span><span class="p">)</span>
+
+        <span class="c"># Count that we got the right number of start and stop callbacks.</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="p">[</span><span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">]</span>
+        <span class="n">n1</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">n</span> <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="s">&quot;start&quot;</span><span class="p">]</span>
+        <span class="n">n2</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">n</span> <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="s">&quot;stop&quot;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">n1</span><span class="p">,</span> <span class="p">[</span><span class="s">&quot;start&quot;</span><span class="p">]</span><span class="o">*</span><span class="mi">2</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">n2</span><span class="p">,</span> <span class="p">[</span><span class="s">&quot;stop&quot;</span><span class="p">]</span><span class="o">*</span><span class="mi">2</span><span class="p">)</span>
+
+        <span class="c"># Check that we got the right info dict for all callbacks</span>
+        <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">:</span>
+            <span class="n">info</span> <span class="o">=</span> <span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="s">&quot;generation&quot;</span> <span class="ow">in</span> <span class="n">info</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="s">&quot;collected&quot;</span> <span class="ow">in</span> <span class="n">info</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="s">&quot;uncollectable&quot;</span> <span class="ow">in</span> <span class="n">info</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCCallbackTests.test_collect_generation"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests.test_collect_generation">[docs]</a>    <span class="k">def</span> <span class="nf">test_collect_generation</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">preclean</span><span class="p">()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">:</span>
+            <span class="n">info</span> <span class="o">=</span> <span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s">&quot;generation&quot;</span><span class="p">],</span> <span class="mi">2</span><span class="p">)</span>
+</div>
+    <span class="nd">@cpython_only</span>
+<div class="viewcode-block" id="GCCallbackTests.test_collect_garbage"><a class="viewcode-back" href="../../test.html#test.test_gc.GCCallbackTests.test_collect_garbage">[docs]</a>    <span class="k">def</span> <span class="nf">test_collect_garbage</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">preclean</span><span class="p">()</span>
+        <span class="c"># Each of these cause four objects to be garbage: Two</span>
+        <span class="c"># Uncolectables and their instance dicts.</span>
+        <span class="n">Uncollectable</span><span class="p">()</span>
+        <span class="n">Uncollectable</span><span class="p">()</span>
+        <span class="n">C1055820</span><span class="p">(</span><span class="mi">666</span><span class="p">)</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&quot;stop&quot;</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">info</span> <span class="o">=</span> <span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s">&quot;collected&quot;</span><span class="p">],</span> <span class="mi">2</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s">&quot;uncollectable&quot;</span><span class="p">],</span> <span class="mi">8</span><span class="p">)</span>
+
+        <span class="c"># We should now have the Uncollectables in gc.garbage</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">),</span> <span class="mi">4</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIsInstance</span><span class="p">(</span><span class="n">e</span><span class="p">,</span> <span class="n">Uncollectable</span><span class="p">)</span>
+
+        <span class="c"># Now, let our callback handle the Uncollectable instances</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">cleanup</span><span class="o">=</span><span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">visit</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">visit</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">v</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">!=</span> <span class="s">&quot;stop&quot;</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">info</span> <span class="o">=</span> <span class="n">v</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s">&quot;collected&quot;</span><span class="p">],</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">info</span><span class="p">[</span><span class="s">&quot;uncollectable&quot;</span><span class="p">],</span> <span class="mi">4</span><span class="p">)</span>
+
+        <span class="c"># Uncollectables should be gone</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">gc</span><span class="o">.</span><span class="n">garbage</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
+
+</div></div>
+<div class="viewcode-block" id="GCTogglingTests"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTogglingTests">[docs]</a><span class="k">class</span> <span class="nc">GCTogglingTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+<div class="viewcode-block" id="GCTogglingTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTogglingTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GCTogglingTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTogglingTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GCTogglingTests.test_bug1055820c"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTogglingTests.test_bug1055820c">[docs]</a>    <span class="k">def</span> <span class="nf">test_bug1055820c</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Corresponds to temp2c.py in the bug report.  This is pretty</span>
+        <span class="c"># elaborate.</span>
+
+        <span class="n">c0</span> <span class="o">=</span> <span class="n">C1055820</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="c"># Move c0 into generation 2.</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+
+        <span class="n">c1</span> <span class="o">=</span> <span class="n">C1055820</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">c1</span><span class="o">.</span><span class="n">keep_c0_alive</span> <span class="o">=</span> <span class="n">c0</span>
+        <span class="k">del</span> <span class="n">c0</span><span class="o">.</span><span class="n">loop</span> <span class="c"># now only c1 keeps c0 alive</span>
+
+        <span class="n">c2</span> <span class="o">=</span> <span class="n">C1055820</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">c2wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">c2</span><span class="p">)</span> <span class="c"># no callback!</span>
+
+        <span class="n">ouch</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">def</span> <span class="nf">callback</span><span class="p">(</span><span class="n">ignored</span><span class="p">):</span>
+            <span class="n">ouch</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[</span><span class="n">c2wr</span><span class="p">()]</span>
+
+        <span class="c"># The callback gets associated with a wr on an object in generation 2.</span>
+        <span class="n">c0wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">c0</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+
+        <span class="n">c0</span> <span class="o">=</span> <span class="n">c1</span> <span class="o">=</span> <span class="n">c2</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># What we&#39;ve set up:  c0, c1, and c2 are all trash now.  c0 is in</span>
+        <span class="c"># generation 2.  The only thing keeping it alive is that c1 points to</span>
+        <span class="c"># it. c1 and c2 are in generation 0, and are in self-loops.  There&#39;s a</span>
+        <span class="c"># global weakref to c2 (c2wr), but that weakref has no callback.</span>
+        <span class="c"># There&#39;s also a global weakref to c0 (c0wr), and that does have a</span>
+        <span class="c"># callback, and that callback references c2 via c2wr().</span>
+        <span class="c">#</span>
+        <span class="c">#               c0 has a wr with callback, which references c2wr</span>
+        <span class="c">#               ^</span>
+        <span class="c">#               |</span>
+        <span class="c">#               |     Generation 2 above dots</span>
+        <span class="c">#. . . . . . . .|. . . . . . . . . . . . . . . . . . . . . . . .</span>
+        <span class="c">#               |     Generation 0 below dots</span>
+        <span class="c">#               |</span>
+        <span class="c">#               |</span>
+        <span class="c">#            ^-&gt;c1   ^-&gt;c2 has a wr but no callback</span>
+        <span class="c">#            |  |    |  |</span>
+        <span class="c">#            &lt;--v    &lt;--v</span>
+        <span class="c">#</span>
+        <span class="c"># So this is the nightmare:  when generation 0 gets collected, we see</span>
+        <span class="c"># that c2 has a callback-free weakref, and c1 doesn&#39;t even have a</span>
+        <span class="c"># weakref.  Collecting generation 0 doesn&#39;t see c0 at all, and c0 is</span>
+        <span class="c"># the only object that has a weakref with a callback.  gc clears c1</span>
+        <span class="c"># and c2.  Clearing c1 has the side effect of dropping the refcount on</span>
+        <span class="c"># c0 to 0, so c0 goes away (despite that it&#39;s in an older generation)</span>
+        <span class="c"># and c0&#39;s wr callback triggers.  That in turn materializes a reference</span>
+        <span class="c"># to c2 via c2wr(), but c2 gets cleared anyway by gc.</span>
+
+        <span class="c"># We want to let gc happen &quot;naturally&quot;, to preserve the distinction</span>
+        <span class="c"># between generations.</span>
+        <span class="n">junk</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">detector</span> <span class="o">=</span> <span class="n">GC_Detector</span><span class="p">()</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="n">detector</span><span class="o">.</span><span class="n">gc_happened</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="mi">10000</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;gc didn&#39;t happen after 10000 iterations&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ouch</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">junk</span><span class="o">.</span><span class="n">append</span><span class="p">([])</span>  <span class="c"># this will eventually trigger gc</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ouch</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>  <span class="c"># else the callback wasn&#39;t invoked</span>
+        <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ouch</span><span class="p">:</span>
+            <span class="c"># If the callback resurrected c2, the instance would be damaged,</span>
+            <span class="c"># with an empty __dict__.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="GCTogglingTests.test_bug1055820d"><a class="viewcode-back" href="../../test.html#test.test_gc.GCTogglingTests.test_bug1055820d">[docs]</a>    <span class="k">def</span> <span class="nf">test_bug1055820d</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Corresponds to temp2d.py in the bug report.  This is very much like</span>
+        <span class="c"># test_bug1055820c, but uses a __del__ method instead of a weakref</span>
+        <span class="c"># callback to sneak in a resurrection of cyclic trash.</span>
+
+        <span class="n">ouch</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">class</span> <span class="nc">D</span><span class="p">(</span><span class="n">C1055820</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="n">ouch</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[</span><span class="n">c2wr</span><span class="p">()]</span>
+
+        <span class="n">d0</span> <span class="o">=</span> <span class="n">D</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="c"># Move all the above into generation 2.</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+
+        <span class="n">c1</span> <span class="o">=</span> <span class="n">C1055820</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">c1</span><span class="o">.</span><span class="n">keep_d0_alive</span> <span class="o">=</span> <span class="n">d0</span>
+        <span class="k">del</span> <span class="n">d0</span><span class="o">.</span><span class="n">loop</span> <span class="c"># now only c1 keeps d0 alive</span>
+
+        <span class="n">c2</span> <span class="o">=</span> <span class="n">C1055820</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">c2wr</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">ref</span><span class="p">(</span><span class="n">c2</span><span class="p">)</span> <span class="c"># no callback!</span>
+
+        <span class="n">d0</span> <span class="o">=</span> <span class="n">c1</span> <span class="o">=</span> <span class="n">c2</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># What we&#39;ve set up:  d0, c1, and c2 are all trash now.  d0 is in</span>
+        <span class="c"># generation 2.  The only thing keeping it alive is that c1 points to</span>
+        <span class="c"># it.  c1 and c2 are in generation 0, and are in self-loops.  There&#39;s</span>
+        <span class="c"># a global weakref to c2 (c2wr), but that weakref has no callback.</span>
+        <span class="c"># There are no other weakrefs.</span>
+        <span class="c">#</span>
+        <span class="c">#               d0 has a __del__ method that references c2wr</span>
+        <span class="c">#               ^</span>
+        <span class="c">#               |</span>
+        <span class="c">#               |     Generation 2 above dots</span>
+        <span class="c">#. . . . . . . .|. . . . . . . . . . . . . . . . . . . . . . . .</span>
+        <span class="c">#               |     Generation 0 below dots</span>
+        <span class="c">#               |</span>
+        <span class="c">#               |</span>
+        <span class="c">#            ^-&gt;c1   ^-&gt;c2 has a wr but no callback</span>
+        <span class="c">#            |  |    |  |</span>
+        <span class="c">#            &lt;--v    &lt;--v</span>
+        <span class="c">#</span>
+        <span class="c"># So this is the nightmare:  when generation 0 gets collected, we see</span>
+        <span class="c"># that c2 has a callback-free weakref, and c1 doesn&#39;t even have a</span>
+        <span class="c"># weakref.  Collecting generation 0 doesn&#39;t see d0 at all.  gc clears</span>
+        <span class="c"># c1 and c2.  Clearing c1 has the side effect of dropping the refcount</span>
+        <span class="c"># on d0 to 0, so d0 goes away (despite that it&#39;s in an older</span>
+        <span class="c"># generation) and d0&#39;s __del__ triggers.  That in turn materializes</span>
+        <span class="c"># a reference to c2 via c2wr(), but c2 gets cleared anyway by gc.</span>
+
+        <span class="c"># We want to let gc happen &quot;naturally&quot;, to preserve the distinction</span>
+        <span class="c"># between generations.</span>
+        <span class="n">detector</span> <span class="o">=</span> <span class="n">GC_Detector</span><span class="p">()</span>
+        <span class="n">junk</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">while</span> <span class="ow">not</span> <span class="n">detector</span><span class="o">.</span><span class="n">gc_happened</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;</span> <span class="mi">10000</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">fail</span><span class="p">(</span><span class="s">&quot;gc didn&#39;t happen after 10000 iterations&quot;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ouch</span><span class="p">),</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">junk</span><span class="o">.</span><span class="n">append</span><span class="p">([])</span>  <span class="c"># this will eventually trigger gc</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ouch</span><span class="p">),</span> <span class="mi">1</span><span class="p">)</span>  <span class="c"># else __del__ wasn&#39;t invoked</span>
+        <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">ouch</span><span class="p">:</span>
+            <span class="c"># If __del__ resurrected c2, the instance would be damaged, with an</span>
+            <span class="c"># empty __dict__.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+</div></div>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_gc.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">():</span>
+    <span class="n">enabled</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">isenabled</span><span class="p">()</span>
+    <span class="n">gc</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+    <span class="k">assert</span> <span class="ow">not</span> <span class="n">gc</span><span class="o">.</span><span class="n">isenabled</span><span class="p">()</span>
+    <span class="n">debug</span> <span class="o">=</span> <span class="n">gc</span><span class="o">.</span><span class="n">get_debug</span><span class="p">()</span>
+    <span class="n">gc</span><span class="o">.</span><span class="n">set_debug</span><span class="p">(</span><span class="n">debug</span> <span class="o">&amp;</span> <span class="o">~</span><span class="n">gc</span><span class="o">.</span><span class="n">DEBUG_LEAK</span><span class="p">)</span> <span class="c"># this test is supposed to leak</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span> <span class="c"># Delete 2nd generation garbage</span>
+        <span class="n">run_unittest</span><span class="p">(</span><span class="n">GCTests</span><span class="p">,</span> <span class="n">GCTogglingTests</span><span class="p">,</span> <span class="n">GCCallbackTests</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">set_debug</span><span class="p">(</span><span class="n">debug</span><span class="p">)</span>
+        <span class="c"># test gc.enable() even if GC is disabled by default</span>
+        <span class="k">if</span> <span class="n">verbose</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;restoring automatic collection&quot;</span><span class="p">)</span>
+        <span class="c"># make sure to always test gc.enable()</span>
+        <span class="n">gc</span><span class="o">.</span><span class="n">enable</span><span class="p">()</span>
+        <span class="k">assert</span> <span class="n">gc</span><span class="o">.</span><span class="n">isenabled</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">enabled</span><span class="p">:</span>
+            <span class="n">gc</span><span class="o">.</span><span class="n">disable</span><span class="p">()</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&quot;__main__&quot;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

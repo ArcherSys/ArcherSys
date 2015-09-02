@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["DepthFirstTraversal",""],["Direction",""],["Edge",""],["EdgeIndex",""],["Graph",""],["Node",""],["NodeIndex",""]],"fn":[["each_edge_index",""]],"constant":[["Incoming",""],["InvalidEdgeIndex",""],["InvalidNodeIndex",""],["Outgoing",""]]});

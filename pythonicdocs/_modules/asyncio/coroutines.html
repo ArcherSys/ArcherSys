@@ -1,0 +1,356 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>asyncio.coroutines &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>asyncio.coroutines</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for asyncio.coroutines</h1><div class="highlight"><pre>
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;coroutine&#39;</span><span class="p">,</span>
+           <span class="s">&#39;iscoroutinefunction&#39;</span><span class="p">,</span> <span class="s">&#39;iscoroutine&#39;</span><span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">functools</span>
+<span class="kn">import</span> <span class="nn">inspect</span>
+<span class="kn">import</span> <span class="nn">opcode</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+<span class="kn">import</span> <span class="nn">types</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">.log</span> <span class="kn">import</span> <span class="n">logger</span>
+
+
+<span class="c"># Opcode of &quot;yield from&quot; instruction</span>
+<span class="n">_YIELD_FROM</span> <span class="o">=</span> <span class="n">opcode</span><span class="o">.</span><span class="n">opmap</span><span class="p">[</span><span class="s">&#39;YIELD_FROM&#39;</span><span class="p">]</span>
+
+<span class="c"># If you set _DEBUG to true, @coroutine will wrap the resulting</span>
+<span class="c"># generator objects in a CoroWrapper instance (defined below).  That</span>
+<span class="c"># instance will log a message when the generator is never iterated</span>
+<span class="c"># over, which may happen when you forget to use &quot;yield from&quot; with a</span>
+<span class="c"># coroutine call.  Note that the value of the _DEBUG flag is taken</span>
+<span class="c"># when the decorator is used, so to be of any use it must be set</span>
+<span class="c"># before you define your coroutines.  A downside of using this feature</span>
+<span class="c"># is that tracebacks show entries for the CoroWrapper.__next__ method</span>
+<span class="c"># when _DEBUG is true.</span>
+<span class="n">_DEBUG</span> <span class="o">=</span> <span class="p">(</span><span class="ow">not</span> <span class="n">sys</span><span class="o">.</span><span class="n">flags</span><span class="o">.</span><span class="n">ignore_environment</span>
+          <span class="ow">and</span> <span class="nb">bool</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&#39;PYTHONASYNCIODEBUG&#39;</span><span class="p">)))</span>
+
+
+<span class="c"># Check for CPython issue #21209</span>
+<span class="k">def</span> <span class="nf">has_yield_from_bug</span><span class="p">():</span>
+    <span class="k">class</span> <span class="nc">MyGen</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_args</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span>
+        <span class="k">def</span> <span class="nf">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">return</span> <span class="mi">42</span>
+        <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">what</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">send_args</span> <span class="o">=</span> <span class="n">what</span>
+            <span class="k">return</span> <span class="bp">None</span>
+    <span class="k">def</span> <span class="nf">yield_from_gen</span><span class="p">(</span><span class="n">gen</span><span class="p">):</span>
+        <span class="k">yield from</span> <span class="n">gen</span>
+    <span class="n">value</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+    <span class="n">gen</span> <span class="o">=</span> <span class="n">MyGen</span><span class="p">()</span>
+    <span class="n">coro</span> <span class="o">=</span> <span class="n">yield_from_gen</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span>
+    <span class="nb">next</span><span class="p">(</span><span class="n">coro</span><span class="p">)</span>
+    <span class="n">coro</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">gen</span><span class="o">.</span><span class="n">send_args</span> <span class="o">!=</span> <span class="p">(</span><span class="n">value</span><span class="p">,)</span>
+<span class="n">_YIELD_FROM_BUG</span> <span class="o">=</span> <span class="n">has_yield_from_bug</span><span class="p">()</span>
+<span class="k">del</span> <span class="n">has_yield_from_bug</span>
+
+
+<span class="k">class</span> <span class="nc">CoroWrapper</span><span class="p">:</span>
+    <span class="c"># Wrapper for coroutine object in _DEBUG mode.</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">gen</span><span class="p">,</span> <span class="n">func</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">inspect</span><span class="o">.</span><span class="n">isgenerator</span><span class="p">(</span><span class="n">gen</span><span class="p">),</span> <span class="n">gen</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">gen</span> <span class="o">=</span> <span class="n">gen</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">func</span> <span class="o">=</span> <span class="n">func</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span> <span class="o">=</span> <span class="n">traceback</span><span class="o">.</span><span class="n">extract_stack</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">_getframe</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span>
+        <span class="c"># __name__, __qualname__, __doc__ attributes are set by the coroutine()</span>
+        <span class="c"># decorator</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">coro_repr</span> <span class="o">=</span> <span class="n">_format_coroutine</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+            <span class="n">frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">coro_repr</span> <span class="o">+=</span> <span class="s">&#39;, created at </span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">frame</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">frame</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">coro_repr</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span>
+
+    <span class="k">def</span> <span class="nf">__next__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">next</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">_YIELD_FROM_BUG</span><span class="p">:</span>
+        <span class="c"># For for CPython issue #21209: using &quot;yield from&quot; and a custom</span>
+        <span class="c"># generator, generator.send(tuple) unpacks the tuple instead of passing</span>
+        <span class="c"># the tuple unchanged. Check if the caller is a generator using &quot;yield</span>
+        <span class="c"># from&quot; to decide if the parameter should be unpacked or not.</span>
+        <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">value</span><span class="p">):</span>
+            <span class="n">frame</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">_getframe</span><span class="p">()</span>
+            <span class="n">caller</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">f_back</span>
+            <span class="k">assert</span> <span class="n">caller</span><span class="o">.</span><span class="n">f_lasti</span> <span class="o">&gt;=</span> <span class="mi">0</span>
+            <span class="k">if</span> <span class="n">caller</span><span class="o">.</span><span class="n">f_code</span><span class="o">.</span><span class="n">co_code</span><span class="p">[</span><span class="n">caller</span><span class="o">.</span><span class="n">f_lasti</span><span class="p">]</span> <span class="o">!=</span> <span class="n">_YIELD_FROM</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">throw</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="o">.</span><span class="n">throw</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">gi_frame</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="o">.</span><span class="n">gi_frame</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">gi_running</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="o">.</span><span class="n">gi_running</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span> <span class="nf">gi_code</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">gen</span><span class="o">.</span><span class="n">gi_code</span>
+
+    <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Be careful accessing self.gen.frame -- self.gen might not exist.</span>
+        <span class="n">gen</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;gen&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">gen</span><span class="p">,</span> <span class="s">&#39;gi_frame&#39;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">frame</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">frame</span><span class="o">.</span><span class="n">f_lasti</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%r</span><span class="s"> was never yielded from&#39;</span> <span class="o">%</span> <span class="bp">self</span>
+            <span class="n">tb</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;_source_traceback&#39;</span><span class="p">,</span> <span class="p">())</span>
+            <span class="k">if</span> <span class="n">tb</span><span class="p">:</span>
+                <span class="n">tb</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">traceback</span><span class="o">.</span><span class="n">format_list</span><span class="p">(</span><span class="n">tb</span><span class="p">))</span>
+                <span class="n">msg</span> <span class="o">+=</span> <span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">Coroutine object created at &#39;</span>
+                        <span class="s">&#39;(most recent call last):</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+                <span class="n">msg</span> <span class="o">+=</span> <span class="n">tb</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span>
+            <span class="n">logger</span><span class="o">.</span><span class="n">error</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="coroutine"><a class="viewcode-back" href="../../asyncio.html#asyncio.coroutines.coroutine">[docs]</a><span class="k">def</span> <span class="nf">coroutine</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decorator to mark coroutines.</span>
+
+<span class="sd">    If the coroutine is not yielded from before it is destroyed,</span>
+<span class="sd">    an error message is logged.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">inspect</span><span class="o">.</span><span class="n">isgeneratorfunction</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+        <span class="n">coro</span> <span class="o">=</span> <span class="n">func</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nd">@functools.wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">coro</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="n">func</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">res</span><span class="p">,</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">)</span> <span class="ow">or</span> <span class="n">inspect</span><span class="o">.</span><span class="n">isgenerator</span><span class="p">(</span><span class="n">res</span><span class="p">):</span>
+                <span class="n">res</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">res</span>
+            <span class="k">return</span> <span class="n">res</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">_DEBUG</span><span class="p">:</span>
+        <span class="n">wrapper</span> <span class="o">=</span> <span class="n">coro</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nd">@functools.wraps</span><span class="p">(</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">def</span> <span class="nf">wrapper</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+            <span class="n">w</span> <span class="o">=</span> <span class="n">CoroWrapper</span><span class="p">(</span><span class="n">coro</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">),</span> <span class="n">func</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">w</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+                <span class="k">del</span> <span class="n">w</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">w</span><span class="o">.</span><span class="n">__name__</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">__name__</span>
+            <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="s">&#39;__qualname__&#39;</span><span class="p">):</span>
+                <span class="n">w</span><span class="o">.</span><span class="n">__qualname__</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">__qualname__</span>
+            <span class="n">w</span><span class="o">.</span><span class="n">__doc__</span> <span class="o">=</span> <span class="n">func</span><span class="o">.</span><span class="n">__doc__</span>
+            <span class="k">return</span> <span class="n">w</span>
+
+    <span class="n">wrapper</span><span class="o">.</span><span class="n">_is_coroutine</span> <span class="o">=</span> <span class="bp">True</span>  <span class="c"># For iscoroutinefunction().</span>
+    <span class="k">return</span> <span class="n">wrapper</span>
+
+</div>
+<div class="viewcode-block" id="iscoroutinefunction"><a class="viewcode-back" href="../../asyncio.html#asyncio.coroutines.iscoroutinefunction">[docs]</a><span class="k">def</span> <span class="nf">iscoroutinefunction</span><span class="p">(</span><span class="n">func</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return True if func is a decorated coroutine function.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="s">&#39;_is_coroutine&#39;</span><span class="p">,</span> <span class="bp">False</span><span class="p">)</span>
+
+</div>
+<span class="n">_COROUTINE_TYPES</span> <span class="o">=</span> <span class="p">(</span><span class="n">types</span><span class="o">.</span><span class="n">GeneratorType</span><span class="p">,</span> <span class="n">CoroWrapper</span><span class="p">)</span>
+
+<div class="viewcode-block" id="iscoroutine"><a class="viewcode-back" href="../../asyncio.html#asyncio.coroutines.iscoroutine">[docs]</a><span class="k">def</span> <span class="nf">iscoroutine</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return True if obj is a coroutine object.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">_COROUTINE_TYPES</span><span class="p">)</span>
+
+</div>
+<span class="k">def</span> <span class="nf">_format_coroutine</span><span class="p">(</span><span class="n">coro</span><span class="p">):</span>
+    <span class="k">assert</span> <span class="n">iscoroutine</span><span class="p">(</span><span class="n">coro</span><span class="p">)</span>
+    <span class="n">coro_name</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">coro</span><span class="p">,</span> <span class="s">&#39;__qualname__&#39;</span><span class="p">,</span> <span class="n">coro</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+
+    <span class="n">filename</span> <span class="o">=</span> <span class="n">coro</span><span class="o">.</span><span class="n">gi_code</span><span class="o">.</span><span class="n">co_filename</span>
+    <span class="k">if</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">coro</span><span class="p">,</span> <span class="n">CoroWrapper</span><span class="p">)</span>
+    <span class="ow">and</span> <span class="ow">not</span> <span class="n">inspect</span><span class="o">.</span><span class="n">isgeneratorfunction</span><span class="p">(</span><span class="n">coro</span><span class="o">.</span><span class="n">func</span><span class="p">)):</span>
+        <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">_get_function_source</span><span class="p">(</span><span class="n">coro</span><span class="o">.</span><span class="n">func</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">coro</span><span class="o">.</span><span class="n">gi_frame</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">coro_repr</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">() done, defined at </span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">coro_name</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">coro_repr</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">() running, defined at </span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">coro_name</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">coro</span><span class="o">.</span><span class="n">gi_frame</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">lineno</span> <span class="o">=</span> <span class="n">coro</span><span class="o">.</span><span class="n">gi_frame</span><span class="o">.</span><span class="n">f_lineno</span>
+        <span class="n">coro_repr</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">() running at </span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">coro_name</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">lineno</span> <span class="o">=</span> <span class="n">coro</span><span class="o">.</span><span class="n">gi_code</span><span class="o">.</span><span class="n">co_firstlineno</span>
+        <span class="n">coro_repr</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s</span><span class="s">() done, defined at </span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">coro_name</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">coro_repr</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

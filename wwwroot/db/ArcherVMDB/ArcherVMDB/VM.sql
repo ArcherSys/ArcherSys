@@ -1,0 +1,1 @@
+﻿CREATE SERVER ROLE [VM]

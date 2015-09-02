@@ -1,0 +1,403 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>quopri &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../index.html"/>
+        <link rel="up" title="Module code" href="index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="index.html">Module code</a> &raquo;</li>
+      
+    <li>quopri</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for quopri</h1><div class="highlight"><pre>
+<span class="c">#! /usr/bin/env python3</span>
+
+<span class="sd">&quot;&quot;&quot;Conversions to/from quoted-printable transport encoding as per RFC 1521.&quot;&quot;&quot;</span>
+
+<span class="c"># (Dec 1991 version).</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;encode&quot;</span><span class="p">,</span> <span class="s">&quot;decode&quot;</span><span class="p">,</span> <span class="s">&quot;encodestring&quot;</span><span class="p">,</span> <span class="s">&quot;decodestring&quot;</span><span class="p">]</span>
+
+<span class="n">ESCAPE</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;=&#39;</span>
+<span class="n">MAXLINESIZE</span> <span class="o">=</span> <span class="mi">76</span>
+<span class="n">HEX</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;0123456789ABCDEF&#39;</span>
+<span class="n">EMPTYSTRING</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">from</span> <span class="nn">binascii</span> <span class="kn">import</span> <span class="n">a2b_qp</span><span class="p">,</span> <span class="n">b2a_qp</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">a2b_qp</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">b2a_qp</span> <span class="o">=</span> <span class="bp">None</span>
+
+
+<span class="k">def</span> <span class="nf">needsquoting</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">quotetabs</span><span class="p">,</span> <span class="n">header</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Decide whether a particular byte ordinal needs to be quoted.</span>
+
+<span class="sd">    The &#39;quotetabs&#39; flag indicates whether embedded tabs and spaces should be</span>
+<span class="sd">    quoted.  Note that line-ending tabs and spaces are always encoded, as per</span>
+<span class="sd">    RFC 1521.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">b</span><span class="s">&#39; </span><span class="se">\t</span><span class="s">&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">quotetabs</span>
+    <span class="c"># if header, we have to escape _ because _ is used to escape space</span>
+    <span class="k">if</span> <span class="n">c</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;_&#39;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">header</span>
+    <span class="k">return</span> <span class="n">c</span> <span class="o">==</span> <span class="n">ESCAPE</span> <span class="ow">or</span> <span class="ow">not</span> <span class="p">(</span><span class="n">b</span><span class="s">&#39; &#39;</span> <span class="o">&lt;=</span> <span class="n">c</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="s">&#39;~&#39;</span><span class="p">)</span>
+
+<span class="k">def</span> <span class="nf">quote</span><span class="p">(</span><span class="n">c</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Quote a single character.&quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">c</span><span class="p">)</span><span class="o">==</span><span class="mi">1</span>
+    <span class="n">c</span> <span class="o">=</span> <span class="nb">ord</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">ESCAPE</span> <span class="o">+</span> <span class="nb">bytes</span><span class="p">((</span><span class="n">HEX</span><span class="p">[</span><span class="n">c</span><span class="o">//</span><span class="mi">16</span><span class="p">],</span> <span class="n">HEX</span><span class="p">[</span><span class="n">c</span><span class="o">%</span><span class="mi">16</span><span class="p">]))</span>
+
+
+
+<div class="viewcode-block" id="encode"><a class="viewcode-back" href="../quopri.html#quopri.encode">[docs]</a><span class="k">def</span> <span class="nf">encode</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">quotetabs</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Read &#39;input&#39;, apply quoted-printable encoding, and write to &#39;output&#39;.</span>
+
+<span class="sd">    &#39;input&#39; and &#39;output&#39; are binary file objects. The &#39;quotetabs&#39; flag</span>
+<span class="sd">    indicates whether embedded tabs and spaces should be quoted. Note that</span>
+<span class="sd">    line-ending tabs and spaces are always encoded, as per RFC 1521.</span>
+<span class="sd">    The &#39;header&#39; flag indicates whether we are encoding spaces as _ as per RFC</span>
+<span class="sd">    1522.&quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">b2a_qp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="n">odata</span> <span class="o">=</span> <span class="n">b2a_qp</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">quotetabs</span><span class="o">=</span><span class="n">quotetabs</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
+        <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">odata</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">output</span><span class="o">=</span><span class="n">output</span><span class="p">,</span> <span class="n">lineEnd</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">):</span>
+        <span class="c"># RFC 1521 requires that the line ending in a space or tab must have</span>
+        <span class="c"># that trailing character encoded.</span>
+        <span class="k">if</span> <span class="n">s</span> <span class="ow">and</span> <span class="n">s</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="ow">in</span> <span class="n">b</span><span class="s">&#39; </span><span class="se">\t</span><span class="s">&#39;</span><span class="p">:</span>
+            <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">s</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">quote</span><span class="p">(</span><span class="n">s</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:])</span> <span class="o">+</span> <span class="n">lineEnd</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">s</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;.&#39;</span><span class="p">:</span>
+            <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">quote</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="o">+</span> <span class="n">lineEnd</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">s</span> <span class="o">+</span> <span class="n">lineEnd</span><span class="p">)</span>
+
+    <span class="n">prevline</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span>
+            <span class="k">break</span>
+        <span class="n">outline</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c"># Strip off any readline induced trailing newline</span>
+        <span class="n">stripped</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">:</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">stripped</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span>
+        <span class="c"># Calculate the un-length-limited encoded line</span>
+        <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">line</span><span class="p">:</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">((</span><span class="n">c</span><span class="p">,))</span>
+            <span class="k">if</span> <span class="n">needsquoting</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="n">quotetabs</span><span class="p">,</span> <span class="n">header</span><span class="p">):</span>
+                <span class="n">c</span> <span class="o">=</span> <span class="n">quote</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">header</span> <span class="ow">and</span> <span class="n">c</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39; &#39;</span><span class="p">:</span>
+                <span class="n">outline</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;_&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">outline</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+        <span class="c"># First, write out the previous line</span>
+        <span class="k">if</span> <span class="n">prevline</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">write</span><span class="p">(</span><span class="n">prevline</span><span class="p">)</span>
+        <span class="c"># Now see if we need any soft line breaks because of RFC-imposed</span>
+        <span class="c"># length limitations.  Then do the thisline-&gt;prevline dance.</span>
+        <span class="n">thisline</span> <span class="o">=</span> <span class="n">EMPTYSTRING</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">outline</span><span class="p">)</span>
+        <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">thisline</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">MAXLINESIZE</span><span class="p">:</span>
+            <span class="c"># Don&#39;t forget to include the soft line break `=&#39; sign in the</span>
+            <span class="c"># length calculation!</span>
+            <span class="n">write</span><span class="p">(</span><span class="n">thisline</span><span class="p">[:</span><span class="n">MAXLINESIZE</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">lineEnd</span><span class="o">=</span><span class="n">b</span><span class="s">&#39;=</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+            <span class="n">thisline</span> <span class="o">=</span> <span class="n">thisline</span><span class="p">[</span><span class="n">MAXLINESIZE</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span>
+        <span class="c"># Write out the current line</span>
+        <span class="n">prevline</span> <span class="o">=</span> <span class="n">thisline</span>
+    <span class="c"># Write out the last line, without a trailing newline</span>
+    <span class="k">if</span> <span class="n">prevline</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">write</span><span class="p">(</span><span class="n">prevline</span><span class="p">,</span> <span class="n">lineEnd</span><span class="o">=</span><span class="n">stripped</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="encodestring"><a class="viewcode-back" href="../quopri.html#quopri.encodestring">[docs]</a><span class="k">def</span> <span class="nf">encodestring</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">quotetabs</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">b2a_qp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">b2a_qp</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">quotetabs</span><span class="o">=</span><span class="n">quotetabs</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
+    <span class="kn">from</span> <span class="nn">io</span> <span class="kn">import</span> <span class="n">BytesIO</span>
+    <span class="n">infp</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">outfp</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">()</span>
+    <span class="n">encode</span><span class="p">(</span><span class="n">infp</span><span class="p">,</span> <span class="n">outfp</span><span class="p">,</span> <span class="n">quotetabs</span><span class="p">,</span> <span class="n">header</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">outfp</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+
+
+</div>
+<div class="viewcode-block" id="decode"><a class="viewcode-back" href="../quopri.html#quopri.decode">[docs]</a><span class="k">def</span> <span class="nf">decode</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">output</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Read &#39;input&#39;, apply quoted-printable decoding, and write to &#39;output&#39;.</span>
+<span class="sd">    &#39;input&#39; and &#39;output&#39; are binary file objects.</span>
+<span class="sd">    If &#39;header&#39; is true, decode underscore as space (per RFC 1522).&quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="n">a2b_qp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="n">odata</span> <span class="o">=</span> <span class="n">a2b_qp</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
+        <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">odata</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="n">new</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+    <span class="k">while</span> <span class="mi">1</span><span class="p">:</span>
+        <span class="n">line</span> <span class="o">=</span> <span class="nb">input</span><span class="o">.</span><span class="n">readline</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="p">:</span> <span class="k">break</span>
+        <span class="n">i</span><span class="p">,</span> <span class="n">n</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">line</span><span class="p">[</span><span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span><span class="n">n</span><span class="p">]</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">:</span>
+            <span class="n">partial</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">n</span> <span class="o">=</span> <span class="n">n</span><span class="o">-</span><span class="mi">1</span>
+            <span class="c"># Strip trailing whitespace</span>
+            <span class="k">while</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">line</span><span class="p">[</span><span class="n">n</span><span class="o">-</span><span class="mi">1</span><span class="p">:</span><span class="n">n</span><span class="p">]</span> <span class="ow">in</span> <span class="n">b</span><span class="s">&quot; </span><span class="se">\t\r</span><span class="s">&quot;</span><span class="p">:</span>
+                <span class="n">n</span> <span class="o">=</span> <span class="n">n</span><span class="o">-</span><span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">partial</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">:</span>
+            <span class="n">c</span> <span class="o">=</span> <span class="n">line</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">c</span> <span class="o">==</span> <span class="n">b</span><span class="s">&#39;_&#39;</span> <span class="ow">and</span> <span class="n">header</span><span class="p">:</span>
+                <span class="n">new</span> <span class="o">=</span> <span class="n">new</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39; &#39;</span><span class="p">;</span> <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+            <span class="k">elif</span> <span class="n">c</span> <span class="o">!=</span> <span class="n">ESCAPE</span><span class="p">:</span>
+                <span class="n">new</span> <span class="o">=</span> <span class="n">new</span> <span class="o">+</span> <span class="n">c</span><span class="p">;</span> <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+            <span class="k">elif</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span> <span class="o">==</span> <span class="n">n</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">partial</span><span class="p">:</span>
+                <span class="n">partial</span> <span class="o">=</span> <span class="mi">1</span><span class="p">;</span> <span class="k">break</span>
+            <span class="k">elif</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span> <span class="o">&lt;</span> <span class="n">n</span> <span class="ow">and</span> <span class="n">line</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">ESCAPE</span><span class="p">:</span>
+                <span class="n">new</span> <span class="o">=</span> <span class="n">new</span> <span class="o">+</span> <span class="n">ESCAPE</span><span class="p">;</span> <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">2</span>
+            <span class="k">elif</span> <span class="n">i</span><span class="o">+</span><span class="mi">2</span> <span class="o">&lt;</span> <span class="n">n</span> <span class="ow">and</span> <span class="n">ishex</span><span class="p">(</span><span class="n">line</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">2</span><span class="p">])</span> <span class="ow">and</span> <span class="n">ishex</span><span class="p">(</span><span class="n">line</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">2</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">3</span><span class="p">]):</span>
+                <span class="n">new</span> <span class="o">=</span> <span class="n">new</span> <span class="o">+</span> <span class="nb">bytes</span><span class="p">((</span><span class="n">unhex</span><span class="p">(</span><span class="n">line</span><span class="p">[</span><span class="n">i</span><span class="o">+</span><span class="mi">1</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="mi">3</span><span class="p">]),));</span> <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">3</span>
+            <span class="k">else</span><span class="p">:</span> <span class="c"># Bad escape sequence -- leave it in</span>
+                <span class="n">new</span> <span class="o">=</span> <span class="n">new</span> <span class="o">+</span> <span class="n">c</span><span class="p">;</span> <span class="n">i</span> <span class="o">=</span> <span class="n">i</span><span class="o">+</span><span class="mi">1</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">partial</span><span class="p">:</span>
+            <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">new</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="p">)</span>
+            <span class="n">new</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+    <span class="k">if</span> <span class="n">new</span><span class="p">:</span>
+        <span class="n">output</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">new</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="decodestring"><a class="viewcode-back" href="../quopri.html#quopri.decodestring">[docs]</a><span class="k">def</span> <span class="nf">decodestring</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">a2b_qp</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">a2b_qp</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
+    <span class="kn">from</span> <span class="nn">io</span> <span class="kn">import</span> <span class="n">BytesIO</span>
+    <span class="n">infp</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+    <span class="n">outfp</span> <span class="o">=</span> <span class="n">BytesIO</span><span class="p">()</span>
+    <span class="n">decode</span><span class="p">(</span><span class="n">infp</span><span class="p">,</span> <span class="n">outfp</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="n">header</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">outfp</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+
+
+
+<span class="c"># Other helper functions</span></div>
+<span class="k">def</span> <span class="nf">ishex</span><span class="p">(</span><span class="n">c</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return true if the byte ordinal &#39;c&#39; is a hexadecimal digit in ASCII.&quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">c</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">b</span><span class="s">&#39;0&#39;</span> <span class="o">&lt;=</span> <span class="n">c</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="s">&#39;9&#39;</span> <span class="ow">or</span> <span class="n">b</span><span class="s">&#39;a&#39;</span> <span class="o">&lt;=</span> <span class="n">c</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="s">&#39;f&#39;</span> <span class="ow">or</span> <span class="n">b</span><span class="s">&#39;A&#39;</span> <span class="o">&lt;=</span> <span class="n">c</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="s">&#39;F&#39;</span>
+
+<span class="k">def</span> <span class="nf">unhex</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Get the integer value of a hexadecimal number.&quot;&quot;&quot;</span>
+    <span class="n">bits</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">s</span><span class="p">:</span>
+        <span class="n">c</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">((</span><span class="n">c</span><span class="p">,))</span>
+        <span class="k">if</span> <span class="n">b</span><span class="s">&#39;0&#39;</span> <span class="o">&lt;=</span> <span class="n">c</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="s">&#39;9&#39;</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="nb">ord</span><span class="p">(</span><span class="s">&#39;0&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">b</span><span class="s">&#39;a&#39;</span> <span class="o">&lt;=</span> <span class="n">c</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="s">&#39;f&#39;</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="nb">ord</span><span class="p">(</span><span class="s">&#39;a&#39;</span><span class="p">)</span><span class="o">-</span><span class="mi">10</span>
+        <span class="k">elif</span> <span class="n">b</span><span class="s">&#39;A&#39;</span> <span class="o">&lt;=</span> <span class="n">c</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="s">&#39;F&#39;</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="nb">ord</span><span class="p">(</span><span class="n">b</span><span class="s">&#39;A&#39;</span><span class="p">)</span><span class="o">-</span><span class="mi">10</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="bp">False</span><span class="p">,</span> <span class="s">&quot;non-hex digit &quot;</span><span class="o">+</span><span class="nb">repr</span><span class="p">(</span><span class="n">c</span><span class="p">)</span>
+        <span class="n">bits</span> <span class="o">=</span> <span class="n">bits</span><span class="o">*</span><span class="mi">16</span> <span class="o">+</span> <span class="p">(</span><span class="nb">ord</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="o">-</span> <span class="n">i</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">bits</span>
+
+
+
+<span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+    <span class="kn">import</span> <span class="nn">sys</span>
+    <span class="kn">import</span> <span class="nn">getopt</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">opts</span><span class="p">,</span> <span class="n">args</span> <span class="o">=</span> <span class="n">getopt</span><span class="o">.</span><span class="n">getopt</span><span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">argv</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span> <span class="s">&#39;td&#39;</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">getopt</span><span class="o">.</span><span class="n">error</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="k">print</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;usage: quopri [-t | -d] [file] ...&quot;</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;-t: quote tabs&quot;</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;-d: decode; default encode&quot;</span><span class="p">)</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="n">deco</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">tabs</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">o</span><span class="p">,</span> <span class="n">a</span> <span class="ow">in</span> <span class="n">opts</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">o</span> <span class="o">==</span> <span class="s">&#39;-t&#39;</span><span class="p">:</span> <span class="n">tabs</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">o</span> <span class="o">==</span> <span class="s">&#39;-d&#39;</span><span class="p">:</span> <span class="n">deco</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="n">tabs</span> <span class="ow">and</span> <span class="n">deco</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;-t and -d are mutually exclusive&quot;</span><span class="p">)</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="p">:</span> <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;-&#39;</span><span class="p">]</span>
+    <span class="n">sts</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="nb">file</span> <span class="ow">in</span> <span class="n">args</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">file</span> <span class="o">==</span> <span class="s">&#39;-&#39;</span><span class="p">:</span>
+            <span class="n">fp</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">buffer</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">fp</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="s">&quot;rb&quot;</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">msg</span><span class="p">:</span>
+                <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">: can&#39;t open (</span><span class="si">%s</span><span class="s">)</span><span class="se">\n</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">msg</span><span class="p">))</span>
+                <span class="n">sts</span> <span class="o">=</span> <span class="mi">1</span>
+                <span class="k">continue</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">deco</span><span class="p">:</span>
+                <span class="n">decode</span><span class="p">(</span><span class="n">fp</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">buffer</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">encode</span><span class="p">(</span><span class="n">fp</span><span class="p">,</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span><span class="o">.</span><span class="n">buffer</span><span class="p">,</span> <span class="n">tabs</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">file</span> <span class="o">!=</span> <span class="s">&#39;-&#39;</span><span class="p">:</span>
+                <span class="n">fp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">sts</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="n">sts</span><span class="p">)</span>
+
+
+
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../_static/jquery.js"></script>
+      <script type="text/javascript" src="../_static/underscore.js"></script>
+      <script type="text/javascript" src="../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

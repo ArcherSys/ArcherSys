@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["WinConsole","A Terminal implementation which uses the Win32 Console API."]]});

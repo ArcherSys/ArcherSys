@@ -1,0 +1,57 @@
+<<<<<<< HEAD
+from externalized.contrib.core import AbstractActivityKernel
+import dropbox
+import webbrowser
+class DropboxActivityKernel(AbstractActivityKernel):
+    def __init__(self,api_key,api_secret,activity_name):
+        AbstractActivityKernel.__init__(self, api_key, api_secret)
+        self.flow = dropbox.client.DropboxOAuth2FlowNoRedirect(self.app_key, self.app_secret)
+        self.authorize_url = self.flow.start()
+        print ('1. Go to: ' + self.authorize_url)
+        print ('2. Click "Allow" (you might have to log in first)')
+        print ('3. Copy the authorization code.')
+        self.open_url()
+        self.code = input("Enter the authorization code here: ").strip()
+        self.intro = "ArcherBash v2.0.0 for ArcherSys OS 3.4.1 - " + activity_name
+        self.access_token, self.user_id = self.flow.finish(self.code)
+        self.prompt = activity_name
+        self.client = dropbox.client.DropboxClient(self.access_token)
+        print('Linked Dropbox ArcherDrive: ', self.client.account_info())
+    def open_url(self):
+        webbrowser.open_new_tab(self.authorize_url)
+    def do_upload(self, arg):
+        f = open(input("File to upload:"), 'rb')
+        response = self.client.put_file(input("Filename:"), f)
+        print("Uploaded file from ArcherVM:", response)
+    def do_getfolders(self,arg):
+        folder_metadata = self.client.metadata(input("Path:"))
+        print ("My Metadata:", folder_metadata)
+=======
+from externalized.contrib.core import AbstractActivityKernel
+import dropbox
+import webbrowser
+class DropboxActivityKernel(AbstractActivityKernel):
+    def __init__(self,api_key,api_secret,activity_name):
+        AbstractActivityKernel.__init__(self, api_key, api_secret)
+        self.flow = dropbox.client.DropboxOAuth2FlowNoRedirect(self.app_key, self.app_secret)
+        self.authorize_url = self.flow.start()
+        print ('1. Go to: ' + self.authorize_url)
+        print ('2. Click "Allow" (you might have to log in first)')
+        print ('3. Copy the authorization code.')
+        self.open_url()
+        self.code = input("Enter the authorization code here: ").strip()
+        self.intro = "ArcherBash v2.0.0 for ArcherSys OS 3.4.1 - " + activity_name
+        self.access_token, self.user_id = self.flow.finish(self.code)
+        self.prompt = activity_name
+        self.client = dropbox.client.DropboxClient(self.access_token)
+        print('Linked Dropbox ArcherDrive: ', self.client.account_info())
+    def open_url(self):
+        webbrowser.open_new_tab(self.authorize_url)
+    def do_upload(self, arg):
+        f = open(input("File to upload:"), 'rb')
+        response = self.client.put_file(input("Filename:"), f)
+        print("Uploaded file from ArcherVM:", response)
+    def do_getfolders(self,arg):
+        folder_metadata = self.client.metadata(input("Path:"))
+        print ("My Metadata:", folder_metadata)
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

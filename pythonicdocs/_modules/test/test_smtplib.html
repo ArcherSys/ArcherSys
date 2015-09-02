@@ -1,0 +1,1111 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>test.test_smtplib &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>test.test_smtplib</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for test.test_smtplib</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">asyncore</span>
+<span class="kn">import</span> <span class="nn">email.mime.text</span>
+<span class="kn">import</span> <span class="nn">email.utils</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">smtpd</span>
+<span class="kn">import</span> <span class="nn">smtplib</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">select</span>
+<span class="kn">import</span> <span class="nn">errno</span>
+
+<span class="kn">import</span> <span class="nn">unittest</span>
+<span class="kn">from</span> <span class="nn">test</span> <span class="kn">import</span> <span class="n">support</span><span class="p">,</span> <span class="n">mock_socket</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">threading</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">threading</span> <span class="o">=</span> <span class="bp">None</span>
+
+<span class="n">HOST</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">HOST</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span> <span class="o">==</span> <span class="s">&#39;darwin&#39;</span><span class="p">:</span>
+    <span class="c"># select.poll returns a select.POLLHUP at the end of the tests</span>
+    <span class="c"># on darwin, so just ignore it</span>
+    <span class="k">def</span> <span class="nf">handle_expt</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+    <span class="n">smtpd</span><span class="o">.</span><span class="n">SMTPChannel</span><span class="o">.</span><span class="n">handle_expt</span> <span class="o">=</span> <span class="n">handle_expt</span>
+
+
+<div class="viewcode-block" id="server"><a class="viewcode-back" href="../../test.html#test.test_smtplib.server">[docs]</a><span class="k">def</span> <span class="nf">server</span><span class="p">(</span><span class="n">evt</span><span class="p">,</span> <span class="n">buf</span><span class="p">,</span> <span class="n">serv</span><span class="p">):</span>
+    <span class="n">serv</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span>
+    <span class="n">evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">conn</span><span class="p">,</span> <span class="n">addr</span> <span class="o">=</span> <span class="n">serv</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">socket</span><span class="o">.</span><span class="n">timeout</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="mi">500</span>
+        <span class="k">while</span> <span class="n">buf</span> <span class="ow">and</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">r</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">e</span> <span class="o">=</span> <span class="n">select</span><span class="o">.</span><span class="n">select</span><span class="p">([],</span> <span class="p">[</span><span class="n">conn</span><span class="p">],</span> <span class="p">[])</span>
+            <span class="k">if</span> <span class="n">w</span><span class="p">:</span>
+                <span class="n">sent</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">buf</span><span class="p">)</span>
+                <span class="n">buf</span> <span class="o">=</span> <span class="n">buf</span><span class="p">[</span><span class="n">sent</span><span class="p">:]</span>
+
+            <span class="n">n</span> <span class="o">-=</span> <span class="mi">1</span>
+
+        <span class="n">conn</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">serv</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GeneralTests"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests">[docs]</a><span class="k">class</span> <span class="nc">GeneralTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="GeneralTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtplib</span><span class="o">.</span><span class="n">socket</span> <span class="o">=</span> <span class="n">mock_socket</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="mi">25</span>
+</div>
+<div class="viewcode-block" id="GeneralTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtplib</span><span class="o">.</span><span class="n">socket</span> <span class="o">=</span> <span class="n">socket</span>
+
+    <span class="c"># This method is no longer used but is retained for backward compatibility,</span>
+    <span class="c"># so test to make sure it still works.</span></div>
+<div class="viewcode-block" id="GeneralTests.testQuoteData"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.testQuoteData">[docs]</a>    <span class="k">def</span> <span class="nf">testQuoteData</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">teststr</span>  <span class="o">=</span> <span class="s">&quot;abc</span><span class="se">\n</span><span class="s">.jkl</span><span class="se">\r</span><span class="s">foo</span><span class="se">\r\n</span><span class="s">..blue&quot;</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="s">&quot;abc</span><span class="se">\r\n</span><span class="s">..jkl</span><span class="se">\r\n</span><span class="s">foo</span><span class="se">\r\n</span><span class="s">...blue&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">expected</span><span class="p">,</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">quotedata</span><span class="p">(</span><span class="n">teststr</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="GeneralTests.testBasic1"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.testBasic1">[docs]</a>    <span class="k">def</span> <span class="nf">testBasic1</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">reply_with</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;220 Hola mundo&quot;</span><span class="p">)</span>
+        <span class="c"># connects</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GeneralTests.testSourceAddress"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.testSourceAddress">[docs]</a>    <span class="k">def</span> <span class="nf">testSourceAddress</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">reply_with</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;220 Hola mundo&quot;</span><span class="p">)</span>
+        <span class="c"># connects</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+                <span class="n">source_address</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;127.0.0.1&#39;</span><span class="p">,</span><span class="mi">19876</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">source_address</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;127.0.0.1&#39;</span><span class="p">,</span> <span class="mi">19876</span><span class="p">))</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GeneralTests.testBasic2"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.testBasic2">[docs]</a>    <span class="k">def</span> <span class="nf">testBasic2</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">reply_with</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;220 Hola mundo&quot;</span><span class="p">)</span>
+        <span class="c"># connects, include port in host name</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">))</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GeneralTests.testLocalHostName"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.testLocalHostName">[docs]</a>    <span class="k">def</span> <span class="nf">testLocalHostName</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">reply_with</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;220 Hola mundo&quot;</span><span class="p">)</span>
+        <span class="c"># check that supplied local_hostname is used</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&quot;testhost&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">local_hostname</span><span class="p">,</span> <span class="s">&quot;testhost&quot;</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GeneralTests.testTimeoutDefault"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.testTimeoutDefault">[docs]</a>    <span class="k">def</span> <span class="nf">testTimeoutDefault</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">reply_with</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;220 Hola mundo&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">mock_socket</span><span class="o">.</span><span class="n">getdefaulttimeout</span><span class="p">())</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">setdefaulttimeout</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">mock_socket</span><span class="o">.</span><span class="n">getdefaulttimeout</span><span class="p">(),</span> <span class="mi">30</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">mock_socket</span><span class="o">.</span><span class="n">setdefaulttimeout</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">gettimeout</span><span class="p">(),</span> <span class="mi">30</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GeneralTests.testTimeoutNone"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.testTimeoutNone">[docs]</a>    <span class="k">def</span> <span class="nf">testTimeoutNone</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">reply_with</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;220 Hola mundo&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">getdefaulttimeout</span><span class="p">())</span>
+        <span class="n">socket</span><span class="o">.</span><span class="n">setdefaulttimeout</span><span class="p">(</span><span class="mi">30</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">socket</span><span class="o">.</span><span class="n">setdefaulttimeout</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">gettimeout</span><span class="p">())</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="GeneralTests.testTimeoutValue"><a class="viewcode-back" href="../../test.html#test.test_smtplib.GeneralTests.testTimeoutValue">[docs]</a>    <span class="k">def</span> <span class="nf">testTimeoutValue</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">reply_with</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;220 Hola mundo&quot;</span><span class="p">)</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">30</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">gettimeout</span><span class="p">(),</span> <span class="mi">30</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+
+<span class="c"># Test server thread using the specified SMTP server class</span></div></div>
+<div class="viewcode-block" id="debugging_server"><a class="viewcode-back" href="../../test.html#test.test_smtplib.debugging_server">[docs]</a><span class="k">def</span> <span class="nf">debugging_server</span><span class="p">(</span><span class="n">serv</span><span class="p">,</span> <span class="n">serv_evt</span><span class="p">,</span> <span class="n">client_evt</span><span class="p">):</span>
+    <span class="n">serv_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">select</span><span class="p">,</span> <span class="s">&#39;poll&#39;</span><span class="p">):</span>
+            <span class="n">poll_fun</span> <span class="o">=</span> <span class="n">asyncore</span><span class="o">.</span><span class="n">poll2</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">poll_fun</span> <span class="o">=</span> <span class="n">asyncore</span><span class="o">.</span><span class="n">poll</span>
+
+        <span class="n">n</span> <span class="o">=</span> <span class="mi">1000</span>
+        <span class="k">while</span> <span class="n">asyncore</span><span class="o">.</span><span class="n">socket_map</span> <span class="ow">and</span> <span class="n">n</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">poll_fun</span><span class="p">(</span><span class="mf">0.01</span><span class="p">,</span> <span class="n">asyncore</span><span class="o">.</span><span class="n">socket_map</span><span class="p">)</span>
+
+            <span class="c"># when the client conversation is finished, it will</span>
+            <span class="c"># set client_evt, and it&#39;s then ok to kill the server</span>
+            <span class="k">if</span> <span class="n">client_evt</span><span class="o">.</span><span class="n">is_set</span><span class="p">():</span>
+                <span class="n">serv</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">break</span>
+
+            <span class="n">n</span> <span class="o">-=</span> <span class="mi">1</span>
+
+    <span class="k">except</span> <span class="n">socket</span><span class="o">.</span><span class="n">timeout</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">client_evt</span><span class="o">.</span><span class="n">is_set</span><span class="p">():</span>
+            <span class="c"># allow some time for the client to read the result</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.5</span><span class="p">)</span>
+            <span class="n">serv</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">asyncore</span><span class="o">.</span><span class="n">close_all</span><span class="p">()</span>
+        <span class="n">serv_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+</div>
+<span class="n">MSG_BEGIN</span> <span class="o">=</span> <span class="s">&#39;---------- MESSAGE FOLLOWS ----------</span><span class="se">\n</span><span class="s">&#39;</span>
+<span class="n">MSG_END</span> <span class="o">=</span> <span class="s">&#39;------------ END MESSAGE ------------</span><span class="se">\n</span><span class="s">&#39;</span>
+
+<span class="c"># NOTE: Some SMTP objects in the tests below are created with a non-default</span>
+<span class="c"># local_hostname argument to the constructor, since (on some systems) the FQDN</span>
+<span class="c"># lookup caused by the default local_hostname sometimes takes so long that the</span>
+<span class="c"># test server times out, causing the test to fail.</span>
+
+<span class="c"># Test behavior of smtpd.DebuggingServer</span>
+<span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">threading</span><span class="p">,</span> <span class="s">&#39;Threading required for this test.&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="DebuggingServerTests"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests">[docs]</a><span class="k">class</span> <span class="nc">DebuggingServerTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+    <span class="n">maxDiff</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="DebuggingServerTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">real_getfqdn</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">getfqdn</span>
+        <span class="n">socket</span><span class="o">.</span><span class="n">getfqdn</span> <span class="o">=</span> <span class="n">mock_socket</span><span class="o">.</span><span class="n">getfqdn</span>
+        <span class="c"># temporarily replace sys.stdout to capture DebuggingServer output</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">old_stdout</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="c"># Capture SMTPChannel debug output</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">old_DEBUGSTREAM</span> <span class="o">=</span> <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span>
+        <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+        <span class="c"># Pick a random unused port by passing 0 for the port number</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span> <span class="o">=</span> <span class="n">smtpd</span><span class="o">.</span><span class="n">DebuggingServer</span><span class="p">((</span><span class="n">HOST</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;nowhere&#39;</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+        <span class="c"># Keep a note of what port was assigned</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">getsockname</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">serv_args</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">debugging_server</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">serv_args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="c"># wait until server thread has assigned a port number</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">socket</span><span class="o">.</span><span class="n">getfqdn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">real_getfqdn</span>
+        <span class="c"># indicate that the client is finished</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="c"># wait for the server thread to terminate</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+        <span class="c"># restore sys.stdout</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">old_stdout</span>
+        <span class="c"># restore DEBUGSTREAM</span>
+        <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">old_DEBUGSTREAM</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testBasic"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testBasic">[docs]</a>    <span class="k">def</span> <span class="nf">testBasic</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># connect</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSourceAddress"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSourceAddress">[docs]</a>    <span class="k">def</span> <span class="nf">testSourceAddress</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># connect</span>
+        <span class="n">port</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">find_unused_port</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span>
+                    <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">source_address</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;127.0.0.1&#39;</span><span class="p">,</span> <span class="n">port</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">source_address</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;127.0.0.1&#39;</span><span class="p">,</span> <span class="n">port</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">local_hostname</span><span class="p">,</span> <span class="s">&#39;localhost&#39;</span><span class="p">)</span>
+            <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">errno</span> <span class="o">==</span> <span class="n">errno</span><span class="o">.</span><span class="n">EADDRINUSE</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">skipTest</span><span class="p">(</span><span class="s">&quot;couldn&#39;t bind to port </span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">port</span><span class="p">)</span>
+            <span class="k">raise</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testNOOP"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testNOOP">[docs]</a>    <span class="k">def</span> <span class="nf">testNOOP</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="mi">250</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;OK&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">noop</span><span class="p">(),</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testRSET"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testRSET">[docs]</a>    <span class="k">def</span> <span class="nf">testRSET</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="mi">250</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;OK&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">rset</span><span class="p">(),</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testELHO"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testELHO">[docs]</a>    <span class="k">def</span> <span class="nf">testELHO</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># EHLO isn&#39;t implemented in DebuggingServer</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="mi">250</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">SIZE 33554432</span><span class="se">\n</span><span class="s">HELP&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">ehlo</span><span class="p">(),</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testEXPNNotImplemented"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testEXPNNotImplemented">[docs]</a>    <span class="k">def</span> <span class="nf">testEXPNNotImplemented</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># EXPN isn&#39;t implemented in DebuggingServer</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="mi">502</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;EXPN not implemented&#39;</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">putcmd</span><span class="p">(</span><span class="s">&#39;EXPN&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">getreply</span><span class="p">(),</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testVRFY"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testVRFY">[docs]</a>    <span class="k">def</span> <span class="nf">testVRFY</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="mi">252</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;Cannot VRFY user, but will accept message &#39;</span> <span class="o">+</span> \
+                         <span class="n">b</span><span class="s">&#39;and attempt delivery&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">vrfy</span><span class="p">(</span><span class="s">&#39;nobody@nowhere.com&#39;</span><span class="p">),</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">verify</span><span class="p">(</span><span class="s">&#39;nobody@nowhere.com&#39;</span><span class="p">),</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSecondHELO"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSecondHELO">[docs]</a>    <span class="k">def</span> <span class="nf">testSecondHELO</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># check that a second HELO returns a message that it&#39;s a duplicate</span>
+        <span class="c"># (this behavior is specific to smtpd.SMTPChannel)</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">helo</span><span class="p">()</span>
+        <span class="n">expected</span> <span class="o">=</span> <span class="p">(</span><span class="mi">503</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;Duplicate HELO/EHLO&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">helo</span><span class="p">(),</span> <span class="n">expected</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testHELP"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testHELP">[docs]</a>    <span class="k">def</span> <span class="nf">testHELP</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">help</span><span class="p">(),</span> <span class="n">b</span><span class="s">&#39;Supported commands: EHLO HELO MAIL &#39;</span> <span class="o">+</span> \
+                                      <span class="n">b</span><span class="s">&#39;RCPT DATA RSET NOOP QUIT VRFY&#39;</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSend"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSend">[docs]</a>    <span class="k">def</span> <span class="nf">testSend</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># connect and send mail</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="s">&#39;A test message&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">sendmail</span><span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Sally&#39;</span><span class="p">,</span> <span class="n">m</span><span class="p">)</span>
+        <span class="c"># XXX(nnorwitz): this test is flaky and dies with a bad file descriptor</span>
+        <span class="c"># in asyncore.  This sleep might help, but should really be fixed</span>
+        <span class="c"># properly by using an Event variable.</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="p">,</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendBinary"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendBinary">[docs]</a>    <span class="k">def</span> <span class="nf">testSendBinary</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;A test message&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">sendmail</span><span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Sally&#39;</span><span class="p">,</span> <span class="n">m</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">),</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendNeedingDotQuote"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendNeedingDotQuote">[docs]</a>    <span class="k">def</span> <span class="nf">testSendNeedingDotQuote</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Issue 12283</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="s">&#39;.A test</span><span class="se">\n</span><span class="s">.mes.sage.&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">sendmail</span><span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Sally&#39;</span><span class="p">,</span> <span class="n">m</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="p">,</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendNullSender"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendNullSender">[docs]</a>    <span class="k">def</span> <span class="nf">testSendNullSender</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="s">&#39;A test message&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">sendmail</span><span class="p">(</span><span class="s">&#39;&lt;&gt;&#39;</span><span class="p">,</span> <span class="s">&#39;Sally&#39;</span><span class="p">,</span> <span class="n">m</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="p">,</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+        <span class="n">debugout</span> <span class="o">=</span> <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+        <span class="n">sender</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&quot;^sender: &lt;&gt;$&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">sender</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendMessage"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendMessage">[docs]</a>    <span class="k">def</span> <span class="nf">testSendMessage</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">mime</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">MIMEText</span><span class="p">(</span><span class="s">&#39;A test message&#39;</span><span class="p">)</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">from_addr</span><span class="o">=</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="n">to_addrs</span><span class="o">=</span><span class="s">&#39;Sally&#39;</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="c"># Add the X-Peer header that DebuggingServer adds</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;X-Peer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">gethostbyname</span><span class="p">(</span><span class="s">&#39;localhost&#39;</span><span class="p">)</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">as_string</span><span class="p">(),</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendMessageWithAddresses"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendMessageWithAddresses">[docs]</a>    <span class="k">def</span> <span class="nf">testSendMessageWithAddresses</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">mime</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">MIMEText</span><span class="p">(</span><span class="s">&#39;A test message&#39;</span><span class="p">)</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;foo@bar.com&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;CC&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Sally, Fred&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Bcc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John Root &lt;root@localhost&gt;, &quot;Dinsdale&quot; &lt;warped@silly.walks.com&gt;&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+        <span class="c"># make sure the Bcc header is still in the message.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">m</span><span class="p">[</span><span class="s">&#39;Bcc&#39;</span><span class="p">],</span> <span class="s">&#39;John Root &lt;root@localhost&gt;, &quot;Dinsdale&quot; &#39;</span>
+                                    <span class="s">&#39;&lt;warped@silly.walks.com&gt;&#39;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="c"># Add the X-Peer header that DebuggingServer adds</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;X-Peer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">gethostbyname</span><span class="p">(</span><span class="s">&#39;localhost&#39;</span><span class="p">)</span>
+        <span class="c"># The Bcc header should not be transmitted.</span>
+        <span class="k">del</span> <span class="n">m</span><span class="p">[</span><span class="s">&#39;Bcc&#39;</span><span class="p">]</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">as_string</span><span class="p">(),</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+        <span class="n">debugout</span> <span class="o">=</span> <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+        <span class="n">sender</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&quot;^sender: foo@bar.com$&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">sender</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">addr</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Sally&#39;</span><span class="p">,</span> <span class="s">&#39;Fred&#39;</span><span class="p">,</span> <span class="s">&#39;root@localhost&#39;</span><span class="p">,</span>
+                     <span class="s">&#39;warped@silly.walks.com&#39;</span><span class="p">):</span>
+            <span class="n">to_addr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&quot;^recips: .*&#39;{}&#39;.*$&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">addr</span><span class="p">),</span>
+                                 <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">to_addr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendMessageWithSomeAddresses"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendMessageWithSomeAddresses">[docs]</a>    <span class="k">def</span> <span class="nf">testSendMessageWithSomeAddresses</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Make sure nothing breaks if not all of the three &#39;to&#39; headers exist</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">mime</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">MIMEText</span><span class="p">(</span><span class="s">&#39;A test message&#39;</span><span class="p">)</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;foo@bar.com&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John, Dinsdale&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="c"># Add the X-Peer header that DebuggingServer adds</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;X-Peer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">gethostbyname</span><span class="p">(</span><span class="s">&#39;localhost&#39;</span><span class="p">)</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">as_string</span><span class="p">(),</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+        <span class="n">debugout</span> <span class="o">=</span> <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+        <span class="n">sender</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&quot;^sender: foo@bar.com$&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">sender</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">addr</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Dinsdale&#39;</span><span class="p">):</span>
+            <span class="n">to_addr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&quot;^recips: .*&#39;{}&#39;.*$&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">addr</span><span class="p">),</span>
+                                 <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">to_addr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendMessageWithSpecifiedAddresses"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendMessageWithSpecifiedAddresses">[docs]</a>    <span class="k">def</span> <span class="nf">testSendMessageWithSpecifiedAddresses</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Make sure addresses specified in call override those in message.</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">mime</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">MIMEText</span><span class="p">(</span><span class="s">&#39;A test message&#39;</span><span class="p">)</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;foo@bar.com&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John, Dinsdale&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">from_addr</span><span class="o">=</span><span class="s">&#39;joe@example.com&#39;</span><span class="p">,</span> <span class="n">to_addrs</span><span class="o">=</span><span class="s">&#39;foo@example.net&#39;</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="c"># Add the X-Peer header that DebuggingServer adds</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;X-Peer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">gethostbyname</span><span class="p">(</span><span class="s">&#39;localhost&#39;</span><span class="p">)</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">as_string</span><span class="p">(),</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+        <span class="n">debugout</span> <span class="o">=</span> <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+        <span class="n">sender</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&quot;^sender: joe@example.com$&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">sender</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">addr</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Dinsdale&#39;</span><span class="p">):</span>
+            <span class="n">to_addr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&quot;^recips: .*&#39;{}&#39;.*$&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">addr</span><span class="p">),</span>
+                                 <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertNotRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">to_addr</span><span class="p">)</span>
+        <span class="n">recip</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&quot;^recips: .*&#39;foo@example.net&#39;.*$&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">recip</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendMessageWithMultipleFrom"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendMessageWithMultipleFrom">[docs]</a>    <span class="k">def</span> <span class="nf">testSendMessageWithMultipleFrom</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Sender overrides To</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">mime</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">MIMEText</span><span class="p">(</span><span class="s">&#39;A test message&#39;</span><span class="p">)</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Bernard, Bianca&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Sender&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;the_rescuers@Rescue-Aid-Society.com&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John, Dinsdale&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="c"># Add the X-Peer header that DebuggingServer adds</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;X-Peer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">gethostbyname</span><span class="p">(</span><span class="s">&#39;localhost&#39;</span><span class="p">)</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">as_string</span><span class="p">(),</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+        <span class="n">debugout</span> <span class="o">=</span> <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+        <span class="n">sender</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&quot;^sender: the_rescuers@Rescue-Aid-Society.com$&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">sender</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">addr</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Dinsdale&#39;</span><span class="p">):</span>
+            <span class="n">to_addr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&quot;^recips: .*&#39;{}&#39;.*$&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">addr</span><span class="p">),</span>
+                                 <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">to_addr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendMessageResent"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendMessageResent">[docs]</a>    <span class="k">def</span> <span class="nf">testSendMessageResent</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">mime</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">MIMEText</span><span class="p">(</span><span class="s">&#39;A test message&#39;</span><span class="p">)</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;foo@bar.com&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;CC&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Sally, Fred&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Bcc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John Root &lt;root@localhost&gt;, &quot;Dinsdale&quot; &lt;warped@silly.walks.com&gt;&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-Date&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Thu, 1 Jan 1970 17:42:00 +0000&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;holy@grail.net&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Martha &lt;my_mom@great.cooker.com&gt;, Jeff&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-Bcc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;doe@losthope.net&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+        <span class="c"># XXX (see comment in testSend)</span>
+        <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.01</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">flush</span><span class="p">()</span>
+        <span class="c"># The Resent-Bcc headers are deleted before serialization.</span>
+        <span class="k">del</span> <span class="n">m</span><span class="p">[</span><span class="s">&#39;Bcc&#39;</span><span class="p">]</span>
+        <span class="k">del</span> <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-Bcc&#39;</span><span class="p">]</span>
+        <span class="c"># Add the X-Peer header that DebuggingServer adds</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;X-Peer&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">gethostbyname</span><span class="p">(</span><span class="s">&#39;localhost&#39;</span><span class="p">)</span>
+        <span class="n">mexpect</span> <span class="o">=</span> <span class="s">&#39;</span><span class="si">%s%s</span><span class="se">\n</span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">MSG_BEGIN</span><span class="p">,</span> <span class="n">m</span><span class="o">.</span><span class="n">as_string</span><span class="p">(),</span> <span class="n">MSG_END</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output</span><span class="o">.</span><span class="n">getvalue</span><span class="p">(),</span> <span class="n">mexpect</span><span class="p">)</span>
+        <span class="n">debugout</span> <span class="o">=</span> <span class="n">smtpd</span><span class="o">.</span><span class="n">DEBUGSTREAM</span><span class="o">.</span><span class="n">getvalue</span><span class="p">()</span>
+        <span class="n">sender</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">&quot;^sender: holy@grail.net$&quot;</span><span class="p">,</span> <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">sender</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">addr</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;my_mom@great.cooker.com&#39;</span><span class="p">,</span> <span class="s">&#39;Jeff&#39;</span><span class="p">,</span> <span class="s">&#39;doe@losthope.net&#39;</span><span class="p">):</span>
+            <span class="n">to_addr</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&quot;^recips: .*&#39;{}&#39;.*$&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">addr</span><span class="p">),</span>
+                                 <span class="n">re</span><span class="o">.</span><span class="n">MULTILINE</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertRegex</span><span class="p">(</span><span class="n">debugout</span><span class="p">,</span> <span class="n">to_addr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="DebuggingServerTests.testSendMessageMultipleResentRaises"><a class="viewcode-back" href="../../test.html#test.test_smtplib.DebuggingServerTests.testSendMessageMultipleResentRaises">[docs]</a>    <span class="k">def</span> <span class="nf">testSendMessageMultipleResentRaises</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">mime</span><span class="o">.</span><span class="n">text</span><span class="o">.</span><span class="n">MIMEText</span><span class="p">(</span><span class="s">&#39;A test message&#39;</span><span class="p">)</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;foo@bar.com&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;CC&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Sally, Fred&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Bcc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;John Root &lt;root@localhost&gt;, &quot;Dinsdale&quot; &lt;warped@silly.walks.com&gt;&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-Date&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Thu, 1 Jan 1970 17:42:00 +0000&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;holy@grail.net&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Martha &lt;my_mom@great.cooker.com&gt;, Jeff&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-Bcc&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;doe@losthope.net&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-Date&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Thu, 2 Jan 1970 17:42:00 +0000&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-To&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;holy@grail.net&#39;</span>
+        <span class="n">m</span><span class="p">[</span><span class="s">&#39;Resent-From&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;Martha &lt;my_mom@great.cooker.com&gt;, Jeff&#39;</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">ValueError</span><span class="p">):</span>
+            <span class="n">smtp</span><span class="o">.</span><span class="n">send_message</span><span class="p">(</span><span class="n">m</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div></div>
+<div class="viewcode-block" id="NonConnectingTests"><a class="viewcode-back" href="../../test.html#test.test_smtplib.NonConnectingTests">[docs]</a><span class="k">class</span> <span class="nc">NonConnectingTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="NonConnectingTests.testNotConnected"><a class="viewcode-back" href="../../test.html#test.test_smtplib.NonConnectingTests.testNotConnected">[docs]</a>    <span class="k">def</span> <span class="nf">testNotConnected</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test various operations on an unconnected SMTP object that</span>
+        <span class="c"># should raise exceptions (at present the attempt in SMTP.send</span>
+        <span class="c"># to reference the nonexistent &#39;sock&#39; attribute of the SMTP object</span>
+        <span class="c"># causes an AttributeError)</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPServerDisconnected</span><span class="p">,</span> <span class="n">smtp</span><span class="o">.</span><span class="n">ehlo</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPServerDisconnected</span><span class="p">,</span>
+                          <span class="n">smtp</span><span class="o">.</span><span class="n">send</span><span class="p">,</span> <span class="s">&#39;test msg&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="NonConnectingTests.testNonnumericPort"><a class="viewcode-back" href="../../test.html#test.test_smtplib.NonConnectingTests.testNonnumericPort">[docs]</a>    <span class="k">def</span> <span class="nf">testNonnumericPort</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># check that non-numeric port raises OSError</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">,</span>
+                          <span class="s">&quot;localhost&quot;</span><span class="p">,</span> <span class="s">&quot;bogus&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">,</span>
+                          <span class="s">&quot;localhost:bogus&quot;</span><span class="p">)</span>
+
+
+<span class="c"># test response of client to a non-successful HELO message</span></div></div>
+<span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">threading</span><span class="p">,</span> <span class="s">&#39;Threading required for this test.&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="BadHELOServerTests"><a class="viewcode-back" href="../../test.html#test.test_smtplib.BadHELOServerTests">[docs]</a><span class="k">class</span> <span class="nc">BadHELOServerTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="BadHELOServerTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_smtplib.BadHELOServerTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtplib</span><span class="o">.</span><span class="n">socket</span> <span class="o">=</span> <span class="n">mock_socket</span>
+        <span class="n">mock_socket</span><span class="o">.</span><span class="n">reply_with</span><span class="p">(</span><span class="n">b</span><span class="s">&quot;199 no hello for you!&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">old_stdout</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="mi">25</span>
+</div>
+<div class="viewcode-block" id="BadHELOServerTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_smtplib.BadHELOServerTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtplib</span><span class="o">.</span><span class="n">socket</span> <span class="o">=</span> <span class="n">socket</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">old_stdout</span>
+</div>
+<div class="viewcode-block" id="BadHELOServerTests.testFailingHELO"><a class="viewcode-back" href="../../test.html#test.test_smtplib.BadHELOServerTests.testFailingHELO">[docs]</a>    <span class="k">def</span> <span class="nf">testFailingHELO</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPConnectError</span><span class="p">,</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">,</span>
+                            <span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+</div></div>
+<span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">threading</span><span class="p">,</span> <span class="s">&#39;Threading required for this test.&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="TooLongLineTests"><a class="viewcode-back" href="../../test.html#test.test_smtplib.TooLongLineTests">[docs]</a><span class="k">class</span> <span class="nc">TooLongLineTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+    <span class="n">respdata</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;250 OK&#39;</span> <span class="o">+</span> <span class="p">(</span><span class="n">b</span><span class="s">&#39;.&#39;</span> <span class="o">*</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">_MAXLINE</span> <span class="o">*</span> <span class="mi">2</span><span class="p">)</span> <span class="o">+</span> <span class="n">b</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span>
+
+<div class="viewcode-block" id="TooLongLineTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_smtplib.TooLongLineTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">old_stdout</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">()</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">evt</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sock</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">AF_INET</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SOCK_STREAM</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="o">.</span><span class="n">settimeout</span><span class="p">(</span><span class="mi">15</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="n">support</span><span class="o">.</span><span class="n">bind_port</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">)</span>
+        <span class="n">servargs</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">evt</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">respdata</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">sock</span><span class="p">)</span>
+        <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">server</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">servargs</span><span class="p">)</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">evt</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="TooLongLineTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_smtplib.TooLongLineTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stdout</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">old_stdout</span>
+</div>
+<div class="viewcode-block" id="TooLongLineTests.testLineTooLong"><a class="viewcode-back" href="../../test.html#test.test_smtplib.TooLongLineTests.testLineTooLong">[docs]</a>    <span class="k">def</span> <span class="nf">testLineTooLong</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPResponseException</span><span class="p">,</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">,</span>
+                          <span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="mi">3</span><span class="p">)</span>
+
+</div></div>
+<span class="n">sim_users</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;Mr.A@somewhere.com&#39;</span><span class="p">:</span><span class="s">&#39;John A&#39;</span><span class="p">,</span>
+             <span class="s">&#39;Ms.B@xn--fo-fka.com&#39;</span><span class="p">:</span><span class="s">&#39;Sally B&#39;</span><span class="p">,</span>
+             <span class="s">&#39;Mrs.C@somewhereesle.com&#39;</span><span class="p">:</span><span class="s">&#39;Ruth C&#39;</span><span class="p">,</span>
+            <span class="p">}</span>
+
+<span class="n">sim_auth</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;Mr.A@somewhere.com&#39;</span><span class="p">,</span> <span class="s">&#39;somepassword&#39;</span><span class="p">)</span>
+<span class="n">sim_cram_md5_challenge</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;PENCeUxFREJoU0NnbmhNWitOMjNGNn&#39;</span>
+                          <span class="s">&#39;dAZWx3b29kLmlubm9zb2Z0LmNvbT4=&#39;</span><span class="p">)</span>
+<span class="n">sim_auth_credentials</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&#39;login&#39;</span><span class="p">:</span> <span class="s">&#39;TXIuQUBzb21ld2hlcmUuY29t&#39;</span><span class="p">,</span>
+    <span class="s">&#39;plain&#39;</span><span class="p">:</span> <span class="s">&#39;AE1yLkFAc29tZXdoZXJlLmNvbQBzb21lcGFzc3dvcmQ=&#39;</span><span class="p">,</span>
+    <span class="s">&#39;cram-md5&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;TXIUQUBZB21LD2HLCMUUY29TIDG4OWQ0MJ&#39;</span>
+                 <span class="s">&#39;KWZGQ4ODNMNDA4NTGXMDRLZWMYZJDMODG1&#39;</span><span class="p">),</span>
+    <span class="p">}</span>
+<span class="n">sim_auth_login_password</span> <span class="o">=</span> <span class="s">&#39;C29TZXBHC3N3B3JK&#39;</span>
+
+<span class="n">sim_lists</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;list-1&#39;</span><span class="p">:[</span><span class="s">&#39;Mr.A@somewhere.com&#39;</span><span class="p">,</span><span class="s">&#39;Mrs.C@somewhereesle.com&#39;</span><span class="p">],</span>
+             <span class="s">&#39;list-2&#39;</span><span class="p">:[</span><span class="s">&#39;Ms.B@xn--fo-fka.com&#39;</span><span class="p">,],</span>
+            <span class="p">}</span>
+
+<span class="c"># Simulated SMTP channel &amp; server</span>
+<div class="viewcode-block" id="SimSMTPChannel"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel">[docs]</a><span class="k">class</span> <span class="nc">SimSMTPChannel</span><span class="p">(</span><span class="n">smtpd</span><span class="o">.</span><span class="n">SMTPChannel</span><span class="p">):</span>
+
+    <span class="n">quit_response</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">mail_response</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">rcpt_response</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">data_response</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">rcpt_count</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">rset_count</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">disconnect</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extra_features</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extrafeatures</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+            <span class="p">[</span> <span class="s">&quot;250-{0}</span><span class="se">\r\n</span><span class="s">&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">extra_features</span> <span class="p">])</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">SimSMTPChannel</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+<div class="viewcode-block" id="SimSMTPChannel.smtp_EHLO"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_EHLO">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_EHLO</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39;250-testhost</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                <span class="s">&#39;250-EXPN</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                <span class="s">&#39;250-SIZE 20000000</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                <span class="s">&#39;250-STARTTLS</span><span class="se">\r\n</span><span class="s">&#39;</span>
+                <span class="s">&#39;250-DELIVERBY</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">)</span>
+        <span class="n">resp</span> <span class="o">=</span> <span class="n">resp</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extrafeatures</span> <span class="o">+</span> <span class="s">&#39;250 HELP&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="n">resp</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">seen_greeting</span> <span class="o">=</span> <span class="n">arg</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">extended_smtp</span> <span class="o">=</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.smtp_VRFY"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_VRFY">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_VRFY</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="c"># For max compatibility smtplib should be sending the raw address.</span>
+        <span class="k">if</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">sim_users</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;250 </span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">sim_users</span><span class="p">[</span><span class="n">arg</span><span class="p">],</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">quoteaddr</span><span class="p">(</span><span class="n">arg</span><span class="p">)))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;550 No such user: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">arg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.smtp_EXPN"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_EXPN">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_EXPN</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="n">list_name</span> <span class="o">=</span> <span class="n">arg</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">list_name</span> <span class="ow">in</span> <span class="n">sim_lists</span><span class="p">:</span>
+            <span class="n">user_list</span> <span class="o">=</span> <span class="n">sim_lists</span><span class="p">[</span><span class="n">list_name</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">user_email</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">user_list</span><span class="p">):</span>
+                <span class="n">quoted_addr</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">quoteaddr</span><span class="p">(</span><span class="n">user_email</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">n</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">user_list</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;250-</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">sim_users</span><span class="p">[</span><span class="n">user_email</span><span class="p">],</span> <span class="n">quoted_addr</span><span class="p">))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;250 </span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">sim_users</span><span class="p">[</span><span class="n">user_email</span><span class="p">],</span> <span class="n">quoted_addr</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;550 No access for you!&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.smtp_AUTH"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_AUTH">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_AUTH</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">arg</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span><span class="o">==</span><span class="s">&#39;cram-md5&#39;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;334 {}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">sim_cram_md5_challenge</span><span class="p">))</span>
+            <span class="k">return</span>
+        <span class="n">mech</span><span class="p">,</span> <span class="n">auth</span> <span class="o">=</span> <span class="n">arg</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+        <span class="n">mech</span> <span class="o">=</span> <span class="n">mech</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">mech</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sim_auth_credentials</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;504 auth type unimplemented&#39;</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">mech</span> <span class="o">==</span> <span class="s">&#39;plain&#39;</span> <span class="ow">and</span> <span class="n">auth</span><span class="o">==</span><span class="n">sim_auth_credentials</span><span class="p">[</span><span class="s">&#39;plain&#39;</span><span class="p">]:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;235 plain auth ok&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">mech</span><span class="o">==</span><span class="s">&#39;login&#39;</span> <span class="ow">and</span> <span class="n">auth</span><span class="o">==</span><span class="n">sim_auth_credentials</span><span class="p">[</span><span class="s">&#39;login&#39;</span><span class="p">]:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;334 Password:&#39;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;550 No access for you!&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.smtp_QUIT"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_QUIT">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_QUIT</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">quit_response</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">SimSMTPChannel</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">smtp_QUIT</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">quit_response</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close_when_done</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.smtp_MAIL"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_MAIL">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_MAIL</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">mail_response</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">smtp_MAIL</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">mail_response</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">disconnect</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">close_when_done</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.smtp_RCPT"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_RCPT">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_RCPT</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">rcpt_response</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">smtp_RCPT</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rcpt_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">rcpt_response</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">rcpt_count</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.smtp_RSET"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_RSET">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_RSET</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rset_count</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">smtp_RSET</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.smtp_DATA"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.smtp_DATA">[docs]</a>    <span class="k">def</span> <span class="nf">smtp_DATA</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">arg</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_response</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">smtp_DATA</span><span class="p">(</span><span class="n">arg</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data_response</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SimSMTPChannel.handle_error"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPChannel.handle_error">[docs]</a>    <span class="k">def</span> <span class="nf">handle_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span>
+
+</div></div>
+<div class="viewcode-block" id="SimSMTPServer"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPServer">[docs]</a><span class="k">class</span> <span class="nc">SimSMTPServer</span><span class="p">(</span><span class="n">smtpd</span><span class="o">.</span><span class="n">SMTPServer</span><span class="p">):</span>
+
+    <span class="n">channel_class</span> <span class="o">=</span> <span class="n">SimSMTPChannel</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extra_features</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">smtpd</span><span class="o">.</span><span class="n">SMTPServer</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kw</span><span class="p">)</span>
+
+<div class="viewcode-block" id="SimSMTPServer.handle_accepted"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPServer.handle_accepted">[docs]</a>    <span class="k">def</span> <span class="nf">handle_accepted</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">addr</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_SMTPchannel</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel_class</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_extra_features</span><span class="p">,</span> <span class="bp">self</span><span class="p">,</span> <span class="n">conn</span><span class="p">,</span> <span class="n">addr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SimSMTPServer.process_message"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPServer.process_message">[docs]</a>    <span class="k">def</span> <span class="nf">process_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">peer</span><span class="p">,</span> <span class="n">mailfrom</span><span class="p">,</span> <span class="n">rcpttos</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="SimSMTPServer.add_feature"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPServer.add_feature">[docs]</a>    <span class="k">def</span> <span class="nf">add_feature</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">feature</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_extra_features</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">feature</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SimSMTPServer.handle_error"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SimSMTPServer.handle_error">[docs]</a>    <span class="k">def</span> <span class="nf">handle_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">raise</span>
+
+
+<span class="c"># Test various SMTP &amp; ESMTP commands/behaviors that require a simulated server</span>
+<span class="c"># (i.e., something with more features than DebuggingServer)</span></div></div>
+<span class="nd">@unittest.skipUnless</span><span class="p">(</span><span class="n">threading</span><span class="p">,</span> <span class="s">&#39;Threading required for this test.&#39;</span><span class="p">)</span>
+<div class="viewcode-block" id="SMTPSimTests"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests">[docs]</a><span class="k">class</span> <span class="nc">SMTPSimTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
+
+<div class="viewcode-block" id="SMTPSimTests.setUp"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.setUp">[docs]</a>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">real_getfqdn</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">getfqdn</span>
+        <span class="n">socket</span><span class="o">.</span><span class="n">getfqdn</span> <span class="o">=</span> <span class="n">mock_socket</span><span class="o">.</span><span class="n">getfqdn</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Event</span><span class="p">()</span>
+        <span class="c"># Pick a random unused port by passing 0 for the port number</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span> <span class="o">=</span> <span class="n">SimSMTPServer</span><span class="p">((</span><span class="n">HOST</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="s">&#39;nowhere&#39;</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">))</span>
+        <span class="c"># Keep a note of what port was assigned</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">port</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">getsockname</span><span class="p">()[</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">serv_args</span> <span class="o">=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span> <span class="o">=</span> <span class="n">threading</span><span class="o">.</span><span class="n">Thread</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="n">debugging_server</span><span class="p">,</span> <span class="n">args</span><span class="o">=</span><span class="n">serv_args</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+
+        <span class="c"># wait until server thread has assigned a port number</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.tearDown"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.tearDown">[docs]</a>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">socket</span><span class="o">.</span><span class="n">getfqdn</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">real_getfqdn</span>
+        <span class="c"># indicate that the client is finished</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">client_evt</span><span class="o">.</span><span class="n">set</span><span class="p">()</span>
+        <span class="c"># wait for the server thread to terminate</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv_evt</span><span class="o">.</span><span class="n">wait</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">thread</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.testBasic"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.testBasic">[docs]</a>    <span class="k">def</span> <span class="nf">testBasic</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># smoke test</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.testEHLO"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.testEHLO">[docs]</a>    <span class="k">def</span> <span class="nf">testEHLO</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+
+        <span class="c"># no features should be present before the EHLO</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">esmtp_features</span><span class="p">,</span> <span class="p">{})</span>
+
+        <span class="c"># features expected from the test server</span>
+        <span class="n">expected_features</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;expn&#39;</span><span class="p">:</span><span class="s">&#39;&#39;</span><span class="p">,</span>
+                             <span class="s">&#39;size&#39;</span><span class="p">:</span> <span class="s">&#39;20000000&#39;</span><span class="p">,</span>
+                             <span class="s">&#39;starttls&#39;</span><span class="p">:</span> <span class="s">&#39;&#39;</span><span class="p">,</span>
+                             <span class="s">&#39;deliverby&#39;</span><span class="p">:</span> <span class="s">&#39;&#39;</span><span class="p">,</span>
+                             <span class="s">&#39;help&#39;</span><span class="p">:</span> <span class="s">&#39;&#39;</span><span class="p">,</span>
+                             <span class="p">}</span>
+
+        <span class="n">smtp</span><span class="o">.</span><span class="n">ehlo</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">esmtp_features</span><span class="p">,</span> <span class="n">expected_features</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">expected_features</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertTrue</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">has_extn</span><span class="p">(</span><span class="n">k</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertFalse</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">has_extn</span><span class="p">(</span><span class="s">&#39;unsupported-feature&#39;</span><span class="p">))</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.testVRFY"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.testVRFY">[docs]</a>    <span class="k">def</span> <span class="nf">testVRFY</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">email</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">sim_users</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">expected_known</span> <span class="o">=</span> <span class="p">(</span><span class="mi">250</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span>
+                                         <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">quoteaddr</span><span class="p">(</span><span class="n">email</span><span class="p">)),</span>
+                                         <span class="s">&quot;ascii&quot;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">vrfy</span><span class="p">(</span><span class="n">email</span><span class="p">),</span> <span class="n">expected_known</span><span class="p">)</span>
+
+        <span class="n">u</span> <span class="o">=</span> <span class="s">&#39;nobody@nowhere.com&#39;</span>
+        <span class="n">expected_unknown</span> <span class="o">=</span> <span class="p">(</span><span class="mi">550</span><span class="p">,</span> <span class="p">(</span><span class="s">&#39;No such user: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="n">u</span><span class="p">)</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">vrfy</span><span class="p">(</span><span class="n">u</span><span class="p">),</span> <span class="n">expected_unknown</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.testEXPN"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.testEXPN">[docs]</a>    <span class="k">def</span> <span class="nf">testEXPN</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">listname</span><span class="p">,</span> <span class="n">members</span> <span class="ow">in</span> <span class="n">sim_lists</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">users</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">members</span><span class="p">:</span>
+                <span class="n">users</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="n">sim_users</span><span class="p">[</span><span class="n">m</span><span class="p">],</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">quoteaddr</span><span class="p">(</span><span class="n">m</span><span class="p">)))</span>
+            <span class="n">expected_known</span> <span class="o">=</span> <span class="p">(</span><span class="mi">250</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\n</span><span class="s">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">users</span><span class="p">),</span> <span class="s">&quot;ascii&quot;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">expn</span><span class="p">(</span><span class="n">listname</span><span class="p">),</span> <span class="n">expected_known</span><span class="p">)</span>
+
+        <span class="n">u</span> <span class="o">=</span> <span class="s">&#39;PSU-Members-List&#39;</span>
+        <span class="n">expected_unknown</span> <span class="o">=</span> <span class="p">(</span><span class="mi">550</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;No access for you!&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">expn</span><span class="p">(</span><span class="n">u</span><span class="p">),</span> <span class="n">expected_unknown</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.testAUTH_PLAIN"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.testAUTH_PLAIN">[docs]</a>    <span class="k">def</span> <span class="nf">testAUTH_PLAIN</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">add_feature</span><span class="p">(</span><span class="s">&quot;AUTH PLAIN&quot;</span><span class="p">)</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+
+        <span class="n">expected_auth_ok</span> <span class="o">=</span> <span class="p">(</span><span class="mi">235</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;plain auth ok&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="n">sim_auth</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">sim_auth</span><span class="p">[</span><span class="mi">1</span><span class="p">]),</span> <span class="n">expected_auth_ok</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="c"># SimSMTPChannel doesn&#39;t fully support LOGIN or CRAM-MD5 auth because they</span>
+    <span class="c"># require a synchronous read to obtain the credentials...so instead smtpd</span>
+    <span class="c"># sees the credential sent by smtplib&#39;s login method as an unknown command,</span>
+    <span class="c"># which results in smtplib raising an auth error.  Fortunately the error</span>
+    <span class="c"># message contains the encoded credential, so we can partially check that it</span>
+    <span class="c"># was generated correctly (partially, because the &#39;word&#39; is uppercased in</span>
+    <span class="c"># the error message).</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.testAUTH_LOGIN"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.testAUTH_LOGIN">[docs]</a>    <span class="k">def</span> <span class="nf">testAUTH_LOGIN</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">add_feature</span><span class="p">(</span><span class="s">&quot;AUTH LOGIN&quot;</span><span class="p">)</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span> <span class="n">smtp</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="n">sim_auth</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">sim_auth</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">except</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPAuthenticationError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">sim_auth_login_password</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.testAUTH_CRAM_MD5"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.testAUTH_CRAM_MD5">[docs]</a>    <span class="k">def</span> <span class="nf">testAUTH_CRAM_MD5</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">add_feature</span><span class="p">(</span><span class="s">&quot;AUTH CRAM-MD5&quot;</span><span class="p">)</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+
+        <span class="k">try</span><span class="p">:</span> <span class="n">smtp</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="n">sim_auth</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">sim_auth</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">except</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPAuthenticationError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">sim_auth_credentials</span><span class="p">[</span><span class="s">&#39;cram-md5&#39;</span><span class="p">],</span> <span class="nb">str</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.testAUTH_multiple"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.testAUTH_multiple">[docs]</a>    <span class="k">def</span> <span class="nf">testAUTH_multiple</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># Test that multiple authentication methods are tried.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">add_feature</span><span class="p">(</span><span class="s">&quot;AUTH BOGUS PLAIN LOGIN CRAM-MD5&quot;</span><span class="p">)</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span> <span class="n">smtp</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="n">sim_auth</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">sim_auth</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="k">except</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPAuthenticationError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="n">sim_auth_login_password</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.test_quit_resets_greeting"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.test_quit_resets_greeting">[docs]</a>    <span class="k">def</span> <span class="nf">test_quit_resets_greeting</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span>
+                            <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span>
+                            <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+        <span class="n">code</span><span class="p">,</span> <span class="n">message</span> <span class="o">=</span> <span class="n">smtp</span><span class="o">.</span><span class="n">ehlo</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="mi">250</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&#39;size&#39;</span><span class="p">,</span> <span class="n">smtp</span><span class="o">.</span><span class="n">esmtp_features</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotIn</span><span class="p">(</span><span class="s">&#39;size&#39;</span><span class="p">,</span> <span class="n">smtp</span><span class="o">.</span><span class="n">esmtp_features</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertNotIn</span><span class="p">(</span><span class="s">&#39;size&#39;</span><span class="p">,</span> <span class="n">smtp</span><span class="o">.</span><span class="n">esmtp_features</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">ehlo_or_helo_if_needed</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIn</span><span class="p">(</span><span class="s">&#39;size&#39;</span><span class="p">,</span> <span class="n">smtp</span><span class="o">.</span><span class="n">esmtp_features</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">quit</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.test_with_statement"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.test_with_statement">[docs]</a>    <span class="k">def</span> <span class="nf">test_with_statement</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">)</span> <span class="k">as</span> <span class="n">smtp</span><span class="p">:</span>
+            <span class="n">code</span><span class="p">,</span> <span class="n">message</span> <span class="o">=</span> <span class="n">smtp</span><span class="o">.</span><span class="n">noop</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="mi">250</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPServerDisconnected</span><span class="p">,</span> <span class="n">smtp</span><span class="o">.</span><span class="n">send</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;foo&#39;</span><span class="p">)</span>
+        <span class="k">with</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">)</span> <span class="k">as</span> <span class="n">smtp</span><span class="p">:</span>
+            <span class="n">smtp</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPServerDisconnected</span><span class="p">,</span> <span class="n">smtp</span><span class="o">.</span><span class="n">send</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;foo&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.test_with_statement_QUIT_failure"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.test_with_statement_QUIT_failure">[docs]</a>    <span class="k">def</span> <span class="nf">test_with_statement_QUIT_failure</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPResponseException</span><span class="p">)</span> <span class="k">as</span> <span class="n">error</span><span class="p">:</span>
+            <span class="k">with</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">)</span> <span class="k">as</span> <span class="n">smtp</span><span class="p">:</span>
+                <span class="n">smtp</span><span class="o">.</span><span class="n">noop</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">_SMTPchannel</span><span class="o">.</span><span class="n">quit_response</span> <span class="o">=</span> <span class="s">&#39;421 QUIT FAILED&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">error</span><span class="o">.</span><span class="n">exception</span><span class="o">.</span><span class="n">smtp_code</span><span class="p">,</span> <span class="mi">421</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="n">error</span><span class="o">.</span><span class="n">exception</span><span class="o">.</span><span class="n">smtp_error</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;QUIT FAILED&#39;</span><span class="p">)</span>
+
+    <span class="c">#TODO: add tests for correct AUTH method fallback now that the</span>
+    <span class="c">#test infrastructure can support it.</span>
+
+    <span class="c"># Issue 17498: make sure _rset does not raise SMTPServerDisconnected exception</span></div>
+<div class="viewcode-block" id="SMTPSimTests.test__rest_from_mail_cmd"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.test__rest_from_mail_cmd">[docs]</a>    <span class="k">def</span> <span class="nf">test__rest_from_mail_cmd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">noop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">_SMTPchannel</span><span class="o">.</span><span class="n">mail_response</span> <span class="o">=</span> <span class="s">&#39;451 Requested action aborted&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">_SMTPchannel</span><span class="o">.</span><span class="n">disconnect</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPSenderRefused</span><span class="p">):</span>
+            <span class="n">smtp</span><span class="o">.</span><span class="n">sendmail</span><span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Sally&#39;</span><span class="p">,</span> <span class="s">&#39;test message&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">sock</span><span class="p">)</span>
+
+    <span class="c"># Issue 5713: make sure close, not rset, is called if we get a 421 error</span></div>
+<div class="viewcode-block" id="SMTPSimTests.test_421_from_mail_cmd"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.test_421_from_mail_cmd">[docs]</a>    <span class="k">def</span> <span class="nf">test_421_from_mail_cmd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">noop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">_SMTPchannel</span><span class="o">.</span><span class="n">mail_response</span> <span class="o">=</span> <span class="s">&#39;421 closing connection&#39;</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPSenderRefused</span><span class="p">):</span>
+            <span class="n">smtp</span><span class="o">.</span><span class="n">sendmail</span><span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="s">&#39;Sally&#39;</span><span class="p">,</span> <span class="s">&#39;test message&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">sock</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">_SMTPchannel</span><span class="o">.</span><span class="n">rset_count</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.test_421_from_rcpt_cmd"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.test_421_from_rcpt_cmd">[docs]</a>    <span class="k">def</span> <span class="nf">test_421_from_rcpt_cmd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">noop</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">_SMTPchannel</span><span class="o">.</span><span class="n">rcpt_response</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;250 accepted&#39;</span><span class="p">,</span> <span class="s">&#39;421 closing&#39;</span><span class="p">]</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPRecipientsRefused</span><span class="p">)</span> <span class="k">as</span> <span class="n">r</span><span class="p">:</span>
+            <span class="n">smtp</span><span class="o">.</span><span class="n">sendmail</span><span class="p">(</span><span class="s">&#39;John&#39;</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;Sally&#39;</span><span class="p">,</span> <span class="s">&#39;Frank&#39;</span><span class="p">,</span> <span class="s">&#39;George&#39;</span><span class="p">],</span> <span class="s">&#39;test message&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">sock</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">_SMTPchannel</span><span class="o">.</span><span class="n">rset_count</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertDictEqual</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">exception</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">{</span><span class="s">&#39;Frank&#39;</span><span class="p">:</span> <span class="p">(</span><span class="mi">421</span><span class="p">,</span> <span class="n">b</span><span class="s">&#39;closing&#39;</span><span class="p">)})</span>
+</div>
+<div class="viewcode-block" id="SMTPSimTests.test_421_from_data_cmd"><a class="viewcode-back" href="../../test.html#test.test_smtplib.SMTPSimTests.test_421_from_data_cmd">[docs]</a>    <span class="k">def</span> <span class="nf">test_421_from_data_cmd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">class</span> <span class="nc">MySimSMTPChannel</span><span class="p">(</span><span class="n">SimSMTPChannel</span><span class="p">):</span>
+            <span class="k">def</span> <span class="nf">found_terminator</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">smtp_state</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">DATA</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">push</span><span class="p">(</span><span class="s">&#39;421 closing&#39;</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">found_terminator</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">channel_class</span> <span class="o">=</span> <span class="n">MySimSMTPChannel</span>
+        <span class="n">smtp</span> <span class="o">=</span> <span class="n">smtplib</span><span class="o">.</span><span class="n">SMTP</span><span class="p">(</span><span class="n">HOST</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">port</span><span class="p">,</span> <span class="n">local_hostname</span><span class="o">=</span><span class="s">&#39;localhost&#39;</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="mi">15</span><span class="p">)</span>
+        <span class="n">smtp</span><span class="o">.</span><span class="n">noop</span><span class="p">()</span>
+        <span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">assertRaises</span><span class="p">(</span><span class="n">smtplib</span><span class="o">.</span><span class="n">SMTPDataError</span><span class="p">):</span>
+            <span class="n">smtp</span><span class="o">.</span><span class="n">sendmail</span><span class="p">(</span><span class="s">&#39;John@foo.org&#39;</span><span class="p">,</span> <span class="p">[</span><span class="s">&#39;Sally@foo.org&#39;</span><span class="p">],</span> <span class="s">&#39;test message&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertIsNone</span><span class="p">(</span><span class="n">smtp</span><span class="o">.</span><span class="n">sock</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">serv</span><span class="o">.</span><span class="n">_SMTPchannel</span><span class="o">.</span><span class="n">rcpt_count</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+</div></div>
+<span class="nd">@support.reap_threads</span>
+<div class="viewcode-block" id="test_main"><a class="viewcode-back" href="../../test.html#test.test_smtplib.test_main">[docs]</a><span class="k">def</span> <span class="nf">test_main</span><span class="p">(</span><span class="n">verbose</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="n">support</span><span class="o">.</span><span class="n">run_unittest</span><span class="p">(</span><span class="n">GeneralTests</span><span class="p">,</span> <span class="n">DebuggingServerTests</span><span class="p">,</span>
+                              <span class="n">NonConnectingTests</span><span class="p">,</span>
+                              <span class="n">BadHELOServerTests</span><span class="p">,</span> <span class="n">SMTPSimTests</span><span class="p">,</span>
+                              <span class="n">TooLongLineTests</span><span class="p">)</span>
+</div>
+<span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
+    <span class="n">test_main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

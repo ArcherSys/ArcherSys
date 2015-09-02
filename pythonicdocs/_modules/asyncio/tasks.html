@@ -1,0 +1,819 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>asyncio.tasks &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>asyncio.tasks</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for asyncio.tasks</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;Support for tasks, coroutines and the scheduler.&quot;&quot;&quot;</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;Task&#39;</span><span class="p">,</span>
+           <span class="s">&#39;FIRST_COMPLETED&#39;</span><span class="p">,</span> <span class="s">&#39;FIRST_EXCEPTION&#39;</span><span class="p">,</span> <span class="s">&#39;ALL_COMPLETED&#39;</span><span class="p">,</span>
+           <span class="s">&#39;wait&#39;</span><span class="p">,</span> <span class="s">&#39;wait_for&#39;</span><span class="p">,</span> <span class="s">&#39;as_completed&#39;</span><span class="p">,</span> <span class="s">&#39;sleep&#39;</span><span class="p">,</span> <span class="s">&#39;async&#39;</span><span class="p">,</span>
+           <span class="s">&#39;gather&#39;</span><span class="p">,</span> <span class="s">&#39;shield&#39;</span><span class="p">,</span>
+           <span class="p">]</span>
+
+<span class="kn">import</span> <span class="nn">concurrent.futures</span>
+<span class="kn">import</span> <span class="nn">functools</span>
+<span class="kn">import</span> <span class="nn">inspect</span>
+<span class="kn">import</span> <span class="nn">linecache</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">traceback</span>
+<span class="kn">import</span> <span class="nn">weakref</span>
+
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">coroutines</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">events</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">futures</span>
+<span class="kn">from</span> <span class="nn">.coroutines</span> <span class="kn">import</span> <span class="n">coroutine</span>
+
+<span class="n">_PY34</span> <span class="o">=</span> <span class="p">(</span><span class="n">sys</span><span class="o">.</span><span class="n">version_info</span> <span class="o">&gt;=</span> <span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">))</span>
+
+
+<div class="viewcode-block" id="Task"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.Task">[docs]</a><span class="k">class</span> <span class="nc">Task</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A coroutine wrapped in a Future.&quot;&quot;&quot;</span>
+
+    <span class="c"># An important invariant maintained while a Task not done:</span>
+    <span class="c">#</span>
+    <span class="c"># - Either _fut_waiter is None, and _step() is scheduled;</span>
+    <span class="c"># - or _fut_waiter is some Future, and _step() is *not* scheduled.</span>
+    <span class="c">#</span>
+    <span class="c"># The only transition from the latter to the former is through</span>
+    <span class="c"># _wakeup().  When _fut_waiter is not None, one of its callbacks</span>
+    <span class="c"># must be _wakeup().</span>
+
+    <span class="c"># Weak set containing all tasks alive.</span>
+    <span class="n">_all_tasks</span> <span class="o">=</span> <span class="n">weakref</span><span class="o">.</span><span class="n">WeakSet</span><span class="p">()</span>
+
+    <span class="c"># Dictionary containing tasks that are currently active in</span>
+    <span class="c"># all running event loops.  {EventLoop: Task}</span>
+    <span class="n">_current_tasks</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="Task.current_task"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.Task.current_task">[docs]</a>    <span class="k">def</span> <span class="nf">current_task</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the currently running task in an event loop or None.</span>
+
+<span class="sd">        By default the current task for the current event loop is returned.</span>
+
+<span class="sd">        None is returned when called not in the context of a Task.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">_current_tasks</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">loop</span><span class="p">)</span>
+</div>
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="Task.all_tasks"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.Task.all_tasks">[docs]</a>    <span class="k">def</span> <span class="nf">all_tasks</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a set of all tasks for an event loop.</span>
+
+<span class="sd">        By default all tasks for the current event loop are returned.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">cls</span><span class="o">.</span><span class="n">_all_tasks</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">_loop</span> <span class="ow">is</span> <span class="n">loop</span><span class="p">}</span>
+</div>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">coro</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">coroutines</span><span class="o">.</span><span class="n">iscoroutine</span><span class="p">(</span><span class="n">coro</span><span class="p">),</span> <span class="nb">repr</span><span class="p">(</span><span class="n">coro</span><span class="p">)</span>  <span class="c"># Not a coroutine function!</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_coro</span> <span class="o">=</span> <span class="nb">iter</span><span class="p">(</span><span class="n">coro</span><span class="p">)</span>  <span class="c"># Use the iterator just in case.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fut_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_must_cancel</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">_all_tasks</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="c"># If False, don&#39;t log a message if the task is destroyed whereas its</span>
+        <span class="c"># status is still pending</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_log_destroy_pending</span> <span class="o">=</span> <span class="bp">True</span>
+
+    <span class="c"># On Python 3.3 or older, objects with a destructor part of a reference</span>
+    <span class="c"># cycle are never destroyed. It&#39;s not more the case on Python 3.4 thanks to</span>
+    <span class="c"># the PEP 442.</span>
+    <span class="k">if</span> <span class="n">_PY34</span><span class="p">:</span>
+        <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">futures</span><span class="o">.</span><span class="n">_PENDING</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_log_destroy_pending</span><span class="p">:</span>
+                <span class="n">context</span> <span class="o">=</span> <span class="p">{</span>
+                    <span class="s">&#39;task&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="p">,</span>
+                    <span class="s">&#39;message&#39;</span><span class="p">:</span> <span class="s">&#39;Task was destroyed but it is pending!&#39;</span><span class="p">,</span>
+                <span class="p">}</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+                    <span class="n">context</span><span class="p">[</span><span class="s">&#39;source_traceback&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_source_traceback</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_exception_handler</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+            <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="o">.</span><span class="n">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_repr_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">info</span> <span class="o">=</span> <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">_repr_info</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_must_cancel</span><span class="p">:</span>
+            <span class="c"># replace status</span>
+            <span class="n">info</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="s">&#39;cancelling&#39;</span>
+
+        <span class="n">coro</span> <span class="o">=</span> <span class="n">coroutines</span><span class="o">.</span><span class="n">_format_coroutine</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_coro</span><span class="p">)</span>
+        <span class="n">info</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="s">&#39;coro=&lt;</span><span class="si">%s</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="n">coro</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fut_waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">info</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="s">&#39;wait_for=</span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fut_waiter</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">info</span>
+
+<div class="viewcode-block" id="Task.get_stack"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.Task.get_stack">[docs]</a>    <span class="k">def</span> <span class="nf">get_stack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the list of stack frames for this task&#39;s coroutine.</span>
+
+<span class="sd">        If the coroutine is active, this returns the stack where it is</span>
+<span class="sd">        suspended.  If the coroutine has completed successfully or was</span>
+<span class="sd">        cancelled, this returns an empty list.  If the coroutine was</span>
+<span class="sd">        terminated by an exception, this returns the list of traceback</span>
+<span class="sd">        frames.</span>
+
+<span class="sd">        The frames are always ordered from oldest to newest.</span>
+
+<span class="sd">        The optional limit gives the maximum number of frames to</span>
+<span class="sd">        return; by default all available frames are returned.  Its</span>
+<span class="sd">        meaning differs depending on whether a stack or a traceback is</span>
+<span class="sd">        returned: the newest frames of a stack are returned, but the</span>
+<span class="sd">        oldest frames of a traceback are returned.  (This matches the</span>
+<span class="sd">        behavior of the traceback module.)</span>
+
+<span class="sd">        For reasons beyond our control, only one stack frame is</span>
+<span class="sd">        returned for a suspended coroutine.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">frames</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coro</span><span class="o">.</span><span class="n">gi_frame</span>
+        <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">while</span> <span class="n">f</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">limit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">limit</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="k">break</span>
+                    <span class="n">limit</span> <span class="o">-=</span> <span class="mi">1</span>
+                <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+                <span class="n">f</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">f_back</span>
+            <span class="n">frames</span><span class="o">.</span><span class="n">reverse</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">tb</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span><span class="o">.</span><span class="n">__traceback__</span>
+            <span class="k">while</span> <span class="n">tb</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">limit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="k">if</span> <span class="n">limit</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+                        <span class="k">break</span>
+                    <span class="n">limit</span> <span class="o">-=</span> <span class="mi">1</span>
+                <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">tb_frame</span><span class="p">)</span>
+                <span class="n">tb</span> <span class="o">=</span> <span class="n">tb</span><span class="o">.</span><span class="n">tb_next</span>
+        <span class="k">return</span> <span class="n">frames</span>
+</div>
+<div class="viewcode-block" id="Task.print_stack"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.Task.print_stack">[docs]</a>    <span class="k">def</span> <span class="nf">print_stack</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Print the stack or traceback for this task&#39;s coroutine.</span>
+
+<span class="sd">        This produces output similar to that of the traceback module,</span>
+<span class="sd">        for the frames retrieved by get_stack().  The limit argument</span>
+<span class="sd">        is passed to get_stack().  The file argument is an I/O stream</span>
+<span class="sd">        to which the output goes; by default it goes to sys.stderr.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">extracted_list</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">checked</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_stack</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="n">limit</span><span class="p">):</span>
+            <span class="n">lineno</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">f_lineno</span>
+            <span class="n">co</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">f_code</span>
+            <span class="n">filename</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">co_filename</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">co</span><span class="o">.</span><span class="n">co_name</span>
+            <span class="k">if</span> <span class="n">filename</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">checked</span><span class="p">:</span>
+                <span class="n">checked</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+                <span class="n">linecache</span><span class="o">.</span><span class="n">checkcache</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+            <span class="n">line</span> <span class="o">=</span> <span class="n">linecache</span><span class="o">.</span><span class="n">getline</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">f</span><span class="o">.</span><span class="n">f_globals</span><span class="p">)</span>
+            <span class="n">extracted_list</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">line</span><span class="p">))</span>
+        <span class="n">exc</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_exception</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">extracted_list</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;No stack for </span><span class="si">%r</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">exc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;Traceback for </span><span class="si">%r</span><span class="s"> (most recent call last):&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="p">,</span>
+                  <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;Stack for </span><span class="si">%r</span><span class="s"> (most recent call last):&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="p">,</span>
+                  <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+        <span class="n">traceback</span><span class="o">.</span><span class="n">print_list</span><span class="p">(</span><span class="n">extracted_list</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">traceback</span><span class="o">.</span><span class="n">format_exception_only</span><span class="p">(</span><span class="n">exc</span><span class="o">.</span><span class="n">__class__</span><span class="p">,</span> <span class="n">exc</span><span class="p">):</span>
+                <span class="k">print</span><span class="p">(</span><span class="n">line</span><span class="p">,</span> <span class="nb">file</span><span class="o">=</span><span class="nb">file</span><span class="p">,</span> <span class="n">end</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="Task.cancel"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.Task.cancel">[docs]</a>    <span class="k">def</span> <span class="nf">cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Request this task to cancel itself.</span>
+
+<span class="sd">        This arranges for a CancelledError to be thrown into the</span>
+<span class="sd">        wrapped coroutine on the next cycle through the event loop.</span>
+<span class="sd">        The coroutine then has a chance to clean up or even deny</span>
+<span class="sd">        the request using try/except/finally.</span>
+
+<span class="sd">        Contrary to Future.cancel(), this does not guarantee that the</span>
+<span class="sd">        task will be cancelled: the exception might be caught and</span>
+<span class="sd">        acted upon, delaying cancellation of the task or preventing it</span>
+<span class="sd">        completely.  The task may also return a value or raise a</span>
+<span class="sd">        different exception.</span>
+
+<span class="sd">        Immediately after this method is called, Task.cancelled() will</span>
+<span class="sd">        not return True (unless the task was already cancelled).  A</span>
+<span class="sd">        task will be marked as cancelled when the wrapped coroutine</span>
+<span class="sd">        terminates with a CancelledError exception (even if cancel()</span>
+<span class="sd">        was not called).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fut_waiter</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fut_waiter</span><span class="o">.</span><span class="n">cancel</span><span class="p">():</span>
+                <span class="c"># Leave self._fut_waiter; it may be a Task that</span>
+                <span class="c"># catches and ignores the cancellation so we may have</span>
+                <span class="c"># to cancel it again later.</span>
+                <span class="k">return</span> <span class="bp">True</span>
+        <span class="c"># It must be the case that self._step is already scheduled.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_must_cancel</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">return</span> <span class="bp">True</span>
+</div>
+    <span class="k">def</span> <span class="nf">_step</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">exc</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">done</span><span class="p">(),</span> \
+            <span class="s">&#39;_step(): already done: {!r}, {!r}, {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_must_cancel</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">exc</span><span class="p">,</span> <span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">):</span>
+                <span class="n">exc</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_must_cancel</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="n">coro</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_coro</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fut_waiter</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">_current_tasks</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span>
+        <span class="c"># Call either coro.throw(exc) or coro.send(value).</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">coro</span><span class="o">.</span><span class="n">throw</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">value</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="n">coro</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">result</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">coro</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">StopIteration</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">exc</span><span class="o">.</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>  <span class="c"># I.e., Future.cancel(self).</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">BaseException</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+            <span class="k">raise</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">result</span><span class="p">,</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">):</span>
+                <span class="c"># Yielded Future must come from Future.__iter__().</span>
+                <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">_blocking</span><span class="p">:</span>
+                    <span class="n">result</span><span class="o">.</span><span class="n">_blocking</span> <span class="o">=</span> <span class="bp">False</span>
+                    <span class="n">result</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_wakeup</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_fut_waiter</span> <span class="o">=</span> <span class="n">result</span>
+                    <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_must_cancel</span><span class="p">:</span>
+                        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fut_waiter</span><span class="o">.</span><span class="n">cancel</span><span class="p">():</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">_must_cancel</span> <span class="o">=</span> <span class="bp">False</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+                        <span class="ne">RuntimeError</span><span class="p">(</span>
+                            <span class="s">&#39;yield was used instead of yield from &#39;</span>
+                            <span class="s">&#39;in task {!r} with {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">)))</span>
+            <span class="k">elif</span> <span class="n">result</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="c"># Bare yield relinquishes control for one event loop iteration.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">inspect</span><span class="o">.</span><span class="n">isgenerator</span><span class="p">(</span><span class="n">result</span><span class="p">):</span>
+                <span class="c"># Yielding a generator is just wrong.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+                    <span class="ne">RuntimeError</span><span class="p">(</span>
+                        <span class="s">&#39;yield was used instead of yield from for &#39;</span>
+                        <span class="s">&#39;generator in task {!r} with {}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span>
+                            <span class="bp">self</span><span class="p">,</span> <span class="n">result</span><span class="p">)))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># Yielding something else is an error.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_soon</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+                    <span class="ne">RuntimeError</span><span class="p">(</span>
+                        <span class="s">&#39;Task got bad yield: {!r}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">result</span><span class="p">)))</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">_current_tasks</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_loop</span><span class="p">)</span>
+            <span class="bp">self</span> <span class="o">=</span> <span class="bp">None</span>  <span class="c"># Needed to break cycles when an exception occurs.</span>
+
+    <span class="k">def</span> <span class="nf">_wakeup</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">future</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">future</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="c"># This may also be a cancellation.</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">exc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_step</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="bp">self</span> <span class="o">=</span> <span class="bp">None</span>  <span class="c"># Needed to break cycles when an exception occurs.</span>
+
+
+<span class="c"># wait() and as_completed() similar to those in PEP 3148.</span>
+</div>
+<span class="n">FIRST_COMPLETED</span> <span class="o">=</span> <span class="n">concurrent</span><span class="o">.</span><span class="n">futures</span><span class="o">.</span><span class="n">FIRST_COMPLETED</span>
+<span class="n">FIRST_EXCEPTION</span> <span class="o">=</span> <span class="n">concurrent</span><span class="o">.</span><span class="n">futures</span><span class="o">.</span><span class="n">FIRST_EXCEPTION</span>
+<span class="n">ALL_COMPLETED</span> <span class="o">=</span> <span class="n">concurrent</span><span class="o">.</span><span class="n">futures</span><span class="o">.</span><span class="n">ALL_COMPLETED</span>
+
+
+<span class="nd">@coroutine</span>
+<div class="viewcode-block" id="wait"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.wait">[docs]</a><span class="k">def</span> <span class="nf">wait</span><span class="p">(</span><span class="n">fs</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">return_when</span><span class="o">=</span><span class="n">ALL_COMPLETED</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Wait for the Futures and coroutines given by fs to complete.</span>
+
+<span class="sd">    The sequence futures must not be empty.</span>
+
+<span class="sd">    Coroutines will be wrapped in Tasks.</span>
+
+<span class="sd">    Returns two sets of Future: (done, pending).</span>
+
+<span class="sd">    Usage:</span>
+
+<span class="sd">        done, pending = yield from asyncio.wait(fs)</span>
+
+<span class="sd">    Note: This does not raise TimeoutError! Futures that aren&#39;t done</span>
+<span class="sd">    when the timeout occurs are returned in the second set.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fs</span><span class="p">,</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">)</span> <span class="ow">or</span> <span class="n">coroutines</span><span class="o">.</span><span class="n">iscoroutine</span><span class="p">(</span><span class="n">fs</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;expect a list of futures, not </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="n">fs</span><span class="p">)</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">fs</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Set of coroutines/Futures is empty.&#39;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">return_when</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">FIRST_COMPLETED</span><span class="p">,</span> <span class="n">FIRST_EXCEPTION</span><span class="p">,</span> <span class="n">ALL_COMPLETED</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;Invalid return_when value: {}&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">return_when</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+
+    <span class="n">fs</span> <span class="o">=</span> <span class="p">{</span><span class="n">async</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">fs</span><span class="p">)}</span>
+
+    <span class="k">return</span> <span class="p">(</span><span class="k">yield from</span> <span class="n">_wait</span><span class="p">(</span><span class="n">fs</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">return_when</span><span class="p">,</span> <span class="n">loop</span><span class="p">))</span>
+
+</div>
+<span class="k">def</span> <span class="nf">_release_waiter</span><span class="p">(</span><span class="n">waiter</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">waiter</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+        <span class="n">waiter</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+
+<span class="nd">@coroutine</span>
+<div class="viewcode-block" id="wait_for"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.wait_for">[docs]</a><span class="k">def</span> <span class="nf">wait_for</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Wait for the single Future or coroutine to complete, with timeout.</span>
+
+<span class="sd">    Coroutine will be wrapped in Task.</span>
+
+<span class="sd">    Returns result of the Future or coroutine.  When a timeout occurs,</span>
+<span class="sd">    it cancels the task and raises TimeoutError.  To avoid the task</span>
+<span class="sd">    cancellation, wrap it in shield().</span>
+
+<span class="sd">    Usage:</span>
+
+<span class="sd">        result = yield from asyncio.wait_for(fut, 10.0)</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="k">yield from</span> <span class="n">fut</span><span class="p">)</span>
+
+    <span class="n">waiter</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">timeout_handle</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">call_later</span><span class="p">(</span><span class="n">timeout</span><span class="p">,</span> <span class="n">_release_waiter</span><span class="p">,</span> <span class="n">waiter</span><span class="p">)</span>
+    <span class="n">cb</span> <span class="o">=</span> <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">_release_waiter</span><span class="p">,</span> <span class="n">waiter</span><span class="p">)</span>
+
+    <span class="n">fut</span> <span class="o">=</span> <span class="n">async</span><span class="p">(</span><span class="n">fut</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">fut</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">cb</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="c"># wait until the future completes or the timeout</span>
+        <span class="k">yield from</span> <span class="n">waiter</span>
+
+        <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="k">return</span> <span class="n">fut</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">remove_done_callback</span><span class="p">(</span><span class="n">cb</span><span class="p">)</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="k">raise</span> <span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span><span class="p">()</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">timeout_handle</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+</div>
+<span class="nd">@coroutine</span>
+<span class="k">def</span> <span class="nf">_wait</span><span class="p">(</span><span class="n">fs</span><span class="p">,</span> <span class="n">timeout</span><span class="p">,</span> <span class="n">return_when</span><span class="p">,</span> <span class="n">loop</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Internal helper for wait() and _wait_for().</span>
+
+<span class="sd">    The fs argument must be a collection of Futures.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">assert</span> <span class="n">fs</span><span class="p">,</span> <span class="s">&#39;Set of Futures is empty.&#39;</span>
+    <span class="n">waiter</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">timeout_handle</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">timeout_handle</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">call_later</span><span class="p">(</span><span class="n">timeout</span><span class="p">,</span> <span class="n">_release_waiter</span><span class="p">,</span> <span class="n">waiter</span><span class="p">)</span>
+    <span class="n">counter</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">fs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_on_completion</span><span class="p">(</span><span class="n">f</span><span class="p">):</span>
+        <span class="n">nonlocal</span> <span class="n">counter</span>
+        <span class="n">counter</span> <span class="o">-=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="p">(</span><span class="n">counter</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="ow">or</span>
+            <span class="n">return_when</span> <span class="o">==</span> <span class="n">FIRST_COMPLETED</span> <span class="ow">or</span>
+            <span class="n">return_when</span> <span class="o">==</span> <span class="n">FIRST_EXCEPTION</span> <span class="ow">and</span> <span class="p">(</span><span class="ow">not</span> <span class="n">f</span><span class="o">.</span><span class="n">cancelled</span><span class="p">()</span> <span class="ow">and</span>
+                                                <span class="n">f</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="n">timeout_handle</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">timeout_handle</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">waiter</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+                <span class="n">waiter</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">fs</span><span class="p">:</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_on_completion</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">yield from</span> <span class="n">waiter</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">timeout_handle</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">timeout_handle</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+    <span class="n">done</span><span class="p">,</span> <span class="n">pending</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(),</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">fs</span><span class="p">:</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">remove_done_callback</span><span class="p">(</span><span class="n">_on_completion</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="n">done</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">pending</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">done</span><span class="p">,</span> <span class="n">pending</span>
+
+
+<span class="c"># This is *not* a @coroutine!  It is just an iterator (yielding Futures).</span>
+<div class="viewcode-block" id="as_completed"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.as_completed">[docs]</a><span class="k">def</span> <span class="nf">as_completed</span><span class="p">(</span><span class="n">fs</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">timeout</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return an iterator whose values are coroutines.</span>
+
+<span class="sd">    When waiting for the yielded coroutines you&#39;ll get the results (or</span>
+<span class="sd">    exceptions!) of the original Futures (or coroutines), in the order</span>
+<span class="sd">    in which and as soon as they complete.</span>
+
+<span class="sd">    This differs from PEP 3148; the proper way to use this is:</span>
+
+<span class="sd">        for f in as_completed(fs):</span>
+<span class="sd">            result = yield from f  # The &#39;yield from&#39; may raise.</span>
+<span class="sd">            # Use result.</span>
+
+<span class="sd">    If a timeout is specified, the &#39;yield from&#39; will raise</span>
+<span class="sd">    TimeoutError when the timeout occurs before all Futures are done.</span>
+
+<span class="sd">    Note: The futures &#39;f&#39; are not necessarily members of fs.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">fs</span><span class="p">,</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">)</span> <span class="ow">or</span> <span class="n">coroutines</span><span class="o">.</span><span class="n">iscoroutine</span><span class="p">(</span><span class="n">fs</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;expect a list of futures, not </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="nb">type</span><span class="p">(</span><span class="n">fs</span><span class="p">)</span><span class="o">.</span><span class="n">__name__</span><span class="p">)</span>
+    <span class="n">loop</span> <span class="o">=</span> <span class="n">loop</span> <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="k">else</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+    <span class="n">todo</span> <span class="o">=</span> <span class="p">{</span><span class="n">async</span><span class="p">(</span><span class="n">f</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span> <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">fs</span><span class="p">)}</span>
+    <span class="kn">from</span> <span class="nn">.queues</span> <span class="kn">import</span> <span class="n">Queue</span>  <span class="c"># Import here to avoid circular import problem.</span>
+    <span class="n">done</span> <span class="o">=</span> <span class="n">Queue</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">timeout_handle</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">_on_timeout</span><span class="p">():</span>
+        <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">todo</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">remove_done_callback</span><span class="p">(</span><span class="n">_on_completion</span><span class="p">)</span>
+            <span class="n">done</span><span class="o">.</span><span class="n">put_nowait</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>  <span class="c"># Queue a dummy value for _wait_for_one().</span>
+        <span class="n">todo</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>  <span class="c"># Can&#39;t do todo.remove(f) in the loop.</span>
+
+    <span class="k">def</span> <span class="nf">_on_completion</span><span class="p">(</span><span class="n">f</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">todo</span><span class="p">:</span>
+            <span class="k">return</span>  <span class="c"># _on_timeout() was here first.</span>
+        <span class="n">todo</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="n">done</span><span class="o">.</span><span class="n">put_nowait</span><span class="p">(</span><span class="n">f</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">todo</span> <span class="ow">and</span> <span class="n">timeout_handle</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">timeout_handle</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+    <span class="nd">@coroutine</span>
+    <span class="k">def</span> <span class="nf">_wait_for_one</span><span class="p">():</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="k">yield from</span> <span class="n">done</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">f</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># Dummy value from _on_timeout().</span>
+            <span class="k">raise</span> <span class="n">futures</span><span class="o">.</span><span class="n">TimeoutError</span>
+        <span class="k">return</span> <span class="n">f</span><span class="o">.</span><span class="n">result</span><span class="p">()</span>  <span class="c"># May raise f.exception().</span>
+
+    <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">todo</span><span class="p">:</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_on_completion</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">todo</span> <span class="ow">and</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">timeout_handle</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">call_later</span><span class="p">(</span><span class="n">timeout</span><span class="p">,</span> <span class="n">_on_timeout</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">todo</span><span class="p">)):</span>
+        <span class="k">yield</span> <span class="n">_wait_for_one</span><span class="p">()</span>
+
+</div>
+<span class="nd">@coroutine</span>
+<div class="viewcode-block" id="sleep"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.sleep">[docs]</a><span class="k">def</span> <span class="nf">sleep</span><span class="p">(</span><span class="n">delay</span><span class="p">,</span> <span class="n">result</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Coroutine that completes after a given time (in seconds).&quot;&quot;&quot;</span>
+    <span class="n">future</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">h</span> <span class="o">=</span> <span class="n">future</span><span class="o">.</span><span class="n">_loop</span><span class="o">.</span><span class="n">call_later</span><span class="p">(</span><span class="n">delay</span><span class="p">,</span>
+                                <span class="n">future</span><span class="o">.</span><span class="n">_set_result_unless_cancelled</span><span class="p">,</span> <span class="n">result</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">(</span><span class="k">yield from</span> <span class="n">future</span><span class="p">)</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="n">h</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="async"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.async">[docs]</a><span class="k">def</span> <span class="nf">async</span><span class="p">(</span><span class="n">coro_or_future</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Wrap a coroutine in a future.</span>
+
+<span class="sd">    If the argument is a Future, it is returned directly.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">coro_or_future</span><span class="p">,</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span> <span class="n">loop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">coro_or_future</span><span class="o">.</span><span class="n">_loop</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;loop argument must agree with Future&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">coro_or_future</span>
+    <span class="k">elif</span> <span class="n">coroutines</span><span class="o">.</span><span class="n">iscoroutine</span><span class="p">(</span><span class="n">coro_or_future</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">loop</span> <span class="o">=</span> <span class="n">events</span><span class="o">.</span><span class="n">get_event_loop</span><span class="p">()</span>
+        <span class="n">task</span> <span class="o">=</span> <span class="n">loop</span><span class="o">.</span><span class="n">create_task</span><span class="p">(</span><span class="n">coro_or_future</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">task</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">:</span>
+            <span class="k">del</span> <span class="n">task</span><span class="o">.</span><span class="n">_source_traceback</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">task</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&#39;A Future or coroutine is required&#39;</span><span class="p">)</span>
+
+</div>
+<span class="k">class</span> <span class="nc">_GatheringFuture</span><span class="p">(</span><span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Helper for gather().</span>
+
+<span class="sd">    This overrides cancel() to cancel all the children and act more</span>
+<span class="sd">    like Task.cancel(), which doesn&#39;t immediately mark itself as</span>
+<span class="sd">    cancelled.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">children</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">()</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_children</span> <span class="o">=</span> <span class="n">children</span>
+
+    <span class="k">def</span> <span class="nf">cancel</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">for</span> <span class="n">child</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_children</span><span class="p">:</span>
+            <span class="n">child</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+
+<div class="viewcode-block" id="gather"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.gather">[docs]</a><span class="k">def</span> <span class="nf">gather</span><span class="p">(</span><span class="o">*</span><span class="n">coros_or_futures</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">return_exceptions</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a future aggregating results from the given coroutines</span>
+<span class="sd">    or futures.</span>
+
+<span class="sd">    All futures must share the same event loop.  If all the tasks are</span>
+<span class="sd">    done successfully, the returned future&#39;s result is the list of</span>
+<span class="sd">    results (in the order of the original sequence, not necessarily</span>
+<span class="sd">    the order of results arrival).  If *return_exceptions* is True,</span>
+<span class="sd">    exceptions in the tasks are treated the same as successful</span>
+<span class="sd">    results, and gathered in the result list; otherwise, the first</span>
+<span class="sd">    raised exception will be immediately propagated to the returned</span>
+<span class="sd">    future.</span>
+
+<span class="sd">    Cancellation: if the outer Future is cancelled, all children (that</span>
+<span class="sd">    have not completed yet) are also cancelled.  If any child is</span>
+<span class="sd">    cancelled, this is treated as if it raised CancelledError --</span>
+<span class="sd">    the outer Future is *not* cancelled in this case.  (This is to</span>
+<span class="sd">    prevent the cancellation of one child to cause other children to</span>
+<span class="sd">    be cancelled.)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">coros_or_futures</span><span class="p">:</span>
+        <span class="n">outer</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+        <span class="n">outer</span><span class="o">.</span><span class="n">set_result</span><span class="p">([])</span>
+        <span class="k">return</span> <span class="n">outer</span>
+
+    <span class="n">arg_to_fut</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="nb">set</span><span class="p">(</span><span class="n">coros_or_futures</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">):</span>
+            <span class="n">fut</span> <span class="o">=</span> <span class="n">async</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">loop</span> <span class="o">=</span> <span class="n">fut</span><span class="o">.</span><span class="n">_loop</span>
+            <span class="c"># The caller cannot control this future, the &quot;destroy pending task&quot;</span>
+            <span class="c"># warning should not be emitted.</span>
+            <span class="n">fut</span><span class="o">.</span><span class="n">_log_destroy_pending</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">fut</span> <span class="o">=</span> <span class="n">arg</span>
+            <span class="k">if</span> <span class="n">loop</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">loop</span> <span class="o">=</span> <span class="n">fut</span><span class="o">.</span><span class="n">_loop</span>
+            <span class="k">elif</span> <span class="n">fut</span><span class="o">.</span><span class="n">_loop</span> <span class="ow">is</span> <span class="ow">not</span> <span class="n">loop</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;futures are tied to different event loops&quot;</span><span class="p">)</span>
+        <span class="n">arg_to_fut</span><span class="p">[</span><span class="n">arg</span><span class="p">]</span> <span class="o">=</span> <span class="n">fut</span>
+
+    <span class="n">children</span> <span class="o">=</span> <span class="p">[</span><span class="n">arg_to_fut</span><span class="p">[</span><span class="n">arg</span><span class="p">]</span> <span class="k">for</span> <span class="n">arg</span> <span class="ow">in</span> <span class="n">coros_or_futures</span><span class="p">]</span>
+    <span class="n">nchildren</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">children</span><span class="p">)</span>
+    <span class="n">outer</span> <span class="o">=</span> <span class="n">_GatheringFuture</span><span class="p">(</span><span class="n">children</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="n">nfinished</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="p">[</span><span class="bp">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">nchildren</span>
+
+    <span class="k">def</span> <span class="nf">_done_callback</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">fut</span><span class="p">):</span>
+        <span class="n">nonlocal</span> <span class="n">nfinished</span>
+        <span class="k">if</span> <span class="n">outer</span><span class="o">.</span><span class="n">_state</span> <span class="o">!=</span> <span class="n">futures</span><span class="o">.</span><span class="n">_PENDING</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">_exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="c"># Mark exception retrieved.</span>
+                <span class="n">fut</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">fut</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="n">futures</span><span class="o">.</span><span class="n">_CANCELLED</span><span class="p">:</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">CancelledError</span><span class="p">()</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">return_exceptions</span><span class="p">:</span>
+                <span class="n">outer</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+                <span class="k">return</span>
+        <span class="k">elif</span> <span class="n">fut</span><span class="o">.</span><span class="n">_exception</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="n">fut</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>  <span class="c"># Mark exception retrieved.</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">return_exceptions</span><span class="p">:</span>
+                <span class="n">outer</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">res</span><span class="p">)</span>
+                <span class="k">return</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">res</span> <span class="o">=</span> <span class="n">fut</span><span class="o">.</span><span class="n">_result</span>
+        <span class="n">results</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">res</span>
+        <span class="n">nfinished</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">nfinished</span> <span class="o">==</span> <span class="n">nchildren</span><span class="p">:</span>
+            <span class="n">outer</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">results</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">fut</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">children</span><span class="p">):</span>
+        <span class="n">fut</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="n">_done_callback</span><span class="p">,</span> <span class="n">i</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">outer</span>
+
+</div>
+<div class="viewcode-block" id="shield"><a class="viewcode-back" href="../../asyncio.html#asyncio.tasks.shield">[docs]</a><span class="k">def</span> <span class="nf">shield</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Wait for a future, shielding it from cancellation.</span>
+
+<span class="sd">    The statement</span>
+
+<span class="sd">        res = yield from shield(something())</span>
+
+<span class="sd">    is exactly equivalent to the statement</span>
+
+<span class="sd">        res = yield from something()</span>
+
+<span class="sd">    *except* that if the coroutine containing it is cancelled, the</span>
+<span class="sd">    task running in something() is not cancelled.  From the POV of</span>
+<span class="sd">    something(), the cancellation did not happen.  But its caller is</span>
+<span class="sd">    still cancelled, so the yield-from expression still raises</span>
+<span class="sd">    CancelledError.  Note: If something() is cancelled by other means</span>
+<span class="sd">    this will still cancel shield().</span>
+
+<span class="sd">    If you want to completely ignore cancellation (not recommended)</span>
+<span class="sd">    you can combine shield() with a try/except clause, as follows:</span>
+
+<span class="sd">        try:</span>
+<span class="sd">            res = yield from shield(something())</span>
+<span class="sd">        except CancelledError:</span>
+<span class="sd">            res = None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">inner</span> <span class="o">=</span> <span class="n">async</span><span class="p">(</span><span class="n">arg</span><span class="p">,</span> <span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">inner</span><span class="o">.</span><span class="n">done</span><span class="p">():</span>
+        <span class="c"># Shortcut.</span>
+        <span class="k">return</span> <span class="n">inner</span>
+    <span class="n">loop</span> <span class="o">=</span> <span class="n">inner</span><span class="o">.</span><span class="n">_loop</span>
+    <span class="n">outer</span> <span class="o">=</span> <span class="n">futures</span><span class="o">.</span><span class="n">Future</span><span class="p">(</span><span class="n">loop</span><span class="o">=</span><span class="n">loop</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_done_callback</span><span class="p">(</span><span class="n">inner</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">outer</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="c"># Mark inner&#39;s result as retrieved.</span>
+            <span class="n">inner</span><span class="o">.</span><span class="n">cancelled</span><span class="p">()</span> <span class="ow">or</span> <span class="n">inner</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">inner</span><span class="o">.</span><span class="n">cancelled</span><span class="p">():</span>
+            <span class="n">outer</span><span class="o">.</span><span class="n">cancel</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">exc</span> <span class="o">=</span> <span class="n">inner</span><span class="o">.</span><span class="n">exception</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">exc</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">outer</span><span class="o">.</span><span class="n">set_exception</span><span class="p">(</span><span class="n">exc</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">outer</span><span class="o">.</span><span class="n">set_result</span><span class="p">(</span><span class="n">inner</span><span class="o">.</span><span class="n">result</span><span class="p">())</span>
+
+    <span class="n">inner</span><span class="o">.</span><span class="n">add_done_callback</span><span class="p">(</span><span class="n">_done_callback</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">outer</span></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>
