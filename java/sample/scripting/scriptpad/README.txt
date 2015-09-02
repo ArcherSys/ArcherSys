@@ -63,9 +63,15 @@ main functionality lives in these JavaScript files.
     run by the following commands:
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     
 cd ./src/resources
    
+=======
+    
+cd ./src/resources
+   
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
     
 cd ./src/resources

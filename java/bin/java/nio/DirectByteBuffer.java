@@ -475,6 +475,7 @@ class DirectByteBuffer
     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 
 
@@ -1021,6 +1022,554 @@ class DirectByteBuffer
         }
     }
 
+=======
+
+
+
+    private char getChar(long a) {
+        if (unaligned) {
+            char x = unsafe.getChar(a);
+            return (nativeByteOrder ? x : Bits.swap(x));
+        }
+        return Bits.getChar(a, bigEndian);
+    }
+
+    public char getChar() {
+        return getChar(ix(nextGetIndex((1 << 1))));
+    }
+
+    public char getChar(int i) {
+        return getChar(ix(checkIndex(i, (1 << 1))));
+    }
+
+
+
+    private ByteBuffer putChar(long a, char x) {
+
+        if (unaligned) {
+            char y = (x);
+            unsafe.putChar(a, (nativeByteOrder ? y : Bits.swap(y)));
+        } else {
+            Bits.putChar(a, x, bigEndian);
+        }
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putChar(char x) {
+
+        putChar(ix(nextPutIndex((1 << 1))), x);
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putChar(int i, char x) {
+
+        putChar(ix(checkIndex(i, (1 << 1))), x);
+        return this;
+
+
+
+    }
+
+    public CharBuffer asCharBuffer() {
+        int off = this.position();
+        int lim = this.limit();
+        assert (off <= lim);
+        int rem = (off <= lim ? lim - off : 0);
+
+        int size = rem >> 1;
+        if (!unaligned && ((address + off) % (1 << 1) != 0)) {
+            return (bigEndian
+                    ? (CharBuffer)(new ByteBufferAsCharBufferB(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off))
+                    : (CharBuffer)(new ByteBufferAsCharBufferL(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off)));
+        } else {
+            return (nativeByteOrder
+                    ? (CharBuffer)(new DirectCharBufferU(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off))
+                    : (CharBuffer)(new DirectCharBufferS(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off)));
+        }
+    }
+
+
+
+
+    private short getShort(long a) {
+        if (unaligned) {
+            short x = unsafe.getShort(a);
+            return (nativeByteOrder ? x : Bits.swap(x));
+        }
+        return Bits.getShort(a, bigEndian);
+    }
+
+    public short getShort() {
+        return getShort(ix(nextGetIndex((1 << 1))));
+    }
+
+    public short getShort(int i) {
+        return getShort(ix(checkIndex(i, (1 << 1))));
+    }
+
+
+
+    private ByteBuffer putShort(long a, short x) {
+
+        if (unaligned) {
+            short y = (x);
+            unsafe.putShort(a, (nativeByteOrder ? y : Bits.swap(y)));
+        } else {
+            Bits.putShort(a, x, bigEndian);
+        }
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putShort(short x) {
+
+        putShort(ix(nextPutIndex((1 << 1))), x);
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putShort(int i, short x) {
+
+        putShort(ix(checkIndex(i, (1 << 1))), x);
+        return this;
+
+
+
+    }
+
+    public ShortBuffer asShortBuffer() {
+        int off = this.position();
+        int lim = this.limit();
+        assert (off <= lim);
+        int rem = (off <= lim ? lim - off : 0);
+
+        int size = rem >> 1;
+        if (!unaligned && ((address + off) % (1 << 1) != 0)) {
+            return (bigEndian
+                    ? (ShortBuffer)(new ByteBufferAsShortBufferB(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off))
+                    : (ShortBuffer)(new ByteBufferAsShortBufferL(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off)));
+        } else {
+            return (nativeByteOrder
+                    ? (ShortBuffer)(new DirectShortBufferU(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off))
+                    : (ShortBuffer)(new DirectShortBufferS(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off)));
+        }
+    }
+
+
+
+
+    private int getInt(long a) {
+        if (unaligned) {
+            int x = unsafe.getInt(a);
+            return (nativeByteOrder ? x : Bits.swap(x));
+        }
+        return Bits.getInt(a, bigEndian);
+    }
+
+    public int getInt() {
+        return getInt(ix(nextGetIndex((1 << 2))));
+    }
+
+    public int getInt(int i) {
+        return getInt(ix(checkIndex(i, (1 << 2))));
+    }
+
+
+
+    private ByteBuffer putInt(long a, int x) {
+
+        if (unaligned) {
+            int y = (x);
+            unsafe.putInt(a, (nativeByteOrder ? y : Bits.swap(y)));
+        } else {
+            Bits.putInt(a, x, bigEndian);
+        }
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putInt(int x) {
+
+        putInt(ix(nextPutIndex((1 << 2))), x);
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putInt(int i, int x) {
+
+        putInt(ix(checkIndex(i, (1 << 2))), x);
+        return this;
+
+
+
+    }
+
+    public IntBuffer asIntBuffer() {
+        int off = this.position();
+        int lim = this.limit();
+        assert (off <= lim);
+        int rem = (off <= lim ? lim - off : 0);
+
+        int size = rem >> 2;
+        if (!unaligned && ((address + off) % (1 << 2) != 0)) {
+            return (bigEndian
+                    ? (IntBuffer)(new ByteBufferAsIntBufferB(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off))
+                    : (IntBuffer)(new ByteBufferAsIntBufferL(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off)));
+        } else {
+            return (nativeByteOrder
+                    ? (IntBuffer)(new DirectIntBufferU(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off))
+                    : (IntBuffer)(new DirectIntBufferS(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off)));
+        }
+    }
+
+
+
+
+    private long getLong(long a) {
+        if (unaligned) {
+            long x = unsafe.getLong(a);
+            return (nativeByteOrder ? x : Bits.swap(x));
+        }
+        return Bits.getLong(a, bigEndian);
+    }
+
+    public long getLong() {
+        return getLong(ix(nextGetIndex((1 << 3))));
+    }
+
+    public long getLong(int i) {
+        return getLong(ix(checkIndex(i, (1 << 3))));
+    }
+
+
+
+    private ByteBuffer putLong(long a, long x) {
+
+        if (unaligned) {
+            long y = (x);
+            unsafe.putLong(a, (nativeByteOrder ? y : Bits.swap(y)));
+        } else {
+            Bits.putLong(a, x, bigEndian);
+        }
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putLong(long x) {
+
+        putLong(ix(nextPutIndex((1 << 3))), x);
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putLong(int i, long x) {
+
+        putLong(ix(checkIndex(i, (1 << 3))), x);
+        return this;
+
+
+
+    }
+
+    public LongBuffer asLongBuffer() {
+        int off = this.position();
+        int lim = this.limit();
+        assert (off <= lim);
+        int rem = (off <= lim ? lim - off : 0);
+
+        int size = rem >> 3;
+        if (!unaligned && ((address + off) % (1 << 3) != 0)) {
+            return (bigEndian
+                    ? (LongBuffer)(new ByteBufferAsLongBufferB(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off))
+                    : (LongBuffer)(new ByteBufferAsLongBufferL(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off)));
+        } else {
+            return (nativeByteOrder
+                    ? (LongBuffer)(new DirectLongBufferU(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off))
+                    : (LongBuffer)(new DirectLongBufferS(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off)));
+        }
+    }
+
+
+
+
+    private float getFloat(long a) {
+        if (unaligned) {
+            int x = unsafe.getInt(a);
+            return Float.intBitsToFloat(nativeByteOrder ? x : Bits.swap(x));
+        }
+        return Bits.getFloat(a, bigEndian);
+    }
+
+    public float getFloat() {
+        return getFloat(ix(nextGetIndex((1 << 2))));
+    }
+
+    public float getFloat(int i) {
+        return getFloat(ix(checkIndex(i, (1 << 2))));
+    }
+
+
+
+    private ByteBuffer putFloat(long a, float x) {
+
+        if (unaligned) {
+            int y = Float.floatToRawIntBits(x);
+            unsafe.putInt(a, (nativeByteOrder ? y : Bits.swap(y)));
+        } else {
+            Bits.putFloat(a, x, bigEndian);
+        }
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putFloat(float x) {
+
+        putFloat(ix(nextPutIndex((1 << 2))), x);
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putFloat(int i, float x) {
+
+        putFloat(ix(checkIndex(i, (1 << 2))), x);
+        return this;
+
+
+
+    }
+
+    public FloatBuffer asFloatBuffer() {
+        int off = this.position();
+        int lim = this.limit();
+        assert (off <= lim);
+        int rem = (off <= lim ? lim - off : 0);
+
+        int size = rem >> 2;
+        if (!unaligned && ((address + off) % (1 << 2) != 0)) {
+            return (bigEndian
+                    ? (FloatBuffer)(new ByteBufferAsFloatBufferB(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off))
+                    : (FloatBuffer)(new ByteBufferAsFloatBufferL(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off)));
+        } else {
+            return (nativeByteOrder
+                    ? (FloatBuffer)(new DirectFloatBufferU(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off))
+                    : (FloatBuffer)(new DirectFloatBufferS(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off)));
+        }
+    }
+
+
+
+
+    private double getDouble(long a) {
+        if (unaligned) {
+            long x = unsafe.getLong(a);
+            return Double.longBitsToDouble(nativeByteOrder ? x : Bits.swap(x));
+        }
+        return Bits.getDouble(a, bigEndian);
+    }
+
+    public double getDouble() {
+        return getDouble(ix(nextGetIndex((1 << 3))));
+    }
+
+    public double getDouble(int i) {
+        return getDouble(ix(checkIndex(i, (1 << 3))));
+    }
+
+
+
+    private ByteBuffer putDouble(long a, double x) {
+
+        if (unaligned) {
+            long y = Double.doubleToRawLongBits(x);
+            unsafe.putLong(a, (nativeByteOrder ? y : Bits.swap(y)));
+        } else {
+            Bits.putDouble(a, x, bigEndian);
+        }
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putDouble(double x) {
+
+        putDouble(ix(nextPutIndex((1 << 3))), x);
+        return this;
+
+
+
+    }
+
+    public ByteBuffer putDouble(int i, double x) {
+
+        putDouble(ix(checkIndex(i, (1 << 3))), x);
+        return this;
+
+
+
+    }
+
+    public DoubleBuffer asDoubleBuffer() {
+        int off = this.position();
+        int lim = this.limit();
+        assert (off <= lim);
+        int rem = (off <= lim ? lim - off : 0);
+
+        int size = rem >> 3;
+        if (!unaligned && ((address + off) % (1 << 3) != 0)) {
+            return (bigEndian
+                    ? (DoubleBuffer)(new ByteBufferAsDoubleBufferB(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off))
+                    : (DoubleBuffer)(new ByteBufferAsDoubleBufferL(this,
+                                                                       -1,
+                                                                       0,
+                                                                       size,
+                                                                       size,
+                                                                       off)));
+        } else {
+            return (nativeByteOrder
+                    ? (DoubleBuffer)(new DirectDoubleBufferU(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off))
+                    : (DoubleBuffer)(new DirectDoubleBufferS(this,
+                                                                 -1,
+                                                                 0,
+                                                                 size,
+                                                                 size,
+                                                                 off)));
+        }
+    }
+
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 
 

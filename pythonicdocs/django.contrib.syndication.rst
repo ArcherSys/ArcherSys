@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 django.contrib.syndication package
 ==================================
 
@@ -29,6 +30,38 @@ Module contents
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+django.contrib.syndication package
+==================================
+
+Submodules
+----------
+
+django.contrib.syndication.apps module
+--------------------------------------
+
+.. automodule:: django.contrib.syndication.apps
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+django.contrib.syndication.views module
+---------------------------------------
+
+.. automodule:: django.contrib.syndication.views
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: django.contrib.syndication
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 django.contrib.syndication package
 ==================================

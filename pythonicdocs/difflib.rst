@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 difflib module
 ==============
 
@@ -6,6 +7,15 @@ difflib module
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+difflib module
+==============
+
+.. automodule:: difflib
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 difflib module
 ==============

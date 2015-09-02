@@ -45,6 +45,7 @@ import java.net.StandardSocketOptions;
 import java.nio.channels.*;
 import java.util.*;
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 import java.util.concurrent.Executors;
 
@@ -55,6 +56,18 @@ import java.util.concurrent.TimeUnit;
  
 * Implements a chat server, this class holds the list of {@code clients} connected to the server.
  
+=======
+
+import java.util.concurrent.Executors;
+
+import java.util.concurrent.TimeUnit;
+
+
+/**
+ 
+* Implements a chat server, this class holds the list of {@code clients} connected to the server.
+ 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 
 import java.util.concurrent.Executors;

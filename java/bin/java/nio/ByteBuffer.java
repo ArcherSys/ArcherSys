@@ -1442,6 +1442,7 @@ public abstract class ByteBuffer
     abstract void _put(int i, byte b);                  // package-private
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 
     /**
      * Relative <i>get</i> method for reading a char value.
@@ -2036,6 +2037,602 @@ public abstract class ByteBuffer
      */
     public abstract DoubleBuffer asDoubleBuffer();
 
+=======
+
+    /**
+     * Relative <i>get</i> method for reading a char value.
+     *
+     * <p> Reads the next two bytes at this buffer's current position,
+     * composing them into a char value according to the current byte order,
+     * and then increments the position by two.  </p>
+     *
+     * @return  The char value at the buffer's current position
+     *
+     * @throws  BufferUnderflowException
+     *          If there are fewer than two bytes
+     *          remaining in this buffer
+     */
+    public abstract char getChar();
+
+    /**
+     * Relative <i>put</i> method for writing a char
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes two bytes containing the given char value, in the
+     * current byte order, into this buffer at the current position, and then
+     * increments the position by two.  </p>
+     *
+     * @param  value
+     *         The char value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  BufferOverflowException
+     *          If there are fewer than two bytes
+     *          remaining in this buffer
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putChar(char value);
+
+    /**
+     * Absolute <i>get</i> method for reading a char value.
+     *
+     * <p> Reads two bytes at the given index, composing them into a
+     * char value according to the current byte order.  </p>
+     *
+     * @param  index
+     *         The index from which the bytes will be read
+     *
+     * @return  The char value at the given index
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus one
+     */
+    public abstract char getChar(int index);
+
+    /**
+     * Absolute <i>put</i> method for writing a char
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes two bytes containing the given char value, in the
+     * current byte order, into this buffer at the given index.  </p>
+     *
+     * @param  index
+     *         The index at which the bytes will be written
+     *
+     * @param  value
+     *         The char value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus one
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putChar(int index, char value);
+
+    /**
+     * Creates a view of this byte buffer as a char buffer.
+     *
+     * <p> The content of the new buffer will start at this buffer's current
+     * position.  Changes to this buffer's content will be visible in the new
+     * buffer, and vice versa; the two buffers' position, limit, and mark
+     * values will be independent.
+     *
+     * <p> The new buffer's position will be zero, its capacity and its limit
+     * will be the number of bytes remaining in this buffer divided by
+     * two, and its mark will be undefined.  The new buffer will be direct
+     * if, and only if, this buffer is direct, and it will be read-only if, and
+     * only if, this buffer is read-only.  </p>
+     *
+     * @return  A new char buffer
+     */
+    public abstract CharBuffer asCharBuffer();
+
+
+    /**
+     * Relative <i>get</i> method for reading a short value.
+     *
+     * <p> Reads the next two bytes at this buffer's current position,
+     * composing them into a short value according to the current byte order,
+     * and then increments the position by two.  </p>
+     *
+     * @return  The short value at the buffer's current position
+     *
+     * @throws  BufferUnderflowException
+     *          If there are fewer than two bytes
+     *          remaining in this buffer
+     */
+    public abstract short getShort();
+
+    /**
+     * Relative <i>put</i> method for writing a short
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes two bytes containing the given short value, in the
+     * current byte order, into this buffer at the current position, and then
+     * increments the position by two.  </p>
+     *
+     * @param  value
+     *         The short value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  BufferOverflowException
+     *          If there are fewer than two bytes
+     *          remaining in this buffer
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putShort(short value);
+
+    /**
+     * Absolute <i>get</i> method for reading a short value.
+     *
+     * <p> Reads two bytes at the given index, composing them into a
+     * short value according to the current byte order.  </p>
+     *
+     * @param  index
+     *         The index from which the bytes will be read
+     *
+     * @return  The short value at the given index
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus one
+     */
+    public abstract short getShort(int index);
+
+    /**
+     * Absolute <i>put</i> method for writing a short
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes two bytes containing the given short value, in the
+     * current byte order, into this buffer at the given index.  </p>
+     *
+     * @param  index
+     *         The index at which the bytes will be written
+     *
+     * @param  value
+     *         The short value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus one
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putShort(int index, short value);
+
+    /**
+     * Creates a view of this byte buffer as a short buffer.
+     *
+     * <p> The content of the new buffer will start at this buffer's current
+     * position.  Changes to this buffer's content will be visible in the new
+     * buffer, and vice versa; the two buffers' position, limit, and mark
+     * values will be independent.
+     *
+     * <p> The new buffer's position will be zero, its capacity and its limit
+     * will be the number of bytes remaining in this buffer divided by
+     * two, and its mark will be undefined.  The new buffer will be direct
+     * if, and only if, this buffer is direct, and it will be read-only if, and
+     * only if, this buffer is read-only.  </p>
+     *
+     * @return  A new short buffer
+     */
+    public abstract ShortBuffer asShortBuffer();
+
+
+    /**
+     * Relative <i>get</i> method for reading an int value.
+     *
+     * <p> Reads the next four bytes at this buffer's current position,
+     * composing them into an int value according to the current byte order,
+     * and then increments the position by four.  </p>
+     *
+     * @return  The int value at the buffer's current position
+     *
+     * @throws  BufferUnderflowException
+     *          If there are fewer than four bytes
+     *          remaining in this buffer
+     */
+    public abstract int getInt();
+
+    /**
+     * Relative <i>put</i> method for writing an int
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes four bytes containing the given int value, in the
+     * current byte order, into this buffer at the current position, and then
+     * increments the position by four.  </p>
+     *
+     * @param  value
+     *         The int value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  BufferOverflowException
+     *          If there are fewer than four bytes
+     *          remaining in this buffer
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putInt(int value);
+
+    /**
+     * Absolute <i>get</i> method for reading an int value.
+     *
+     * <p> Reads four bytes at the given index, composing them into a
+     * int value according to the current byte order.  </p>
+     *
+     * @param  index
+     *         The index from which the bytes will be read
+     *
+     * @return  The int value at the given index
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus three
+     */
+    public abstract int getInt(int index);
+
+    /**
+     * Absolute <i>put</i> method for writing an int
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes four bytes containing the given int value, in the
+     * current byte order, into this buffer at the given index.  </p>
+     *
+     * @param  index
+     *         The index at which the bytes will be written
+     *
+     * @param  value
+     *         The int value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus three
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putInt(int index, int value);
+
+    /**
+     * Creates a view of this byte buffer as an int buffer.
+     *
+     * <p> The content of the new buffer will start at this buffer's current
+     * position.  Changes to this buffer's content will be visible in the new
+     * buffer, and vice versa; the two buffers' position, limit, and mark
+     * values will be independent.
+     *
+     * <p> The new buffer's position will be zero, its capacity and its limit
+     * will be the number of bytes remaining in this buffer divided by
+     * four, and its mark will be undefined.  The new buffer will be direct
+     * if, and only if, this buffer is direct, and it will be read-only if, and
+     * only if, this buffer is read-only.  </p>
+     *
+     * @return  A new int buffer
+     */
+    public abstract IntBuffer asIntBuffer();
+
+
+    /**
+     * Relative <i>get</i> method for reading a long value.
+     *
+     * <p> Reads the next eight bytes at this buffer's current position,
+     * composing them into a long value according to the current byte order,
+     * and then increments the position by eight.  </p>
+     *
+     * @return  The long value at the buffer's current position
+     *
+     * @throws  BufferUnderflowException
+     *          If there are fewer than eight bytes
+     *          remaining in this buffer
+     */
+    public abstract long getLong();
+
+    /**
+     * Relative <i>put</i> method for writing a long
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes eight bytes containing the given long value, in the
+     * current byte order, into this buffer at the current position, and then
+     * increments the position by eight.  </p>
+     *
+     * @param  value
+     *         The long value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  BufferOverflowException
+     *          If there are fewer than eight bytes
+     *          remaining in this buffer
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putLong(long value);
+
+    /**
+     * Absolute <i>get</i> method for reading a long value.
+     *
+     * <p> Reads eight bytes at the given index, composing them into a
+     * long value according to the current byte order.  </p>
+     *
+     * @param  index
+     *         The index from which the bytes will be read
+     *
+     * @return  The long value at the given index
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus seven
+     */
+    public abstract long getLong(int index);
+
+    /**
+     * Absolute <i>put</i> method for writing a long
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes eight bytes containing the given long value, in the
+     * current byte order, into this buffer at the given index.  </p>
+     *
+     * @param  index
+     *         The index at which the bytes will be written
+     *
+     * @param  value
+     *         The long value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus seven
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putLong(int index, long value);
+
+    /**
+     * Creates a view of this byte buffer as a long buffer.
+     *
+     * <p> The content of the new buffer will start at this buffer's current
+     * position.  Changes to this buffer's content will be visible in the new
+     * buffer, and vice versa; the two buffers' position, limit, and mark
+     * values will be independent.
+     *
+     * <p> The new buffer's position will be zero, its capacity and its limit
+     * will be the number of bytes remaining in this buffer divided by
+     * eight, and its mark will be undefined.  The new buffer will be direct
+     * if, and only if, this buffer is direct, and it will be read-only if, and
+     * only if, this buffer is read-only.  </p>
+     *
+     * @return  A new long buffer
+     */
+    public abstract LongBuffer asLongBuffer();
+
+
+    /**
+     * Relative <i>get</i> method for reading a float value.
+     *
+     * <p> Reads the next four bytes at this buffer's current position,
+     * composing them into a float value according to the current byte order,
+     * and then increments the position by four.  </p>
+     *
+     * @return  The float value at the buffer's current position
+     *
+     * @throws  BufferUnderflowException
+     *          If there are fewer than four bytes
+     *          remaining in this buffer
+     */
+    public abstract float getFloat();
+
+    /**
+     * Relative <i>put</i> method for writing a float
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes four bytes containing the given float value, in the
+     * current byte order, into this buffer at the current position, and then
+     * increments the position by four.  </p>
+     *
+     * @param  value
+     *         The float value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  BufferOverflowException
+     *          If there are fewer than four bytes
+     *          remaining in this buffer
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putFloat(float value);
+
+    /**
+     * Absolute <i>get</i> method for reading a float value.
+     *
+     * <p> Reads four bytes at the given index, composing them into a
+     * float value according to the current byte order.  </p>
+     *
+     * @param  index
+     *         The index from which the bytes will be read
+     *
+     * @return  The float value at the given index
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus three
+     */
+    public abstract float getFloat(int index);
+
+    /**
+     * Absolute <i>put</i> method for writing a float
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes four bytes containing the given float value, in the
+     * current byte order, into this buffer at the given index.  </p>
+     *
+     * @param  index
+     *         The index at which the bytes will be written
+     *
+     * @param  value
+     *         The float value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus three
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putFloat(int index, float value);
+
+    /**
+     * Creates a view of this byte buffer as a float buffer.
+     *
+     * <p> The content of the new buffer will start at this buffer's current
+     * position.  Changes to this buffer's content will be visible in the new
+     * buffer, and vice versa; the two buffers' position, limit, and mark
+     * values will be independent.
+     *
+     * <p> The new buffer's position will be zero, its capacity and its limit
+     * will be the number of bytes remaining in this buffer divided by
+     * four, and its mark will be undefined.  The new buffer will be direct
+     * if, and only if, this buffer is direct, and it will be read-only if, and
+     * only if, this buffer is read-only.  </p>
+     *
+     * @return  A new float buffer
+     */
+    public abstract FloatBuffer asFloatBuffer();
+
+
+    /**
+     * Relative <i>get</i> method for reading a double value.
+     *
+     * <p> Reads the next eight bytes at this buffer's current position,
+     * composing them into a double value according to the current byte order,
+     * and then increments the position by eight.  </p>
+     *
+     * @return  The double value at the buffer's current position
+     *
+     * @throws  BufferUnderflowException
+     *          If there are fewer than eight bytes
+     *          remaining in this buffer
+     */
+    public abstract double getDouble();
+
+    /**
+     * Relative <i>put</i> method for writing a double
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes eight bytes containing the given double value, in the
+     * current byte order, into this buffer at the current position, and then
+     * increments the position by eight.  </p>
+     *
+     * @param  value
+     *         The double value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  BufferOverflowException
+     *          If there are fewer than eight bytes
+     *          remaining in this buffer
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putDouble(double value);
+
+    /**
+     * Absolute <i>get</i> method for reading a double value.
+     *
+     * <p> Reads eight bytes at the given index, composing them into a
+     * double value according to the current byte order.  </p>
+     *
+     * @param  index
+     *         The index from which the bytes will be read
+     *
+     * @return  The double value at the given index
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus seven
+     */
+    public abstract double getDouble(int index);
+
+    /**
+     * Absolute <i>put</i> method for writing a double
+     * value&nbsp;&nbsp;<i>(optional operation)</i>.
+     *
+     * <p> Writes eight bytes containing the given double value, in the
+     * current byte order, into this buffer at the given index.  </p>
+     *
+     * @param  index
+     *         The index at which the bytes will be written
+     *
+     * @param  value
+     *         The double value to be written
+     *
+     * @return  This buffer
+     *
+     * @throws  IndexOutOfBoundsException
+     *          If <tt>index</tt> is negative
+     *          or not smaller than the buffer's limit,
+     *          minus seven
+     *
+     * @throws  ReadOnlyBufferException
+     *          If this buffer is read-only
+     */
+    public abstract ByteBuffer putDouble(int index, double value);
+
+    /**
+     * Creates a view of this byte buffer as a double buffer.
+     *
+     * <p> The content of the new buffer will start at this buffer's current
+     * position.  Changes to this buffer's content will be visible in the new
+     * buffer, and vice versa; the two buffers' position, limit, and mark
+     * values will be independent.
+     *
+     * <p> The new buffer's position will be zero, its capacity and its limit
+     * will be the number of bytes remaining in this buffer divided by
+     * eight, and its mark will be undefined.  The new buffer will be direct
+     * if, and only if, this buffer is direct, and it will be read-only if, and
+     * only if, this buffer is read-only.  </p>
+     *
+     * @return  A new double buffer
+     */
+    public abstract DoubleBuffer asDoubleBuffer();
+
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 
     /**

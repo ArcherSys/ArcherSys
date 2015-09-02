@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 /*!
  * jQuery UI Effects Fade @VERSION
  * http://jqueryui.com
@@ -29,6 +30,38 @@ $.effects.effect.fade = function( o, done ) {
 };
 
 })( jQuery );
+=======
+/*!
+ * jQuery UI Effects Fade @VERSION
+ * http://jqueryui.com
+ *
+ * Copyright 2012 jQuery Foundation and other contributors
+ * Released under the MIT license.
+ * http://jquery.org/license
+ *
+ * http://api.jqueryui.com/fade-effect/
+ *
+ * Depends:
+ *	jquery.ui.effect.js
+ */
+(function( $, undefined ) {
+
+$.effects.effect.fade = function( o, done ) {
+	var el = $( this ),
+		mode = $.effects.setMode( el, o.mode || "toggle" );
+
+	el.animate({
+		opacity: mode
+	}, {
+		queue: false,
+		duration: o.duration,
+		easing: o.easing,
+		complete: done
+	});
+};
+
+})( jQuery );
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 /*!
  * jQuery UI Effects Fade @VERSION

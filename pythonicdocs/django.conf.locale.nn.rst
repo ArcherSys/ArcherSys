@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 django.conf.locale.nn package
 =============================
 
@@ -21,6 +22,30 @@ Module contents
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+django.conf.locale.nn package
+=============================
+
+Submodules
+----------
+
+django.conf.locale.nn.formats module
+------------------------------------
+
+.. automodule:: django.conf.locale.nn.formats
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: django.conf.locale.nn
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 django.conf.locale.nn package
 =============================

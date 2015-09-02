@@ -1,5 +1,9 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 if {[catch {package present Tcl 8.5.0}]} { return }
+=======
+if {[catch {package present Tcl 8.5.0}]} { return }
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 if {[catch {package present Tcl 8.5.0}]} { return }
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

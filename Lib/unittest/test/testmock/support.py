@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 import sys
 
 def is_instance(obj, klass):
@@ -22,6 +23,31 @@ def examine_warnings(func):
         with catch_warnings(record=True) as ws:
             func(ws)
     return wrapper
+=======
+import sys
+
+def is_instance(obj, klass):
+    """Version of is_instance that doesn't access __class__"""
+    return issubclass(type(obj), klass)
+
+
+class SomeClass(object):
+    class_attribute = None
+
+    def wibble(self):
+        pass
+
+
+class X(object):
+    pass
+
+
+def examine_warnings(func):
+    def wrapper():
+        with catch_warnings(record=True) as ws:
+            func(ws)
+    return wrapper
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 import sys
 

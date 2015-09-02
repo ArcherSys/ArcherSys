@@ -81,7 +81,6 @@ require_once "includes\ConfigManager.php";
 
  		$_POST['email'] = addslashes($_POST['email']);
 
-
  	}
 
  	$check = mysql_query("SELECT * FROM users WHERE username = '".$_POST['username']."'")or die(mysql_error());
@@ -180,6 +179,7 @@ setcookie('Nickname_ARCHERVMCASHEW',$info["first_name"],$hour);
 <meta name="msapplication-config" content="ieconfig.xml" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/0.10.2/dropbox.min.js">
 </script>
+<<<<<<< HEAD
 <script src="/core/js/modernizr.js"></script>
 <script src="/core/js/jquery.js"></script>
 <script src="/core/js/archersysos.js">
@@ -252,6 +252,7 @@ localStorage.setItem("Name","Guest");
 <button class="logout"><i class="icon-off"></i></button>
 </div>
     </div>
+<<<<<<< HEAD
     
 
 

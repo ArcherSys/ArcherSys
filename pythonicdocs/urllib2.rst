@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 urllib2 module
 ==============
 
@@ -6,6 +7,15 @@ urllib2 module
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+urllib2 module
+==============
+
+.. automodule:: urllib2
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 urllib2 module
 ==============

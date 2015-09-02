@@ -1,15 +1,27 @@
+<<<<<<< HEAD
 
+=======
+<<<<<<< HEAD
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 /** @namespace ArcherSysOS
 		 *  @author Weldon Henson
 		 *  @version 3.4.0
 		 *  @license MIT
+<<<<<<< HEAD
 		 *
+=======
+		 *  
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 		 *  The Namespace for client side ArcherSys OS Operations
 		 */
 var ArcherSysOS = {
 		/** @constructor Class
 		 * The Class Creator for ArcherSys OS.
+<<<<<<< HEAD
 		 *
+=======
+		 * 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 		 * @param constructor (Function) - The Constructor
 		 */
 		defineClass: function(constructor,methods,statics){
@@ -29,7 +41,11 @@ var ArcherSysOS = {
 		},
 		/**
 		 * Creates another version of an object with the given function bound to it
+<<<<<<< HEAD
 		 * @param f (Function) - The function to bind
+=======
+		 * @param f (Function) - The function to bind   
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 		 * @param o (Object) - The Object to bind to
 		 */
 		bind: function(f,o){
@@ -40,6 +56,7 @@ var ArcherSysOS = {
 		
 		},
          
+<<<<<<< HEAD
 		$: jQuery.noConflict(),
 		defineEnumeration: function(statics){
 		 var   constructor  = function(){};
@@ -53,3 +70,25 @@ var ArcherSysOS = {
 		 return constructor;
 		}
 };
+=======
+		$: jQuery.noConflict()
+};
+=======
+var ArcherSysOS = function(){
+	 this.addModule = function(src){
+		 $("head").append("<script src=\"" + src + ".js\"></script>");
+	 };
+	 this.addModule("/core/js/localforage.min");
+  this.applications = [];
+  this.Application = function(name,description,onStart,onInstall){
+	  this.name = name 
+          this.description = description;
+	  this.onStart = onStart;
+	  this.onInstall = onInstall;
+	  this.onInstall();
+	  new ArcherSysOS().addApplicationResource("app_name",this.name);
+  };
+
+};
+>>>>>>> 8397be993f712a69fd140c9d50efe65c53a23815
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

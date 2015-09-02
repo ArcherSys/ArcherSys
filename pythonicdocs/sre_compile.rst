@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 sre_compile module
 ==================
 
@@ -6,6 +7,15 @@ sre_compile module
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+sre_compile module
+==================
+
+.. automodule:: sre_compile
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 sre_compile module
 ==================

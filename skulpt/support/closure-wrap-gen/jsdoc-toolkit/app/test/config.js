@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 /**
  * @constructor
  * @param person The person.
@@ -21,6 +22,30 @@ function Contact(person, connection) {
 function Family(/**Object*/persons) {
 
 }
+=======
+/**
+ * @constructor
+ * @param person The person.
+ * @param {string} person.name The person's name.
+ * @config {integer} age The person's age.
+ * @config [id=1] Optional id number to use.
+ * @param connection
+ */
+function Contact(person, connection) {
+
+}
+
+/**
+ * @constructor
+ * @param persons
+ * @config {string} Father The paternal person.
+ * @config {string} Mother The maternal person.
+ * @config {string[]} Children And the rest.
+ */
+function Family(/**Object*/persons) {
+
+}
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 /**
  * @constructor

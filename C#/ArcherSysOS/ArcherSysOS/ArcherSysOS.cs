@@ -1,5 +1,9 @@
 ﻿using System;
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+using System.Drawing;
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 using System.Drawing;
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -8,8 +12,13 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 <<<<<<< HEAD
+<<<<<<< HEAD
 using System.Web;
 using System.IO;
+=======
+using System.Windows.Forms;
+
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 using System.Windows.Forms;
 
@@ -19,6 +28,7 @@ using System.Windows.Forms;
 
 namespace ArcherSysOS
 {
+<<<<<<< HEAD
 <<<<<<< HEAD
     public class Application
     {
@@ -50,6 +60,8 @@ namespace ArcherSysOS
     }
    
 =======
+=======
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
     public class Log8
     {
         public static void Log(String text)
@@ -121,6 +133,9 @@ namespace ArcherSysOS
             }
         }
     
+<<<<<<< HEAD
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 }
 

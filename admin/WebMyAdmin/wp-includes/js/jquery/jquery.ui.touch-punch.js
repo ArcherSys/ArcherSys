@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 /*!
  * jQuery UI Touch Punch 0.2.2
  *
@@ -9,6 +10,18 @@
  *  jquery.ui.widget.js
  *  jquery.ui.mouse.js
  */
+=======
+/*!
+ * jQuery UI Touch Punch 0.2.2
+ *
+ * Copyright 2011, Dave Furfero
+ * Dual licensed under the MIT or GPL Version 2 licenses.
+ *
+ * Depends:
+ *  jquery.ui.widget.js
+ *  jquery.ui.mouse.js
+ */
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 /*!
  * jQuery UI Touch Punch 0.2.2

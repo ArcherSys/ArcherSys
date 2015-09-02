@@ -45,7 +45,11 @@ import java.nio.channels.CompletionHandler;
  * Handles a cycle of reading / writing on the {@code Client}.
  */
 <<<<<<< HEAD
+<<<<<<< HEAD
 class ClientReader 
+=======
+class ClientReader 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 class ClientReader 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -54,7 +58,11 @@ class ClientReader
     private final ChatServer chatServer;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
     
+=======
+    
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
     
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

@@ -21,6 +21,7 @@
  * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
  * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE COPYRIGHT OWNER OR
 <<<<<<< HEAD
+<<<<<<< HEAD
  
 * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
  
@@ -53,10 +54,28 @@
 * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+ 
+* CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ 
+* EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ 
+* PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ 
+* PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ 
+* LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ 
+* NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+
+* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 
 
 /*
  * This source code is provided to illustrate the usage of a given feature
+<<<<<<< HEAD
 <<<<<<< HEAD
 
  * or technique and has been deliberately simplified. Additional steps
@@ -66,6 +85,16 @@
  * input validation and proper error handling, might not be present in
  * this sample code.
 
+=======
+
+ * or technique and has been deliberately simplified. Additional steps
+ 
+* required for a production-quality application, such as security checks,
+
+ * input validation and proper error handling, might not be present in
+ * this sample code.
+
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 
  * or technique and has been deliberately simplified. Additional steps
@@ -98,7 +127,11 @@ import javax.swing.UIManager.LookAndFeelInfo;
 
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 
+=======
+
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

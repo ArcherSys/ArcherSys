@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 Lib
 ===
 
@@ -149,6 +150,158 @@ Lib
    wsgiref
    xml
    xmlrpc
+=======
+Lib
+===
+
+.. toctree::
+   :maxdepth: 4
+
+   3dm
+   abc
+   aifc
+   antigravity
+   argparse
+   ast
+   asynchat
+   asyncio
+   asyncore
+   base64
+   bdb
+   binary-asos
+   binhex
+   bisect
+   bz2
+   cProfile
+   calendar
+   cgi
+   cgitb
+   chunk
+   cmd
+   code
+   codecs
+   codeop
+   collections
+   colorsys
+   compileall
+   concurrent
+   configparser
+   contextlib
+   copy
+   copyreg
+   crypt
+   csv
+   ctypes
+   curses
+   datetime
+   dbm
+   decimal
+   difflib
+   dis
+   distutils
+   doctest
+   dummy_threading
+   email
+   encodings
+   ensurepip
+   enum
+   filecmp
+   fileinput
+   fnmatch
+   formatter
+   fractions
+   ftplib
+   functools
+   genericpath
+   getopt
+   getpass
+   gettext
+   glob
+   gzip
+   hashlib
+   heapq
+   hmac
+   html
+   http
+   idlelib
+   imp
+   importlib
+   io
+   ipaddress
+   json
+   keyword
+   lib2to3
+   linecache
+   locale
+   logging
+   lzma
+   macpath
+   macurl2path
+   mailbox
+   mailcap
+   mimetypes
+   modulefinder
+   msilib
+   multiprocessing
+   netrc
+   nntplib
+   ntpath
+   nturl2path
+   numbers
+   opcode
+   operator
+   optparse
+   os
+   pathlib
+   pdb
+   pickle
+   pickletools
+   pipes
+   pkgutil
+   platform
+   plistlib
+   poplib
+   posixpath
+   pprint
+   profile
+   pstats
+   pty
+   py_compile
+   pyclbr
+   pydoc
+   pydoc_data
+   queue
+   quopri
+   random
+   re
+   reprlib
+   rlcompleter
+   shutil
+   site
+   sqlite3
+   sre_compile
+   sre_constants
+   sre_parse
+   stat
+   struct
+   tarfile
+   tempfile
+   test
+   tkinter
+   token
+   tokenize
+   turtledemo
+   types
+   unittest
+   urllib
+   urllib2
+   venv
+   warnings
+   weakref
+   wsgiref
+   xml
+   xmlrpc
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 Lib
 ===

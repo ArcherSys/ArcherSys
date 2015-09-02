@@ -1,7 +1,13 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 // ColorBox v1.3.19 - jQuery lightbox plugin
 // (c) 2011 Jack Moore - jacklmoore.com
 // License: http://www.opensource.org/licenses/mit-license.php
+=======
+// ColorBox v1.3.19 - jQuery lightbox plugin
+// (c) 2011 Jack Moore - jacklmoore.com
+// License: http://www.opensource.org/licenses/mit-license.php
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 // ColorBox v1.3.19 - jQuery lightbox plugin
 // (c) 2011 Jack Moore - jacklmoore.com

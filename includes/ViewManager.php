@@ -15,6 +15,9 @@ static  function displayLoginInfo($info){
 
 					echo "<p class=\"status\">Hello :)</p>";
 
+
+					echo "<p class=\"status\">Hello :)</p>";
+
 				echo"</div>";
 echo "</div>";
 }

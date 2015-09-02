@@ -7,7 +7,11 @@ using System.Runtime.InteropServices;
 // associated with an assembly.
 [assembly: AssemblyTitle("ArcherSysOS")]
 <<<<<<< HEAD
+<<<<<<< HEAD
 [assembly: AssemblyDescription("ArcherSys OS's CSharp API for ASP.NET Based Services")]
+=======
+[assembly: AssemblyDescription("")]
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 [assembly: AssemblyDescription("")]
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

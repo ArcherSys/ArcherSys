@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 from idlelib import rpc
 
 def remote_object_tree_item(item):
@@ -35,6 +36,44 @@ class StubObjectTreeItem:
     def _GetSubList(self):
         sub_list = self.sockio.remotecall(self.oid, "_GetSubList", (), {})
         return [StubObjectTreeItem(self.sockio, oid) for oid in sub_list]
+=======
+from idlelib import rpc
+
+def remote_object_tree_item(item):
+    wrapper = WrappedObjectTreeItem(item)
+    oid = id(wrapper)
+    rpc.objecttable[oid] = wrapper
+    return oid
+
+class WrappedObjectTreeItem:
+    # Lives in PYTHON subprocess
+
+    def __init__(self, item):
+        self.__item = item
+
+    def __getattr__(self, name):
+        value = getattr(self.__item, name)
+        return value
+
+    def _GetSubList(self):
+        sub_list = self.__item._GetSubList()
+        return list(map(remote_object_tree_item, sub_list))
+
+class StubObjectTreeItem:
+    # Lives in IDLE process
+
+    def __init__(self, sockio, oid):
+        self.sockio = sockio
+        self.oid = oid
+
+    def __getattr__(self, name):
+        value = rpc.MethodProxy(self.sockio, self.oid, name)
+        return value
+
+    def _GetSubList(self):
+        sub_list = self.sockio.remotecall(self.oid, "_GetSubList", (), {})
+        return [StubObjectTreeItem(self.sockio, oid) for oid in sub_list]
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 from idlelib import rpc
 

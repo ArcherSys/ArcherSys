@@ -1,6 +1,7 @@
 <?php
   namespace ArcherSys\Viewer;
 
+
   /*@package ArcherSysOS
    *
    *
@@ -11,8 +12,6 @@
      }
 
  
-
-
  	static function addjQuery(){
  		echo '<script src="/core/js/jquery.js"></script>';
  	}

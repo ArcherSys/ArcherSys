@@ -821,6 +821,7 @@ proc tcl::CopyDirectory {action src dest} {
     return
 }
 <<<<<<< HEAD
+<<<<<<< HEAD
 # ACTIVESTATE ACTIVETCL PRODUCT INFO BEGIN -*- tcl -*-
 # Copyright (C) 2001-2008 ActiveState Software Inc
 # Nov 29, 2014
@@ -895,6 +896,82 @@ if {![interp issafe]} {
 	    ::activestate::teapot::link::setup
 	}
 	# TEAPOT LINK BOOT END
+=======
+# ACTIVESTATE ACTIVETCL PRODUCT INFO BEGIN -*- tcl -*-
+# Copyright (C) 2001-2008 ActiveState Software Inc
+# Nov 29, 2014
+#
+
+#
+# Extension code to tcl8.6/library/init.tcl declaring the
+# version information for ActiveTcl.
+#
+# ActiveState ActiveTcl 8.6.3.1.298624 Win32/x86, Sat Nov 29 00:26:59 PST 2014
+#
+
+namespace eval ::activestate {
+    # Declare product specific configuration
+
+    variable  {ActiveTcl}
+    array set {ActiveTcl} {
+	build         {298624}
+	product       {ActiveTcl}
+	release       {8.6.3.1}
+	tcl,revision  {e11d223695c5468b1bfb3db35ebf54856501fdf0}
+	tk,revision   {dec1a573f08906ffd0a7da06ccc786af1a27ce16}
+	maturity      {final}
+	arch          {win32-ix86}
+	buildtime,sec {1417249619}
+	buildtime,fmt {Sat Nov 29 00:26:59 PST 2014}
+	as,mode       {normal}
+    }
+
+    # Extend overall module information
+
+    variable  config
+    array set config {
+	{ActiveTcl} {ActiveState ActiveTcl 8.6.3.1.298624 Win32/x86 @ Sat Nov 29 00:26:59 PST 2014 e11d223695c5468b1bfb3db35ebf54856501fdf0 / normal}
+    }
+}
+
+package provide {ActiveTcl} {8.6.3.1.298624}
+
+# ACTIVESTATE ACTIVETCL PRODUCT INFO END
+# ACTIVESTATE ACTIVETCL SITE CODE BEGIN -*- tcl -*-
+# Copyright (C) 2001-2008 ActiveState Software Inc
+# Nov 29, 2014
+#
+
+# Do not perform file operations which are not available in a safe
+# interpreter. Bug 81243.
+
+if {![interp issafe]} {
+    set ::tcl::sitefile [file join [file dirname [info library]] site.tcl]
+    if {
+	[file exists $::tcl::sitefile]
+    } {
+	if {[catch {
+	    source $::tcl::sitefile
+	}]} {
+	    puts stderr "Error reading $::tcl::sitefile"
+	    puts stderr \t[join [split $::errorInfo \n] \n\t]
+	    exit 1
+	}
+    }
+    unset ::tcl::sitefile
+}
+
+# ACTIVESTATE ACTIVETCL SITE CODE END
+
+
+	# TEAPOT LINK BOOT BEGIN -*- tcl -*-
+	# Copyright (C) 2006-2007 ActiveState Software Inc.
+	if {![interp issafe] && ![catch {package require platform}]} {
+	    package require activestate::teapot::link
+	    ::activestate::teapot::link::setup
+	}
+	# TEAPOT LINK BOOT END
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 # ACTIVESTATE ACTIVETCL PRODUCT INFO BEGIN -*- tcl -*-
 # Copyright (C) 2001-2008 ActiveState Software Inc

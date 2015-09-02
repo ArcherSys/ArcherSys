@@ -12,6 +12,7 @@
   use ArcherSys\Viewer\ViewManager;
   use ArcherSys\Data\DataManager;
   use ArcherSys\Viewer\LogicManager;
+
   use ArcherSys\Styles\StyleSheetManager;
   
   use ArcherSys\Timex\DateManager;
@@ -91,13 +92,17 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 <link rel="manifest" href="manifest.json">
 
 
+
 <meta http-equiv="X-UA-Compatible" content="IE=Edge">
-<link href='http://fonts.googleapis.com/css?family=Droid+Sans|Open+Sans:700,600' rel='stylesheet' type='text/css'>
 <?php
     
 StyleSheetManager::addStyle("/core/css/start2",true);
 
 ?>
+
+
+<meta http-equiv="X-UA-Compatible" content="IE=Edge">
+<link href='http://fonts.googleapis.com/css?family=Droid+Sans|Open+Sans:700,600' rel='stylesheet' type='text/css'>
 
 <script>
  ArcherSysOS.$(function(){
@@ -129,25 +134,11 @@ window.setTimeout(function(){
 
   
 	
-			loc = screenWidth;
 
-		(direction === 'next') ? ++current : --current;
-
-		if(current === 0) {
-			current = screenLength;
-			loc = totalScreenWidth - screenWidth;
-			direction = 'next';
-		} else if (current - 1 === screenLength) {
-			current = 1;
-			loc = 0;
-		}
-               		transition(sliderUL, loc, direction);
-
-	});
+   
        
        
       ArcherSysOS.$(".header h1").click(function(){
-
            window.location.assign("http://localhost/settings");
            });
 
@@ -164,7 +155,7 @@ window.setTimeout(function(){
 		});
        }
 });
- 
+
 </script>
 
 
@@ -206,7 +197,6 @@ try{
 
 
 
-
 </head>
 
 <body >
@@ -220,7 +210,6 @@ try{
 		<div class="slider">
 			<ul class="screen">
 				<li>
-				    
   <?php
   ViewManager::addGame("http://localhost/entertainment/games/index.php","Games");
   ?>
@@ -238,7 +227,7 @@ try{
 </div>
 <a href="/Producktiviti/SilverTick" class='wide blue cal_e'>
 				<h1><?php echo date("j"); ?></h1><p><?php echo DateManager::getDay();?></p>
-				<h1><?php echo date("j"); ?></h1><p><?php echo date("l");?></p>
+			
 	<h2 class="top cal_i">Today's Schedule</h2>
 				<i class="icon-calendar"></i>
 			</a>
@@ -250,13 +239,13 @@ try{
   <div class="module red single img birds">
 <a href="http://localhost/entertainment/games/index.php"><p class="title">Games</p></a></div>
 
-					
+
 					
 
 
 </li>
 <li>
-    
+
 <div class="module green single img android">
     <p class="title">ArcherDroid</p>
 </div>
@@ -268,7 +257,6 @@ try{
 					</div>
 					
   <div class="module red single img birds">
-<a href="http://localhost/MinePort"><p class="title">Aerodian Minecraft</p></a></div>
 					<div class="module yellow double img not">
 						<p class="title">Notifications</p>
 						<div class="img msg">
@@ -290,7 +278,6 @@ try{
 <div class="module orange single img birds">
     <p class="title">Capital Pursuit</p>
 </div>
-
 <div class="module red single img mail">
 <h2 class="title">RoundCube Mail</h2>
 </div>

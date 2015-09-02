@@ -9,7 +9,11 @@ $ftpPort = "14147"; // 21 is default
 $ftpMode = "1"; // 1 passive, 0 not passive
 $ftpSSL  = "1"; // 1 for SSL, 0 for not SSL
 <<<<<<< HEAD
+<<<<<<< HEAD
 $ftpDir  = "/public";
+=======
+$ftpDir  = "";
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 $ftpDir  = "";
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -349,7 +353,11 @@ function displayHeader()
     
 ?>
 <<<<<<< HEAD
+<<<<<<< HEAD
 <!DOCTYPE html >
+=======
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -364,9 +372,12 @@ function displayHeader()
 ?>.css" rel="stylesheet" type="text/css">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <<<<<<< HEAD
+<<<<<<< HEAD
 </head>
 <body>
 =======
+=======
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
     <meta http-equiv="X-Frame-Options" content="sameorigin">
 </head>
 <body <?php
@@ -374,6 +385,9 @@ function displayHeader()
 ?>onresize="setFileWindowSize('ajaxContentWindow',0,0);"<?php
     }
 ?>>
+<<<<<<< HEAD
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 <?php
 }
@@ -508,7 +522,11 @@ function displayLoginForm($posted)
             if ($posted == 1 && $ftp_host == "")
                 echo "bgFormError";
 <<<<<<< HEAD
+<<<<<<< HEAD
 ?>">
+=======
+?>"> 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 ?>"> 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -520,7 +538,11 @@ function displayLoginForm($posted)
             if ($posted == 1 && $ftp_port == "")
                 echo "bgFormError";
 <<<<<<< HEAD
+<<<<<<< HEAD
 ?>" tabindex="-1">
+=======
+?>" tabindex="-1"> 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 ?>" tabindex="-1"> 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -1604,7 +1626,11 @@ function displayFtpActions()
     echo adjustButtonWidth($lang_btn_refresh);
 ?>">
 <<<<<<< HEAD
+<<<<<<< HEAD
 <!--
+=======
+<!-- 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 <!-- 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -1613,7 +1639,11 @@ function displayFtpActions()
 ?>" onClick="actionFunctionDl('','');" disabled class="<?php
     echo adjustButtonWidth($lang_btn_dl);
 <<<<<<< HEAD
+<<<<<<< HEAD
 ?>">
+=======
+?>"> 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 ?>"> 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -1623,7 +1653,11 @@ function displayFtpActions()
 ?>" onClick="actionFunctionCut('','');" disabled class="<?php
     echo adjustButtonWidth($lang_btn_cut);
 <<<<<<< HEAD
+<<<<<<< HEAD
 ?>">
+=======
+?>"> 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 ?>"> 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -1632,7 +1666,11 @@ function displayFtpActions()
 ?>" onClick="actionFunctionCopy('','');" disabled class="<?php
     echo adjustButtonWidth($lang_btn_copy);
 <<<<<<< HEAD
+<<<<<<< HEAD
 ?>">
+=======
+?>"> 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 ?>"> 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -1641,7 +1679,11 @@ function displayFtpActions()
 ?>" onClick="actionFunctionPaste('');" disabled class="<?php
     echo adjustButtonWidth($lang_btn_paste);
 <<<<<<< HEAD
+<<<<<<< HEAD
 ?>">
+=======
+?>"> 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 ?>"> 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -1650,7 +1692,11 @@ function displayFtpActions()
 ?>" onClick="actionFunctionRename('','');" disabled class="<?php
     echo adjustButtonWidth($lang_btn_rename);
 <<<<<<< HEAD
+<<<<<<< HEAD
 ?>">
+=======
+?>"> 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 ?>"> 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -1743,7 +1789,11 @@ function displayAjaxFooter()
 ?>:</span> <?php
     echo $_SESSION["ftp_host"];
 <<<<<<< HEAD
+<<<<<<< HEAD
 ?>
+=======
+?> 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 ?> 
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

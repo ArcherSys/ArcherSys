@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 binary-asos module
 ==================
 
@@ -6,6 +7,15 @@ binary-asos module
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+binary-asos module
+==================
+
+.. automodule:: binary-asos
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 binary-asos module
 ==================

@@ -1,5 +1,6 @@
 <!DOCTYPE HTML>
 <<<<<<< HEAD
+<<<<<<< HEAD
 <html>
     <head>
         <title>Produckiviti 3.8</title>
@@ -64,6 +65,8 @@ Malaika.speakTime(1000,["give you"],[2],["en/en-us"],90);
 
 ]
 =======
+=======
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 
 <html>
 <head>
@@ -119,5 +122,9 @@ Dropzone.options.fileLoader = {
   </div>
 </form></div>
 </body>
+<<<<<<< HEAD
+</html>
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
 </html>
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

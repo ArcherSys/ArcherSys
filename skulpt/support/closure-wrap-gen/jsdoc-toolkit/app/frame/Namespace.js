@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 _global_ = this;
 
 function Namespace(name, f) {
@@ -8,6 +9,17 @@ function Namespace(name, f) {
 	}
 	
 	if (f) f();
+=======
+_global_ = this;
+
+function Namespace(name, f) {
+	var n = name.split(".");
+	for (var o = _global_, i = 0, l = n.length; i < l; i++) {
+		o = o[n[i]] = o[n[i]] || {};
+	}
+	
+	if (f) f();
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 _global_ = this;
 

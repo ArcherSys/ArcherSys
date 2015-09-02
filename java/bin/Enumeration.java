@@ -20,7 +20,11 @@
  *
  * Please contact Oracle, 500 Oracle Parkway, Redwood Shores, CA 94065 USA
 <<<<<<< HEAD
+<<<<<<< HEAD
  
+=======
+ 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
  
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
@@ -49,6 +53,7 @@ package archersysos.java.util;
  * NOTE: The functionality of this interface is duplicated by the Iterator
  * interface.  In addition, Iterator adds an optional remove operation, and
 <<<<<<< HEAD
+<<<<<<< HEAD
  
 * has shorter method names.  New implementations should consider using
  * Iterator in preference to Enumeration.
@@ -68,6 +73,27 @@ package archersysos.java.util;
  * @see     java.util.Vector#elements()
  *
  
+=======
+ 
+* has shorter method names.  New implementations should consider using
+ * Iterator in preference to Enumeration.
+
+ *
+ * @see     java.util.Iterator
+ 
+* @see     java.io.SequenceInputStream
+ 
+* @see     java.util.Enumeration#nextElement()
+ * @see     java.util.Hashtable
+ 
+* @see     java.util.Hashtable#elements()
+ * @see     java.util.Hashtable#keys()
+ 
+* @see     java.util.Vector
+ * @see     java.util.Vector#elements()
+ *
+ 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
  
 * has shorter method names.  New implementations should consider using

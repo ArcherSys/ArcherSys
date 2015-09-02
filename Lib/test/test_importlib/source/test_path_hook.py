@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 from .. import util
 from . import util as source_util
 
@@ -29,6 +30,38 @@ Frozen_PathHookTest, Source_PathHooktest = util.test_both(PathHookTest, machiner
 
 if __name__ == '__main__':
     unittest.main()
+=======
+from .. import util
+from . import util as source_util
+
+machinery = util.import_importlib('importlib.machinery')
+
+import unittest
+
+
+class PathHookTest:
+
+    """Test the path hook for source."""
+
+    def path_hook(self):
+        return self.machinery.FileFinder.path_hook((self.machinery.SourceFileLoader,
+            self.machinery.SOURCE_SUFFIXES))
+
+    def test_success(self):
+        with source_util.create_modules('dummy') as mapping:
+            self.assertTrue(hasattr(self.path_hook()(mapping['.root']),
+                                 'find_module'))
+
+    def test_empty_string(self):
+        # The empty string represents the cwd.
+        self.assertTrue(hasattr(self.path_hook()(''), 'find_module'))
+
+Frozen_PathHookTest, Source_PathHooktest = util.test_both(PathHookTest, machinery=machinery)
+
+
+if __name__ == '__main__':
+    unittest.main()
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 from .. import util
 from . import util as source_util

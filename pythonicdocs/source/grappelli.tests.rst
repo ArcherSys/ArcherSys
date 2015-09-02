@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 grappelli.tests package
 =======================
 
@@ -53,6 +54,62 @@ Module contents
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+grappelli.tests package
+=======================
+
+Submodules
+----------
+
+grappelli.tests.admin module
+----------------------------
+
+.. automodule:: grappelli.tests.admin
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+grappelli.tests.models module
+-----------------------------
+
+.. automodule:: grappelli.tests.models
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+grappelli.tests.test_related module
+-----------------------------------
+
+.. automodule:: grappelli.tests.test_related
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+grappelli.tests.test_switch module
+----------------------------------
+
+.. automodule:: grappelli.tests.test_switch
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+grappelli.tests.urls module
+---------------------------
+
+.. automodule:: grappelli.tests.urls
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: grappelli.tests
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 grappelli.tests package
 =======================

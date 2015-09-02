@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 iostarter module
 ================
 
@@ -6,6 +7,15 @@ iostarter module
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+iostarter module
+================
+
+.. automodule:: iostarter
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 iostarter module
 ================

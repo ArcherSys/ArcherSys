@@ -1,1 +1,0 @@
-var BeximalJS = new Object();

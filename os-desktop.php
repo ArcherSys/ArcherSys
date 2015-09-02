@@ -20,9 +20,12 @@ $desktop = new View("My Desktop",function(){
   echo '</ul>';
   echo '</nav>';
 <<<<<<< HEAD
+<<<<<<< HEAD
   ?>
   <iframe></iframe>
   <?php
+=======
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
   echo '</div>';

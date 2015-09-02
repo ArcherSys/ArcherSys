@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2011 Oracle and/or its affiliates. All rights reserved.
 <<<<<<< HEAD
+<<<<<<< HEAD
  
 *
  * Redistribution and use in source and binary forms, with or without
@@ -34,6 +35,41 @@
  
 * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
  
+=======
+ 
+*
+ * Redistribution and use in source and binary forms, with or without
+ 
+* modification, are permitted provided that the following conditions
+ * are met:
+ 
+*
+ *   - Redistributions of source code must retain the above copyright
+ 
+*     notice, this list of conditions and the following disclaimer.
+ 
+*
+ *   - Redistributions in binary form must reproduce the above copyright
+ 
+*     notice, this list of conditions and the following disclaimer in the
+ 
+*     documentation and/or other materials provided with the distribution.
+ 
+*
+ *   - Neither the name of Oracle nor the names of its
+
+ *     contributors may be used to endorse or promote products derived
+ 
+*     from this software without specific prior written permission.
+
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+ 
+* IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ 
+* THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
  
 *
@@ -124,6 +160,7 @@ class Client {
      * Enqueues a write of the buffer to the channel.
      * The call is asynchronous so the buffer is not safe to modify after
 <<<<<<< HEAD
+<<<<<<< HEAD
     
  * passing the buffer here.
     
@@ -137,6 +174,21 @@ boolean threadShouldWrite = false;
 
         synchronized(queue) {
       
+=======
+    
+ * passing the buffer here.
+    
+ *
+     * @param buffer the buffer to send to the channel
+    
+ */
+    private void writeMessage(final ByteBuffer buffer) {
+        
+boolean threadShouldWrite = false;
+
+        synchronized(queue) {
+      
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
     
  * passing the buffer here.
@@ -190,7 +242,11 @@ boolean threadShouldWrite = false;
                 } else {
                     // Go back and check if there is new data to write
 <<<<<<< HEAD
+<<<<<<< HEAD
           
+=======
+          
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
           
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

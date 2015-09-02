@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 pygubu-asos module
 ==================
 
@@ -6,6 +7,15 @@ pygubu-asos module
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+pygubu-asos module
+==================
+
+.. automodule:: pygubu-asos
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 pygubu-asos module
 ==================

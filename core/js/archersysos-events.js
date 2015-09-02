@@ -1,1 +1,0 @@
-ArcherSysOS.AppLoaded = new Event('build');

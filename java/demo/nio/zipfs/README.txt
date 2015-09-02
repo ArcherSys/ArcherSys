@@ -1,5 +1,6 @@
 ZipFileSystem is a file system provider that treats the contents of a zip or
 <<<<<<< HEAD
+<<<<<<< HEAD
 JAR file as a java.nio.file.FileSystem.
 
 
@@ -12,12 +13,23 @@ JAR file as a java.nio.file.FileSystem.
 The factory methods defined by the java.nio.file.FileSystems class can be
 used to create a FileSystem,
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+JAR file as a java.nio.file.FileSystem.
+
+
+The factory methods defined by the java.nio.file.FileSystems class can be
+used to create a FileSystem,
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
  eg:
 
    // use file type detection
    Path jarfile = Paths.get("foo.jar");
 <<<<<<< HEAD
+<<<<<<< HEAD
  
+=======
+ 
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
  
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

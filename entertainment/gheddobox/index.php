@@ -1,5 +1,6 @@
 <?php
 <<<<<<< HEAD
+<<<<<<< HEAD
 require_once $_SERVER["DOCUMENT_ROOT"]."/includes/View.php";
 use ArcherSys\Viewer\Contrib\View;
 $gbx = new View("Gheddobox",function(){
@@ -21,6 +22,8 @@ $gbx = new View("Gheddobox",function(){
 });
 ?>
 =======
+=======
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 /**
  * index.php   file.
  *
@@ -60,4 +63,7 @@ require($utils);
 require_once($yii);
 
 Yii::createWebApplication($config)->run();
+<<<<<<< HEAD
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
 >>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

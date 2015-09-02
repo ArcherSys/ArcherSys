@@ -1,4 +1,5 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
 random module
 =============
 
@@ -6,6 +7,15 @@ random module
     :members:
     :undoc-members:
     :show-inheritance:
+=======
+random module
+=============
+
+.. automodule:: random
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
 =======
 random module
 =============
