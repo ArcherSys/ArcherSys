@@ -101,9 +101,13 @@ StyleSheetManager::addStyle("/core/css/start2",true);
 ?>
 
 
-<meta http-equiv="X-UA-Compatible" content="IE=Edge">
 <link href='http://fonts.googleapis.com/css?family=Droid+Sans|Open+Sans:700,600' rel='stylesheet' type='text/css'>
-
+<script>
+function apiStatus(data) {
+  ArcherSysOS.$("githubnotes").text(data.status);
+}
+</script>
+<script src="https://status.github.com/api/status.json?callback=apiStatus"></script>
 <script>
  ArcherSysOS.$(function(){
 window.setTimeout(function(){
@@ -129,19 +133,33 @@ window.setTimeout(function(){
    });
 	var h1 = ArcherSysOS.$('div.header').children('h1');
 
-	ArcherSysOS.$('#screen-nav').find('button').on('click', function() {
-		var direction = ArcherSysOS.$(this).data('dir'),
-
-  
-	
-
-   
-       
-       
       ArcherSysOS.$(".header h1").click(function(){
            window.location.assign("http://localhost/settings");
            });
 
+	ArcherSysOS.$('#screen-nav').find('button').on('click', function() {
+		var direction = ArcherSysOS.$(this).data('dir'),
+
+  	loc = screenWidth;
+
+		(direction === 'next') ? ++current : --current;
+
+		if(current === 0) {
+			current = screenLength;
+			loc = totalScreenWidth - screenWidth;
+			direction = 'next';
+		} else if (current - 1 === screenLength) {
+			current = 1;
+			loc = 0;
+		}
+
+		transition(sliderUL, loc, direction);
+
+	
+
+	});
+       
+       
 	function transition(container, loc, direction) {
 		var unit;
 
@@ -248,7 +266,13 @@ try{
 
 <div class="module green single img android">
     <p class="title">ArcherDroid</p>
-</div>
+</div>	<div class="module yellow double img not">
+						<p class="title">Github Notifications</p>
+						<div class="img msg">
+						<p class="sub-pheading"> your notifications:<span id="githubnotes">Good</span></p>
+						</div>
+					</div>
+
 					<div class="module yellow double img not">
 						<p class="title">Notifications</p>
 						<div class="img msg">
@@ -256,13 +280,13 @@ try{
 						</div>
 					</div>
 					
-  <div class="module red single img birds">
+
 					<div class="module yellow double img not">
 						<p class="title">Notifications</p>
 						<div class="img msg">
 						<p class="sub-pheading"> your notifications:<span id="notnumber"></span></p>
 						</div>
-					</div>
+				
 				</li>
 <li>
     <div class="module red single img birds">

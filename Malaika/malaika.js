@@ -121,6 +121,9 @@
          if (display) document.getElementById('recording-indicator').innerHTML = "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;";
          else document.getElementById('recording-indicator').innerHTML = "";
      };
+     Malaika.checkGithub = function(){
+         Malaika.speak(["Github is " + data.status],["f2"],["en/en-us"],80);
+     }
 
      // Callback function once the user authorises access to the microphone
      // in it, we instanciate the recorder
@@ -294,6 +297,8 @@
                                      });
                                  }, 500);
                                  break;
+                                 case "HOWS_GITHUB":
+                                     Malaika.checkGithub();
                              case "HOW-ARE-YOU":
                                  window.document.getElementById("malaikaspeech").innerHTML = "I'm fine, " + localStorage.getItem("Name") + "!";
                                  meSpeak.speakMultipart([{

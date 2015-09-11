@@ -606,27 +606,13 @@ $GLOBALS['l']['w_page'] = __('Page number:');
 
 
 // now, that we have loaded the language strings we can send the errors
-<<<<<<< HEAD
-<<<<<<< HEAD
 if ($GLOBALS['lang_failed_cfg']
     || $GLOBALS['lang_failed_cookie']
     || $GLOBALS['lang_failed_request']) {
     trigger_error(
         __('Ignoring unsupported language code.'),
-=======
-if ($GLOBALS['lang_failed_cfg']
-    || $GLOBALS['lang_failed_cookie']
-    || $GLOBALS['lang_failed_request']) {
-    trigger_error(
-        __('Ignoring unsupported language code.'),
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-if ($GLOBALS['lang_failed_cfg']
-    || $GLOBALS['lang_failed_cookie']
-    || $GLOBALS['lang_failed_request']) {
-    trigger_error(
-        __('Ignoring unsupported language code.'),
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+
+
         E_USER_ERROR
     );
 }

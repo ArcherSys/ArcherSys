@@ -96,8 +96,8 @@ public class NPCMovement : MonoBehaviour {
 		layerMask = ~layerMask;
 		layerMask2 = ~layerMask2;
 		//Debug.Log ("layerMask:" + layerMask);
-		if(rigidbody)
-	rigidbody.freezeRotation = true;
+		if(GetComponent<Rigidbody>())
+	GetComponent<Rigidbody>().freezeRotation = true;
 		CapsuleCollider thisCollider = This.GetComponent<CapsuleCollider>();
 		if(thisCollider){
 			colliderHeight = thisCollider.height;
@@ -264,7 +264,7 @@ public class NPCMovement : MonoBehaviour {
 		if(curTime<jumpTime)
 			return;
 		if(grounded){
-		rigidbody.AddForce(This.up*382f,ForceMode.Impulse);
+		GetComponent<Rigidbody>().AddForce(This.up*382f,ForceMode.Impulse);
 		//Debug.Log ("collider detected:"+hit.transform.name);
 		jumpTime = curTime+minJumpDelay;
 			jumpState = 0;

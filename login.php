@@ -15,14 +15,14 @@ require_once "includes\ConfigManager.php";
 
  //Checks if there is a login cookie
 
- if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
+ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]))
 
 
  //if there is, it logs you in and directes you to the members page
 
  {
  	$username = $_COOKIE['ID_ARCHERVMCASHEW'];
-
+    $role = $_GET["roleDetect"];
  	$pass = $_COOKIE['Key_ARCHERVMCASHEW'];
 	$fullname = $_COOKIE["ScreenName_ARCHERVMCASHEW"];
 
@@ -32,7 +32,7 @@ require_once "includes\ConfigManager.php";
 
  		{
 
- 		if ($pass != $info['password'])
+ 		if ($pass != $info['password'] || $role != $info['role'])
 
  			{
 
@@ -120,7 +120,17 @@ require_once "includes\ConfigManager.php";
                  echo "</head>";
                  echo "<body>";
  		die('<div class="asos-incorrect-pass"><p>Incorrect password.</p> <button class="asos-ipass-button" onclick="window.reload()">Please Try Again</button></div></body></html>');
-
+             
+ 	}
+ 	else if($role != $info["role"]){
+ 	    echo "<!DOCTYPE HTML>";
+                echo "<html>";
+                   echo "<head>";
+                  echo "<title>Error ASOS-0006: User Unauthorized</title>";
+                 echo "<link rel=\"stylesheet\" type=\"text/css\" href=\"/core/css/err-rf.css\"/>";
+                 echo "</head>";
+                 echo "<body>";
+ 		die('<div class="asos-incorrect-pass"><p>You do not have permission to use this app  <button class="asos-ipass-button" onclick="window.reload"><a href='.$_SERVER["PHP_SELF"].'>Please Log in with an Admin Account.</a></button></div></body></html>');
  	}
 
     else
@@ -139,6 +149,7 @@ require_once "includes\ConfigManager.php";
  setcookie('Key_ARCHERVMCASHEW', $_POST['pass'], $hour);
   setcookie('ScreenName_ARCHERVMCASHEW', $info["first_name"]." ".$info["last_name"], $hour);
 
+ setcookie('Role_ARCHERVMCASHEW', $role, $hour);
 setcookie('ProfilePicture_ARCHERVMCASHEW',$info["profile_image"],$hour);
 setcookie('Nickname_ARCHERVMCASHEW',$info["first_name"],$hour);
 
@@ -179,7 +190,6 @@ setcookie('Nickname_ARCHERVMCASHEW',$info["first_name"],$hour);
 <meta name="msapplication-config" content="ieconfig.xml" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/0.10.2/dropbox.min.js">
 </script>
-<<<<<<< HEAD
 <script src="/core/js/modernizr.js"></script>
 <script src="/core/js/jquery.js"></script>
 <script src="/core/js/archersysos.js">
@@ -219,7 +229,7 @@ localStorage.setItem("Name","Guest");
     
  
 <form id="login" class="front box" action="<?php echo $_SERVER['PHP_SELF']?>" method="post">
-  <div class="default"><i class="icon-briefcase"></i><h1>Press login</h1></div>
+  <div class="default"><i class="icon-briefcase"></i><h1>Login to ArcherSys OS Cashew</h1></div>
 <div id="fb-root"></div>
 <script>(function(d, s, id) {
   var js, fjs = d.getElementsByTagName(s)[0];

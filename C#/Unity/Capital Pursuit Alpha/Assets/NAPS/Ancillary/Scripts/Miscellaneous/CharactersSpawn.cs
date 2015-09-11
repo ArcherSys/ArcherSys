@@ -94,7 +94,7 @@ bool showWindow = true;
 			//Debug.Log ("pos:"+spawnPos);
 			newNPC.parent = transform;
 			newNPC = newNPC.GetChild (0).GetChild (0);
-			newNPC.animation["walk_fun"].time = Random.Range (0f,newNPC.animation["walk_fun"].length);
+			newNPC.GetComponent<Animation>()["walk_fun"].time = Random.Range (0f,newNPC.GetComponent<Animation>()["walk_fun"].length);
 			curNumber++;
 			curNumberStr = curNumber.ToString();
 		}else return;

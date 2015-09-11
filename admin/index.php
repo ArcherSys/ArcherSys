@@ -1,3 +1,68 @@
+
+<?php
+  require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
+  require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/component-functions.php";
+  require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/ViewManager.php";
+  require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/DataManager.php";
+
+  
+  require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/StyleSheetManager.php";
+  require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/DateManager.php";
+  require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/LogicManager.php";
+  use ArcherSys\Viewer\ViewManager;
+  use ArcherSys\Data\DataManager;
+  use ArcherSys\Viewer\LogicManager;
+
+  use ArcherSys\Styles\StyleSheetManager;
+  
+  use ArcherSys\Timex\DateManager;
+  LogicManager::runStartScreen();
+ // Connects to your Database
+@ini_set("max_execution_time", 300);
+   mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or DataManager::notify();
+   
+ mysql_select_db( "acoserver_acoserver") or DataManager::notify();
+
+ 
+ //checks cookies to make sure they are logged in
+
+
+
+ 
+if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]))
+
+ {
+
+ 	$username = $_COOKIE['ID_ARCHERVMCASHEW'];
+
+ 	$pass = $_COOKIE['Key_ARCHERVMCASHEW'];
+
+ 	 	$check = mysql_query("SELECT * FROM users WHERE username = '$username'")or DataManager::notify();
+
+ 	while($info = mysql_fetch_array( $check ))
+
+ 		{
+
+ 
+
+ //if the cookie has the wrong password, they are taken to the login page
+
+ 		if ($pass != $info['password'] || $info["role"] != "Admin")
+
+ 			{ 			header("Location: http://localhost/login.php?redirect_uri=${_SERVER['PHP_SELF']}&roleDetect=Admin");
+
+ 			}
+
+ 
+
+ //otherwise they are shown the admin area
+
+ 	else
+
+ 			{
+
+  
+?>
 <!DOCTYPE HTML>
 <html>
 <head>
@@ -46,10 +111,10 @@ background-color: blue;
 $(function(){
   $("#piwikstarter").click(function(){
     window.location.assign("http://localhost/admin/piwik/");
- }); 
+ });
  $("#phpMyAdmin").click(function(){
     window.location.assign("http://localhost/admin/phpMyAdmin/");
- });   
+ });
 
 });
 
@@ -58,3 +123,22 @@ $(function(){
 </core-header-panel>
 </body>
 </html>
+<?php
+
+ 			}
+
+ 		}
+
+ 		}
+
+else {
+  
+header("Location: http://localhost/login.php?redirect_uri=${_SERVER['PHP_SELF']}&roleDetect=Admin");
+
+ }
+
+  
+
+ 
+		
+		?>

@@ -36,7 +36,7 @@ public class PathsDebug : MonoBehaviour {
 	// Update is called once per frame
 	void Update () {
 		if(!thisCamera)
-			thisCamera = transform.camera;
+			thisCamera = transform.GetComponent<Camera>();
 		if(!Pathfinding.DataLoaded())
 			return;
 			if(Pathfinding.pathsTypes.Length<1)
