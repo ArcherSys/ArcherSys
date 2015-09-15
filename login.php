@@ -14,7 +14,7 @@ require_once "includes\ConfigManager.php";
 
 
  //Checks if there is a login cookie
-
+$role = $_GET["roleDetect"];
  if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]))
 
 
@@ -22,7 +22,7 @@ require_once "includes\ConfigManager.php";
 
  {
  	$username = $_COOKIE['ID_ARCHERVMCASHEW'];
-    $role = $_GET["roleDetect"];
+    
  	$pass = $_COOKIE['Key_ARCHERVMCASHEW'];
 	$fullname = $_COOKIE["ScreenName_ARCHERVMCASHEW"];
 
@@ -228,7 +228,7 @@ localStorage.setItem("Name","Guest");
     <div id="wrapper">
     
  
-<form id="login" class="front box" action="<?php echo $_SERVER['PHP_SELF']?>" method="post">
+<form id="login" class="front box" action="<?php echo $_SERVER['PHP_SELF']."?redirect_uri=".$_GET["redirect_uri"]."&roleDetect=".$_GET["roleDetect"]; ?>" method="post">
   <div class="default"><i class="icon-briefcase"></i><h1>Login to ArcherSys OS Cashew</h1></div>
 <div id="fb-root"></div>
 <script>(function(d, s, id) {
