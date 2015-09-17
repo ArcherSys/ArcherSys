@@ -4,7 +4,7 @@
   require_once "includes/component-functions.php";
   require_once "includes/ViewManager.php";
   require_once "includes/DataManager.php";
-
+require_once "includes/AuthenticatorBuilder.php";
   
   require_once "includes/StyleSheetManager.php";
   require_once "includes/DateManager.php";
@@ -14,7 +14,7 @@
   use ArcherSys\Viewer\LogicManager;
 
   use ArcherSys\Styles\StyleSheetManager;
-  
+  use ArcherSys\Nav\AuthenticatorBuilder;
   use ArcherSys\Timex\DateManager;
   LogicManager::runStartScreen();
  // Connects to your Database
@@ -404,7 +404,7 @@ try{
 
 else {
   
-header("Location: login.php?redirect_uri=index.php");
+header("Location: ".AuthenticatorBuilder::buildLoginUri($_SERVER["PHP_SELF"],"Admin"));
 
  }
 
