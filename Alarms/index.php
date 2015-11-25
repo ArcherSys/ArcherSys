@@ -1,0 +1,31 @@
+<html>
+<head>
+<head>
+<link rel="stylesheet" href="/core/js/compiled/flipclock.css">
+
+<script src="/core/js/jquery.js"></script>
+<script src="/core/js/compiled/flipclock.min.js"></script>
+</head>
+<body>
+    <div class="clock" style="margin:2em;"></div>
+<script type="text/javascript">
+			var clock;
+			
+			$(document).ready(function() {
+			
+			
+
+			
+              window.setTimeout(function(){
+            
+				// Instantiate a coutdown FlipClock
+				clock = $('.clock').FlipClock( {
+					clockFace: 'TwelveHourClock'
+		
+				});
+              });
+			});
+		</script>
+
+</body>
+</html>

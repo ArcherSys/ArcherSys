@@ -1,0 +1,827 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>asyncore &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../index.html"/>
+        <link rel="up" title="Module code" href="index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="index.html">Module code</a> &raquo;</li>
+      
+    <li>asyncore</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for asyncore</h1><div class="highlight"><pre>
+<span class="c"># -*- Mode: Python -*-</span>
+<span class="c">#   Id: asyncore.py,v 2.51 2000/09/07 22:29:26 rushing Exp</span>
+<span class="c">#   Author: Sam Rushing &lt;rushing@nightmare.com&gt;</span>
+
+<span class="c"># ======================================================================</span>
+<span class="c"># Copyright 1996 by Sam Rushing</span>
+<span class="c">#</span>
+<span class="c">#                         All Rights Reserved</span>
+<span class="c">#</span>
+<span class="c"># Permission to use, copy, modify, and distribute this software and</span>
+<span class="c"># its documentation for any purpose and without fee is hereby</span>
+<span class="c"># granted, provided that the above copyright notice appear in all</span>
+<span class="c"># copies and that both that copyright notice and this permission</span>
+<span class="c"># notice appear in supporting documentation, and that the name of Sam</span>
+<span class="c"># Rushing not be used in advertising or publicity pertaining to</span>
+<span class="c"># distribution of the software without specific, written prior</span>
+<span class="c"># permission.</span>
+<span class="c">#</span>
+<span class="c"># SAM RUSHING DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE,</span>
+<span class="c"># INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS, IN</span>
+<span class="c"># NO EVENT SHALL SAM RUSHING BE LIABLE FOR ANY SPECIAL, INDIRECT OR</span>
+<span class="c"># CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS</span>
+<span class="c"># OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,</span>
+<span class="c"># NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN</span>
+<span class="c"># CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.</span>
+<span class="c"># ======================================================================</span>
+
+<span class="sd">&quot;&quot;&quot;Basic infrastructure for asynchronous socket service clients and servers.</span>
+
+<span class="sd">There are only two ways to have a program on a single processor do &quot;more</span>
+<span class="sd">than one thing at a time&quot;.  Multi-threaded programming is the simplest and</span>
+<span class="sd">most popular way to do it, but there is another very different technique,</span>
+<span class="sd">that lets you have nearly all the advantages of multi-threading, without</span>
+<span class="sd">actually using multiple threads. it&#39;s really only practical if your program</span>
+<span class="sd">is largely I/O bound. If your program is CPU bound, then pre-emptive</span>
+<span class="sd">scheduled threads are probably what you really need. Network servers are</span>
+<span class="sd">rarely CPU-bound, however.</span>
+
+<span class="sd">If your operating system supports the select() system call in its I/O</span>
+<span class="sd">library (and nearly all do), then you can use it to juggle multiple</span>
+<span class="sd">communication channels at once; doing other work while your I/O is taking</span>
+<span class="sd">place in the &quot;background.&quot;  Although this strategy can seem strange and</span>
+<span class="sd">complex, especially at first, it is in many ways easier to understand and</span>
+<span class="sd">control than multi-threaded programming. The module documented here solves</span>
+<span class="sd">many of the difficult problems for you, making the task of building</span>
+<span class="sd">sophisticated high-performance network servers and clients a snap.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">select</span>
+<span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">from</span> <span class="nn">errno</span> <span class="kn">import</span> <span class="n">EALREADY</span><span class="p">,</span> <span class="n">EINPROGRESS</span><span class="p">,</span> <span class="n">EWOULDBLOCK</span><span class="p">,</span> <span class="n">ECONNRESET</span><span class="p">,</span> <span class="n">EINVAL</span><span class="p">,</span> \
+     <span class="n">ENOTCONN</span><span class="p">,</span> <span class="n">ESHUTDOWN</span><span class="p">,</span> <span class="n">EISCONN</span><span class="p">,</span> <span class="n">EBADF</span><span class="p">,</span> <span class="n">ECONNABORTED</span><span class="p">,</span> <span class="n">EPIPE</span><span class="p">,</span> <span class="n">EAGAIN</span><span class="p">,</span> \
+     <span class="n">errorcode</span>
+
+<span class="n">_DISCONNECTED</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">((</span><span class="n">ECONNRESET</span><span class="p">,</span> <span class="n">ENOTCONN</span><span class="p">,</span> <span class="n">ESHUTDOWN</span><span class="p">,</span> <span class="n">ECONNABORTED</span><span class="p">,</span> <span class="n">EPIPE</span><span class="p">,</span>
+                           <span class="n">EBADF</span><span class="p">))</span>
+
+<span class="k">try</span><span class="p">:</span>
+    <span class="n">socket_map</span>
+<span class="k">except</span> <span class="ne">NameError</span><span class="p">:</span>
+    <span class="n">socket_map</span> <span class="o">=</span> <span class="p">{}</span>
+
+<span class="k">def</span> <span class="nf">_strerror</span><span class="p">(</span><span class="n">err</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">strerror</span><span class="p">(</span><span class="n">err</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">ValueError</span><span class="p">,</span> <span class="ne">OverflowError</span><span class="p">,</span> <span class="ne">NameError</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">err</span> <span class="ow">in</span> <span class="n">errorcode</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">errorcode</span><span class="p">[</span><span class="n">err</span><span class="p">]</span>
+        <span class="k">return</span> <span class="s">&quot;Unknown error </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span><span class="n">err</span>
+
+<div class="viewcode-block" id="ExitNow"><a class="viewcode-back" href="../asyncore.html#asyncore.ExitNow">[docs]</a><span class="k">class</span> <span class="nc">ExitNow</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">pass</span>
+</div>
+<span class="n">_reraised_exceptions</span> <span class="o">=</span> <span class="p">(</span><span class="n">ExitNow</span><span class="p">,</span> <span class="ne">KeyboardInterrupt</span><span class="p">,</span> <span class="ne">SystemExit</span><span class="p">)</span>
+
+<div class="viewcode-block" id="read"><a class="viewcode-back" href="../asyncore.html#asyncore.read">[docs]</a><span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">handle_read_event</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">_reraised_exceptions</span><span class="p">:</span>
+        <span class="k">raise</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">handle_error</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="write"><a class="viewcode-back" href="../asyncore.html#asyncore.write">[docs]</a><span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">handle_write_event</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">_reraised_exceptions</span><span class="p">:</span>
+        <span class="k">raise</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">handle_error</span><span class="p">()</span>
+</div>
+<span class="k">def</span> <span class="nf">_exception</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">handle_expt_event</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">_reraised_exceptions</span><span class="p">:</span>
+        <span class="k">raise</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">handle_error</span><span class="p">()</span>
+
+<div class="viewcode-block" id="readwrite"><a class="viewcode-back" href="../asyncore.html#asyncore.readwrite">[docs]</a><span class="k">def</span> <span class="nf">readwrite</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">flags</span><span class="p">):</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="o">&amp;</span> <span class="n">select</span><span class="o">.</span><span class="n">POLLIN</span><span class="p">:</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">handle_read_event</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="o">&amp;</span> <span class="n">select</span><span class="o">.</span><span class="n">POLLOUT</span><span class="p">:</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">handle_write_event</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="o">&amp;</span> <span class="n">select</span><span class="o">.</span><span class="n">POLLPRI</span><span class="p">:</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">handle_expt_event</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">flags</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">select</span><span class="o">.</span><span class="n">POLLHUP</span> <span class="o">|</span> <span class="n">select</span><span class="o">.</span><span class="n">POLLERR</span> <span class="o">|</span> <span class="n">select</span><span class="o">.</span><span class="n">POLLNVAL</span><span class="p">):</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">handle_close</span><span class="p">()</span>
+    <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">e</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">_DISCONNECTED</span><span class="p">:</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">handle_error</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">obj</span><span class="o">.</span><span class="n">handle_close</span><span class="p">()</span>
+    <span class="k">except</span> <span class="n">_reraised_exceptions</span><span class="p">:</span>
+        <span class="k">raise</span>
+    <span class="k">except</span><span class="p">:</span>
+        <span class="n">obj</span><span class="o">.</span><span class="n">handle_error</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="poll"><a class="viewcode-back" href="../asyncore.html#asyncore.poll">[docs]</a><span class="k">def</span> <span class="nf">poll</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">map</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="nb">map</span> <span class="o">=</span> <span class="n">socket_map</span>
+    <span class="k">if</span> <span class="nb">map</span><span class="p">:</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="p">[];</span> <span class="n">w</span> <span class="o">=</span> <span class="p">[];</span> <span class="n">e</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">fd</span><span class="p">,</span> <span class="n">obj</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+            <span class="n">is_r</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">readable</span><span class="p">()</span>
+            <span class="n">is_w</span> <span class="o">=</span> <span class="n">obj</span><span class="o">.</span><span class="n">writable</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">is_r</span><span class="p">:</span>
+                <span class="n">r</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="c"># accepting sockets should not be writable</span>
+            <span class="k">if</span> <span class="n">is_w</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">obj</span><span class="o">.</span><span class="n">accepting</span><span class="p">:</span>
+                <span class="n">w</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">is_r</span> <span class="ow">or</span> <span class="n">is_w</span><span class="p">:</span>
+                <span class="n">e</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">[]</span> <span class="o">==</span> <span class="n">r</span> <span class="o">==</span> <span class="n">w</span> <span class="o">==</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">r</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">e</span> <span class="o">=</span> <span class="n">select</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">e</span><span class="p">,</span> <span class="n">timeout</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">InterruptedError</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">for</span> <span class="n">fd</span> <span class="ow">in</span> <span class="n">r</span><span class="p">:</span>
+            <span class="n">obj</span> <span class="o">=</span> <span class="nb">map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">obj</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">read</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">fd</span> <span class="ow">in</span> <span class="n">w</span><span class="p">:</span>
+            <span class="n">obj</span> <span class="o">=</span> <span class="nb">map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">obj</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">write</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">fd</span> <span class="ow">in</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">obj</span> <span class="o">=</span> <span class="nb">map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">obj</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">_exception</span><span class="p">(</span><span class="n">obj</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="poll2"><a class="viewcode-back" href="../asyncore.html#asyncore.poll2">[docs]</a><span class="k">def</span> <span class="nf">poll2</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="c"># Use the poll() support added to the select module in Python 2.0</span>
+    <span class="k">if</span> <span class="nb">map</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="nb">map</span> <span class="o">=</span> <span class="n">socket_map</span>
+    <span class="k">if</span> <span class="n">timeout</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="c"># timeout is in milliseconds</span>
+        <span class="n">timeout</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">timeout</span><span class="o">*</span><span class="mi">1000</span><span class="p">)</span>
+    <span class="n">pollster</span> <span class="o">=</span> <span class="n">select</span><span class="o">.</span><span class="n">poll</span><span class="p">()</span>
+    <span class="k">if</span> <span class="nb">map</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">fd</span><span class="p">,</span> <span class="n">obj</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="o">.</span><span class="n">items</span><span class="p">()):</span>
+            <span class="n">flags</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">readable</span><span class="p">():</span>
+                <span class="n">flags</span> <span class="o">|=</span> <span class="n">select</span><span class="o">.</span><span class="n">POLLIN</span> <span class="o">|</span> <span class="n">select</span><span class="o">.</span><span class="n">POLLPRI</span>
+            <span class="c"># accepting sockets should not be writable</span>
+            <span class="k">if</span> <span class="n">obj</span><span class="o">.</span><span class="n">writable</span><span class="p">()</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">obj</span><span class="o">.</span><span class="n">accepting</span><span class="p">:</span>
+                <span class="n">flags</span> <span class="o">|=</span> <span class="n">select</span><span class="o">.</span><span class="n">POLLOUT</span>
+            <span class="k">if</span> <span class="n">flags</span><span class="p">:</span>
+                <span class="n">pollster</span><span class="o">.</span><span class="n">register</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">r</span> <span class="o">=</span> <span class="n">pollster</span><span class="o">.</span><span class="n">poll</span><span class="p">(</span><span class="n">timeout</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">InterruptedError</span><span class="p">:</span>
+            <span class="n">r</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">fd</span><span class="p">,</span> <span class="n">flags</span> <span class="ow">in</span> <span class="n">r</span><span class="p">:</span>
+            <span class="n">obj</span> <span class="o">=</span> <span class="nb">map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">obj</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">readwrite</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+</div>
+<span class="n">poll3</span> <span class="o">=</span> <span class="n">poll2</span>                           <span class="c"># Alias for backward compatibility</span>
+
+<div class="viewcode-block" id="loop"><a class="viewcode-back" href="../asyncore.html#asyncore.loop">[docs]</a><span class="k">def</span> <span class="nf">loop</span><span class="p">(</span><span class="n">timeout</span><span class="o">=</span><span class="mf">30.0</span><span class="p">,</span> <span class="n">use_poll</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">map</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="nb">map</span> <span class="o">=</span> <span class="n">socket_map</span>
+
+    <span class="k">if</span> <span class="n">use_poll</span> <span class="ow">and</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">select</span><span class="p">,</span> <span class="s">&#39;poll&#39;</span><span class="p">):</span>
+        <span class="n">poll_fun</span> <span class="o">=</span> <span class="n">poll2</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">poll_fun</span> <span class="o">=</span> <span class="n">poll</span>
+
+    <span class="k">if</span> <span class="n">count</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">while</span> <span class="nb">map</span><span class="p">:</span>
+            <span class="n">poll_fun</span><span class="p">(</span><span class="n">timeout</span><span class="p">,</span> <span class="nb">map</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">while</span> <span class="nb">map</span> <span class="ow">and</span> <span class="n">count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">poll_fun</span><span class="p">(</span><span class="n">timeout</span><span class="p">,</span> <span class="nb">map</span><span class="p">)</span>
+            <span class="n">count</span> <span class="o">=</span> <span class="n">count</span> <span class="o">-</span> <span class="mi">1</span>
+</div>
+<div class="viewcode-block" id="dispatcher"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher">[docs]</a><span class="k">class</span> <span class="nc">dispatcher</span><span class="p">:</span>
+
+    <span class="n">debug</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">connected</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">accepting</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">connecting</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">closing</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">addr</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">ignore_log_types</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">([</span><span class="s">&#39;warning&#39;</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">map</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_map</span> <span class="o">=</span> <span class="n">socket_map</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_map</span> <span class="o">=</span> <span class="nb">map</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fileno</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">if</span> <span class="n">sock</span><span class="p">:</span>
+            <span class="c"># Set to nonblocking just to make sure for cases where we</span>
+            <span class="c"># get a socket from a blocking source.</span>
+            <span class="n">sock</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_socket</span><span class="p">(</span><span class="n">sock</span><span class="p">,</span> <span class="nb">map</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">connected</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="c"># The constructor no longer requires that the socket</span>
+            <span class="c"># passed be connected.</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">addr</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">getpeername</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">err</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="n">ENOTCONN</span><span class="p">,</span> <span class="n">EINVAL</span><span class="p">):</span>
+                    <span class="c"># To handle the case where we got an unconnected</span>
+                    <span class="c"># socket.</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">connected</span> <span class="o">=</span> <span class="bp">False</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c"># The socket is broken in some unknown way, alert</span>
+                    <span class="c"># the user and remove it from the map (to prevent</span>
+                    <span class="c"># polling of broken sockets).</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">del_channel</span><span class="p">(</span><span class="nb">map</span><span class="p">)</span>
+                    <span class="k">raise</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">socket</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">status</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__module__</span><span class="o">+</span><span class="s">&quot;.&quot;</span><span class="o">+</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">accepting</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">addr</span><span class="p">:</span>
+            <span class="n">status</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;listening&#39;</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">connected</span><span class="p">:</span>
+            <span class="n">status</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;connected&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">addr</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">status</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s">:</span><span class="si">%d</span><span class="s">&#39;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">addr</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+                <span class="n">status</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">repr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">addr</span><span class="p">))</span>
+        <span class="k">return</span> <span class="s">&#39;&lt;</span><span class="si">%s</span><span class="s"> at </span><span class="si">%#x</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">status</span><span class="p">),</span> <span class="nb">id</span><span class="p">(</span><span class="bp">self</span><span class="p">))</span>
+
+    <span class="n">__str__</span> <span class="o">=</span> <span class="n">__repr__</span>
+
+<div class="viewcode-block" id="dispatcher.add_channel"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.add_channel">[docs]</a>    <span class="k">def</span> <span class="nf">add_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="c">#self.log_info(&#39;adding channel %s&#39; % self)</span>
+        <span class="k">if</span> <span class="nb">map</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">map</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_map</span>
+        <span class="nb">map</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_fileno</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span>
+</div>
+<div class="viewcode-block" id="dispatcher.del_channel"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.del_channel">[docs]</a>    <span class="k">def</span> <span class="nf">del_channel</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">fd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_fileno</span>
+        <span class="k">if</span> <span class="nb">map</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="nb">map</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_map</span>
+        <span class="k">if</span> <span class="n">fd</span> <span class="ow">in</span> <span class="nb">map</span><span class="p">:</span>
+            <span class="c">#self.log_info(&#39;closing channel %d:%s&#39; % (fd, self))</span>
+            <span class="k">del</span> <span class="nb">map</span><span class="p">[</span><span class="n">fd</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fileno</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+<div class="viewcode-block" id="dispatcher.create_socket"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.create_socket">[docs]</a>    <span class="k">def</span> <span class="nf">create_socket</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">family</span><span class="o">=</span><span class="n">socket</span><span class="o">.</span><span class="n">AF_INET</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="n">socket</span><span class="o">.</span><span class="n">SOCK_STREAM</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">family_and_type</span> <span class="o">=</span> <span class="n">family</span><span class="p">,</span> <span class="nb">type</span>
+        <span class="n">sock</span> <span class="o">=</span> <span class="n">socket</span><span class="o">.</span><span class="n">socket</span><span class="p">(</span><span class="n">family</span><span class="p">,</span> <span class="nb">type</span><span class="p">)</span>
+        <span class="n">sock</span><span class="o">.</span><span class="n">setblocking</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_socket</span><span class="p">(</span><span class="n">sock</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.set_socket"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.set_socket">[docs]</a>    <span class="k">def</span> <span class="nf">set_socket</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">socket</span> <span class="o">=</span> <span class="n">sock</span>
+<span class="c">##        self.__dict__[&#39;socket&#39;] = sock</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_fileno</span> <span class="o">=</span> <span class="n">sock</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">add_channel</span><span class="p">(</span><span class="nb">map</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.set_reuse_addr"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.set_reuse_addr">[docs]</a>    <span class="k">def</span> <span class="nf">set_reuse_addr</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># try to re-use a server port if possible</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">setsockopt</span><span class="p">(</span>
+                <span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SO_REUSEADDR</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">getsockopt</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span>
+                                       <span class="n">socket</span><span class="o">.</span><span class="n">SO_REUSEADDR</span><span class="p">)</span> <span class="o">|</span> <span class="mi">1</span>
+                <span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span><span class="p">:</span>
+            <span class="k">pass</span>
+
+    <span class="c"># ==================================================</span>
+    <span class="c"># predicates for select()</span>
+    <span class="c"># these are used as filters for the lists of sockets</span>
+    <span class="c"># to pass to select().</span>
+    <span class="c"># ==================================================</span>
+</div>
+<div class="viewcode-block" id="dispatcher.readable"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.readable">[docs]</a>    <span class="k">def</span> <span class="nf">readable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="dispatcher.writable"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.writable">[docs]</a>    <span class="k">def</span> <span class="nf">writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">True</span>
+
+    <span class="c"># ==================================================</span>
+    <span class="c"># socket object methods.</span>
+    <span class="c"># ==================================================</span>
+</div>
+<div class="viewcode-block" id="dispatcher.listen"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.listen">[docs]</a>    <span class="k">def</span> <span class="nf">listen</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">num</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">accepting</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;nt&#39;</span> <span class="ow">and</span> <span class="n">num</span> <span class="o">&gt;</span> <span class="mi">5</span><span class="p">:</span>
+            <span class="n">num</span> <span class="o">=</span> <span class="mi">5</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">listen</span><span class="p">(</span><span class="n">num</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.bind"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.bind">[docs]</a>    <span class="k">def</span> <span class="nf">bind</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">addr</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">addr</span> <span class="o">=</span> <span class="n">addr</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">bind</span><span class="p">(</span><span class="n">addr</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.connect"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.connect">[docs]</a>    <span class="k">def</span> <span class="nf">connect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">connected</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">connecting</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">connect_ex</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">err</span> <span class="ow">in</span> <span class="p">(</span><span class="n">EINPROGRESS</span><span class="p">,</span> <span class="n">EALREADY</span><span class="p">,</span> <span class="n">EWOULDBLOCK</span><span class="p">)</span> \
+        <span class="ow">or</span> <span class="n">err</span> <span class="o">==</span> <span class="n">EINVAL</span> <span class="ow">and</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;nt&#39;</span><span class="p">,</span> <span class="s">&#39;ce&#39;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">addr</span> <span class="o">=</span> <span class="n">address</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="n">err</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">EISCONN</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">addr</span> <span class="o">=</span> <span class="n">address</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle_connect_event</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="n">errorcode</span><span class="p">[</span><span class="n">err</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="dispatcher.accept"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.accept">[docs]</a>    <span class="k">def</span> <span class="nf">accept</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># XXX can return either an address pair or None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">conn</span><span class="p">,</span> <span class="n">addr</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">TypeError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">why</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">why</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="n">EWOULDBLOCK</span><span class="p">,</span> <span class="n">ECONNABORTED</span><span class="p">,</span> <span class="n">EAGAIN</span><span class="p">):</span>
+                <span class="k">return</span> <span class="bp">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">conn</span><span class="p">,</span> <span class="n">addr</span>
+</div>
+<div class="viewcode-block" id="dispatcher.send"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.send">[docs]</a>    <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">result</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">why</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">why</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">EWOULDBLOCK</span><span class="p">:</span>
+                <span class="k">return</span> <span class="mi">0</span>
+            <span class="k">elif</span> <span class="n">why</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="n">_DISCONNECTED</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handle_close</span><span class="p">()</span>
+                <span class="k">return</span> <span class="mi">0</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span>
+</div>
+<div class="viewcode-block" id="dispatcher.recv"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.recv">[docs]</a>    <span class="k">def</span> <span class="nf">recv</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">buffer_size</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">recv</span><span class="p">(</span><span class="n">buffer_size</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">data</span><span class="p">:</span>
+                <span class="c"># a closed connection is indicated by signaling</span>
+                <span class="c"># a read condition, and having recv() return 0.</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handle_close</span><span class="p">()</span>
+                <span class="k">return</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">data</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">why</span><span class="p">:</span>
+            <span class="c"># winsock sometimes raises ENOTCONN</span>
+            <span class="k">if</span> <span class="n">why</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="n">_DISCONNECTED</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handle_close</span><span class="p">()</span>
+                <span class="k">return</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span>
+</div>
+<div class="viewcode-block" id="dispatcher.close"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.close">[docs]</a>    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">connected</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">accepting</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">connecting</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">del_channel</span><span class="p">()</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">why</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">why</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">ENOTCONN</span><span class="p">,</span> <span class="n">EBADF</span><span class="p">):</span>
+                    <span class="k">raise</span>
+
+    <span class="c"># cheap inheritance, used to pass all other attribute</span>
+    <span class="c"># references to the underlying socket object.</span></div>
+    <span class="k">def</span> <span class="nf">__getattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">attr</span><span class="p">):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">retattr</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="p">,</span> <span class="n">attr</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">AttributeError</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s"> instance has no attribute &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span>
+                                 <span class="o">%</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">attr</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%(me)s</span><span class="s">.</span><span class="si">%(attr)s</span><span class="s"> is deprecated; use </span><span class="si">%(me)s</span><span class="s">.socket.</span><span class="si">%(attr)s</span><span class="s"> &quot;</span> \
+                  <span class="s">&quot;instead&quot;</span> <span class="o">%</span> <span class="p">{</span><span class="s">&#39;me&#39;</span> <span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="s">&#39;attr&#39;</span> <span class="p">:</span> <span class="n">attr</span><span class="p">}</span>
+            <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="ne">DeprecationWarning</span><span class="p">,</span> <span class="n">stacklevel</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">retattr</span>
+
+    <span class="c"># log and log_info may be overridden to provide more sophisticated</span>
+    <span class="c"># logging and warning methods. In general, log is for &#39;hit&#39; logging</span>
+    <span class="c"># and &#39;log_info&#39; is for informational, warning and error logging.</span>
+
+<div class="viewcode-block" id="dispatcher.log"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.log">[docs]</a>    <span class="k">def</span> <span class="nf">log</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">):</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;log: </span><span class="si">%s</span><span class="se">\n</span><span class="s">&#39;</span> <span class="o">%</span> <span class="nb">str</span><span class="p">(</span><span class="n">message</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="dispatcher.log_info"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.log_info">[docs]</a>    <span class="k">def</span> <span class="nf">log_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;info&#39;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ignore_log_types</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&#39;</span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="p">(</span><span class="nb">type</span><span class="p">,</span> <span class="n">message</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_read_event"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_read_event">[docs]</a>    <span class="k">def</span> <span class="nf">handle_read_event</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">accepting</span><span class="p">:</span>
+            <span class="c"># accepting sockets are never connected, they &quot;spawn&quot; new</span>
+            <span class="c"># sockets that are connected</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle_accept</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">connected</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">connecting</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handle_connect_event</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle_read</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle_read</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_connect_event"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_connect_event">[docs]</a>    <span class="k">def</span> <span class="nf">handle_connect_event</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">getsockopt</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SO_ERROR</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">err</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">OSError</span><span class="p">(</span><span class="n">err</span><span class="p">,</span> <span class="n">_strerror</span><span class="p">(</span><span class="n">err</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle_connect</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">connected</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">connecting</span> <span class="o">=</span> <span class="bp">False</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_write_event"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_write_event">[docs]</a>    <span class="k">def</span> <span class="nf">handle_write_event</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">accepting</span><span class="p">:</span>
+            <span class="c"># Accepting sockets shouldn&#39;t get a write event.</span>
+            <span class="c"># We will pretend it didn&#39;t happen.</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">connected</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">connecting</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handle_connect_event</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle_write</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_expt_event"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_expt_event">[docs]</a>    <span class="k">def</span> <span class="nf">handle_expt_event</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># handle_expt_event() is called if there might be an error on the</span>
+        <span class="c"># socket, or if there is OOB data</span>
+        <span class="c"># check for the error condition first</span>
+        <span class="n">err</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">getsockopt</span><span class="p">(</span><span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span><span class="p">,</span> <span class="n">socket</span><span class="o">.</span><span class="n">SO_ERROR</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">err</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c"># we can get here when select.select() says that there is an</span>
+            <span class="c"># exceptional condition on the socket</span>
+            <span class="c"># since there is an error, we&#39;ll go ahead and close the socket</span>
+            <span class="c"># like we would in a subclassed handle_read() that received no</span>
+            <span class="c"># data</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle_close</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle_expt</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_error"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_error">[docs]</a>    <span class="k">def</span> <span class="nf">handle_error</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">nil</span><span class="p">,</span> <span class="n">t</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">tbinfo</span> <span class="o">=</span> <span class="n">compact_traceback</span><span class="p">()</span>
+
+        <span class="c"># sometimes a user repr method will crash.</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">self_repr</span> <span class="o">=</span> <span class="nb">repr</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="n">self_repr</span> <span class="o">=</span> <span class="s">&#39;&lt;__repr__(self) failed for object at </span><span class="si">%0x</span><span class="s">&gt;&#39;</span> <span class="o">%</span> <span class="nb">id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_info</span><span class="p">(</span>
+            <span class="s">&#39;uncaptured python exception, closing channel </span><span class="si">%s</span><span class="s"> (</span><span class="si">%s</span><span class="s">:</span><span class="si">%s</span><span class="s"> </span><span class="si">%s</span><span class="s">)&#39;</span> <span class="o">%</span> <span class="p">(</span>
+                <span class="n">self_repr</span><span class="p">,</span>
+                <span class="n">t</span><span class="p">,</span>
+                <span class="n">v</span><span class="p">,</span>
+                <span class="n">tbinfo</span>
+                <span class="p">),</span>
+            <span class="s">&#39;error&#39;</span>
+            <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handle_close</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_expt"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_expt">[docs]</a>    <span class="k">def</span> <span class="nf">handle_expt</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_info</span><span class="p">(</span><span class="s">&#39;unhandled incoming priority event&#39;</span><span class="p">,</span> <span class="s">&#39;warning&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_read"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_read">[docs]</a>    <span class="k">def</span> <span class="nf">handle_read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_info</span><span class="p">(</span><span class="s">&#39;unhandled read event&#39;</span><span class="p">,</span> <span class="s">&#39;warning&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_write"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_write">[docs]</a>    <span class="k">def</span> <span class="nf">handle_write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_info</span><span class="p">(</span><span class="s">&#39;unhandled write event&#39;</span><span class="p">,</span> <span class="s">&#39;warning&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_connect"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_connect">[docs]</a>    <span class="k">def</span> <span class="nf">handle_connect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_info</span><span class="p">(</span><span class="s">&#39;unhandled connect event&#39;</span><span class="p">,</span> <span class="s">&#39;warning&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_accept"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_accept">[docs]</a>    <span class="k">def</span> <span class="nf">handle_accept</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">pair</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">accept</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">pair</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handle_accepted</span><span class="p">(</span><span class="o">*</span><span class="n">pair</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_accepted"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_accepted">[docs]</a>    <span class="k">def</span> <span class="nf">handle_accepted</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="n">addr</span><span class="p">):</span>
+        <span class="n">sock</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_info</span><span class="p">(</span><span class="s">&#39;unhandled accepted event&#39;</span><span class="p">,</span> <span class="s">&#39;warning&#39;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher.handle_close"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher.handle_close">[docs]</a>    <span class="k">def</span> <span class="nf">handle_close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_info</span><span class="p">(</span><span class="s">&#39;unhandled close event&#39;</span><span class="p">,</span> <span class="s">&#39;warning&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+<span class="c"># ---------------------------------------------------------------------------</span>
+<span class="c"># adds simple buffered output capability, useful for simple clients.</span>
+<span class="c"># [for more sophisticated usage use asynchat.async_chat]</span>
+<span class="c"># ---------------------------------------------------------------------------</span>
+</div></div>
+<div class="viewcode-block" id="dispatcher_with_send"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher_with_send">[docs]</a><span class="k">class</span> <span class="nc">dispatcher_with_send</span><span class="p">(</span><span class="n">dispatcher</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">dispatcher</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sock</span><span class="p">,</span> <span class="nb">map</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out_buffer</span> <span class="o">=</span> <span class="n">b</span><span class="s">&#39;&#39;</span>
+
+<div class="viewcode-block" id="dispatcher_with_send.initiate_send"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher_with_send.initiate_send">[docs]</a>    <span class="k">def</span> <span class="nf">initiate_send</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">num_sent</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">num_sent</span> <span class="o">=</span> <span class="n">dispatcher</span><span class="o">.</span><span class="n">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_buffer</span><span class="p">[:</span><span class="mi">65536</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_buffer</span><span class="p">[</span><span class="n">num_sent</span><span class="p">:]</span>
+</div>
+<div class="viewcode-block" id="dispatcher_with_send.handle_write"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher_with_send.handle_write">[docs]</a>    <span class="k">def</span> <span class="nf">handle_write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initiate_send</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="dispatcher_with_send.writable"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher_with_send.writable">[docs]</a>    <span class="k">def</span> <span class="nf">writable</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="p">(</span><span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">connected</span><span class="p">)</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">out_buffer</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="dispatcher_with_send.send"><a class="viewcode-back" href="../asyncore.html#asyncore.dispatcher_with_send.send">[docs]</a>    <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">debug</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_info</span><span class="p">(</span><span class="s">&#39;sending </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="nb">repr</span><span class="p">(</span><span class="n">data</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out_buffer</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">out_buffer</span> <span class="o">+</span> <span class="n">data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">initiate_send</span><span class="p">()</span>
+
+<span class="c"># ---------------------------------------------------------------------------</span>
+<span class="c"># used for debugging.</span>
+<span class="c"># ---------------------------------------------------------------------------</span>
+</div></div>
+<div class="viewcode-block" id="compact_traceback"><a class="viewcode-back" href="../asyncore.html#asyncore.compact_traceback">[docs]</a><span class="k">def</span> <span class="nf">compact_traceback</span><span class="p">():</span>
+    <span class="n">t</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">tb</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">exc_info</span><span class="p">()</span>
+    <span class="n">tbinfo</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">tb</span><span class="p">:</span> <span class="c"># Must have a traceback</span>
+        <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&quot;traceback does not exist&quot;</span><span class="p">)</span>
+    <span class="k">while</span> <span class="n">tb</span><span class="p">:</span>
+        <span class="n">tbinfo</span><span class="o">.</span><span class="n">append</span><span class="p">((</span>
+            <span class="n">tb</span><span class="o">.</span><span class="n">tb_frame</span><span class="o">.</span><span class="n">f_code</span><span class="o">.</span><span class="n">co_filename</span><span class="p">,</span>
+            <span class="n">tb</span><span class="o">.</span><span class="n">tb_frame</span><span class="o">.</span><span class="n">f_code</span><span class="o">.</span><span class="n">co_name</span><span class="p">,</span>
+            <span class="nb">str</span><span class="p">(</span><span class="n">tb</span><span class="o">.</span><span class="n">tb_lineno</span><span class="p">)</span>
+            <span class="p">))</span>
+        <span class="n">tb</span> <span class="o">=</span> <span class="n">tb</span><span class="o">.</span><span class="n">tb_next</span>
+
+    <span class="c"># just to be safe</span>
+    <span class="k">del</span> <span class="n">tb</span>
+
+    <span class="nb">file</span><span class="p">,</span> <span class="n">function</span><span class="p">,</span> <span class="n">line</span> <span class="o">=</span> <span class="n">tbinfo</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">info</span> <span class="o">=</span> <span class="s">&#39; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="s">&#39;[</span><span class="si">%s</span><span class="s">|</span><span class="si">%s</span><span class="s">|</span><span class="si">%s</span><span class="s">]&#39;</span> <span class="o">%</span> <span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">tbinfo</span><span class="p">])</span>
+    <span class="k">return</span> <span class="p">(</span><span class="nb">file</span><span class="p">,</span> <span class="n">function</span><span class="p">,</span> <span class="n">line</span><span class="p">),</span> <span class="n">t</span><span class="p">,</span> <span class="n">v</span><span class="p">,</span> <span class="n">info</span>
+</div>
+<div class="viewcode-block" id="close_all"><a class="viewcode-back" href="../asyncore.html#asyncore.close_all">[docs]</a><span class="k">def</span> <span class="nf">close_all</span><span class="p">(</span><span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">ignore_all</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">map</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="nb">map</span> <span class="o">=</span> <span class="n">socket_map</span>
+    <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="nb">map</span><span class="o">.</span><span class="n">values</span><span class="p">()):</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">x</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">x</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">x</span><span class="o">.</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">EBADF</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="k">elif</span> <span class="ow">not</span> <span class="n">ignore_all</span><span class="p">:</span>
+                <span class="k">raise</span>
+        <span class="k">except</span> <span class="n">_reraised_exceptions</span><span class="p">:</span>
+            <span class="k">raise</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">ignore_all</span><span class="p">:</span>
+                <span class="k">raise</span>
+    <span class="nb">map</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+
+<span class="c"># Asynchronous File I/O:</span>
+<span class="c">#</span>
+<span class="c"># After a little research (reading man pages on various unixen, and</span>
+<span class="c"># digging through the linux kernel), I&#39;ve determined that select()</span>
+<span class="c"># isn&#39;t meant for doing asynchronous file i/o.</span>
+<span class="c"># Heartening, though - reading linux/mm/filemap.c shows that linux</span>
+<span class="c"># supports asynchronous read-ahead.  So _MOST_ of the time, the data</span>
+<span class="c"># will be sitting in memory for us already when we go to read it.</span>
+<span class="c">#</span>
+<span class="c"># What other OS&#39;s (besides NT) support async file i/o?  [VMS?]</span>
+<span class="c">#</span>
+<span class="c"># Regardless, this is useful for pipes, and stdin/stdout...</span>
+</div>
+<span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s">&#39;posix&#39;</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">fcntl</span>
+
+    <span class="k">class</span> <span class="nc">file_wrapper</span><span class="p">:</span>
+        <span class="c"># Here we override just enough to make a file</span>
+        <span class="c"># look like a socket for the purposes of asyncore.</span>
+        <span class="c"># The passed fd is automatically os.dup()&#39;d</span>
+
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fd</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">dup</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">__del__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fd</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">warnings</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;unclosed file </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="p">,</span> <span class="n">ResourceWarning</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="k">def</span> <span class="nf">recv</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fd</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">send</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fd</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">getsockopt</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">optname</span><span class="p">,</span> <span class="n">buflen</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="k">if</span> <span class="p">(</span><span class="n">level</span> <span class="o">==</span> <span class="n">socket</span><span class="o">.</span><span class="n">SOL_SOCKET</span> <span class="ow">and</span>
+                <span class="n">optname</span> <span class="o">==</span> <span class="n">socket</span><span class="o">.</span><span class="n">SO_ERROR</span> <span class="ow">and</span>
+                <span class="ow">not</span> <span class="n">buflen</span><span class="p">):</span>
+                <span class="k">return</span> <span class="mi">0</span>
+            <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">(</span><span class="s">&quot;Only asyncore specific behaviour &quot;</span>
+                                      <span class="s">&quot;implemented.&quot;</span><span class="p">)</span>
+
+        <span class="n">read</span> <span class="o">=</span> <span class="n">recv</span>
+        <span class="n">write</span> <span class="o">=</span> <span class="n">send</span>
+
+        <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fd</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">return</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">close</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">fd</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
+        <span class="k">def</span> <span class="nf">fileno</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fd</span>
+
+    <span class="k">class</span> <span class="nc">file_dispatcher</span><span class="p">(</span><span class="n">dispatcher</span><span class="p">):</span>
+
+        <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">,</span> <span class="nb">map</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+            <span class="n">dispatcher</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="nb">map</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">connected</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">fd</span> <span class="o">=</span> <span class="n">fd</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+            <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                <span class="k">pass</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_file</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="c"># set it to non-blocking mode</span>
+            <span class="n">flags</span> <span class="o">=</span> <span class="n">fcntl</span><span class="o">.</span><span class="n">fcntl</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">fcntl</span><span class="o">.</span><span class="n">F_GETFL</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">flags</span> <span class="o">=</span> <span class="n">flags</span> <span class="o">|</span> <span class="n">os</span><span class="o">.</span><span class="n">O_NONBLOCK</span>
+            <span class="n">fcntl</span><span class="o">.</span><span class="n">fcntl</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="n">fcntl</span><span class="o">.</span><span class="n">F_SETFL</span><span class="p">,</span> <span class="n">flags</span><span class="p">)</span>
+
+        <span class="k">def</span> <span class="nf">set_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fd</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">socket</span> <span class="o">=</span> <span class="n">file_wrapper</span><span class="p">(</span><span class="n">fd</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_fileno</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">socket</span><span class="o">.</span><span class="n">fileno</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add_channel</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../_static/jquery.js"></script>
+      <script type="text/javascript" src="../_static/underscore.js"></script>
+      <script type="text/javascript" src="../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

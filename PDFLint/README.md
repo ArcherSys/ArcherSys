@@ -1,3 +1,0 @@
-PDFLint
-========
-Word Processing

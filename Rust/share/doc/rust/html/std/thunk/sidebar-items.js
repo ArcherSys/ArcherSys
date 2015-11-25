@@ -1,0 +1,1 @@
+initSidebarItems({"trait":[["Invoke",""]],"struct":[["Thunk",""]]});

@@ -1,0 +1,1276 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>distutils.ccompiler &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>distutils.ccompiler</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for distutils.ccompiler</h1><div class="highlight"><pre>
+<span class="sd">&quot;&quot;&quot;distutils.ccompiler</span>
+
+<span class="sd">Contains CCompiler, an abstract base class that defines the interface</span>
+<span class="sd">for the Distutils compiler abstraction model.&quot;&quot;&quot;</span>
+
+<span class="kn">import</span> <span class="nn">sys</span><span class="o">,</span> <span class="nn">os</span><span class="o">,</span> <span class="nn">re</span>
+<span class="kn">from</span> <span class="nn">distutils.errors</span> <span class="kn">import</span> <span class="o">*</span>
+<span class="kn">from</span> <span class="nn">distutils.spawn</span> <span class="kn">import</span> <span class="n">spawn</span>
+<span class="kn">from</span> <span class="nn">distutils.file_util</span> <span class="kn">import</span> <span class="n">move_file</span>
+<span class="kn">from</span> <span class="nn">distutils.dir_util</span> <span class="kn">import</span> <span class="n">mkpath</span>
+<span class="kn">from</span> <span class="nn">distutils.dep_util</span> <span class="kn">import</span> <span class="n">newer_pairwise</span><span class="p">,</span> <span class="n">newer_group</span>
+<span class="kn">from</span> <span class="nn">distutils.util</span> <span class="kn">import</span> <span class="n">split_quoted</span><span class="p">,</span> <span class="n">execute</span>
+<span class="kn">from</span> <span class="nn">distutils</span> <span class="kn">import</span> <span class="n">log</span>
+
+<div class="viewcode-block" id="CCompiler"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler">[docs]</a><span class="k">class</span> <span class="nc">CCompiler</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Abstract base class to define the interface that must be implemented</span>
+<span class="sd">    by real compiler classes.  Also has some utility methods used by</span>
+<span class="sd">    several compiler classes.</span>
+
+<span class="sd">    The basic idea behind a compiler abstraction class is that each</span>
+<span class="sd">    instance can be used for all the compile/link steps in building a</span>
+<span class="sd">    single project.  Thus, attributes common to all of those compile and</span>
+<span class="sd">    link steps -- include directories, macros to define, libraries to link</span>
+<span class="sd">    against, etc. -- are attributes of the compiler instance.  To allow for</span>
+<span class="sd">    variability in how individual files are treated, most of those</span>
+<span class="sd">    attributes may be varied on a per-compilation or per-link basis.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c"># &#39;compiler_type&#39; is a class attribute that identifies this class.  It</span>
+    <span class="c"># keeps code that wants to know what kind of compiler it&#39;s dealing with</span>
+    <span class="c"># from having to import all possible compiler classes just to do an</span>
+    <span class="c"># &#39;isinstance&#39;.  In concrete CCompiler subclasses, &#39;compiler_type&#39;</span>
+    <span class="c"># should really, really be one of the keys of the &#39;compiler_class&#39;</span>
+    <span class="c"># dictionary (see below -- used by the &#39;new_compiler()&#39; factory</span>
+    <span class="c"># function) -- authors of new compiler interface classes are</span>
+    <span class="c"># responsible for updating &#39;compiler_class&#39;!</span>
+    <span class="n">compiler_type</span> <span class="o">=</span> <span class="bp">None</span>
+
+    <span class="c"># XXX things not handled by this compiler abstraction model:</span>
+    <span class="c">#   * client can&#39;t provide additional options for a compiler,</span>
+    <span class="c">#     e.g. warning, optimization, debugging flags.  Perhaps this</span>
+    <span class="c">#     should be the domain of concrete compiler abstraction classes</span>
+    <span class="c">#     (UnixCCompiler, MSVCCompiler, etc.) -- or perhaps the base</span>
+    <span class="c">#     class should have methods for the common ones.</span>
+    <span class="c">#   * can&#39;t completely override the include or library searchg</span>
+    <span class="c">#     path, ie. no &quot;cc -I -Idir1 -Idir2&quot; or &quot;cc -L -Ldir1 -Ldir2&quot;.</span>
+    <span class="c">#     I&#39;m not sure how widely supported this is even by Unix</span>
+    <span class="c">#     compilers, much less on other platforms.  And I&#39;m even less</span>
+    <span class="c">#     sure how useful it is; maybe for cross-compiling, but</span>
+    <span class="c">#     support for that is a ways off.  (And anyways, cross</span>
+    <span class="c">#     compilers probably have a dedicated binary with the</span>
+    <span class="c">#     right paths compiled in.  I hope.)</span>
+    <span class="c">#   * can&#39;t do really freaky things with the library list/library</span>
+    <span class="c">#     dirs, e.g. &quot;-Ldir1 -lfoo -Ldir2 -lfoo&quot; to link against</span>
+    <span class="c">#     different versions of libfoo.a in different locations.  I</span>
+    <span class="c">#     think this is useless without the ability to null out the</span>
+    <span class="c">#     library search path anyways.</span>
+
+
+    <span class="c"># Subclasses that rely on the standard filename generation methods</span>
+    <span class="c"># implemented below should override these; see the comment near</span>
+    <span class="c"># those methods (&#39;object_filenames()&#39; et. al.) for details:</span>
+    <span class="n">src_extensions</span> <span class="o">=</span> <span class="bp">None</span>               <span class="c"># list of strings</span>
+    <span class="n">obj_extension</span> <span class="o">=</span> <span class="bp">None</span>                <span class="c"># string</span>
+    <span class="n">static_lib_extension</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="n">shared_lib_extension</span> <span class="o">=</span> <span class="bp">None</span>         <span class="c"># string</span>
+    <span class="n">static_lib_format</span> <span class="o">=</span> <span class="bp">None</span>            <span class="c"># format string</span>
+    <span class="n">shared_lib_format</span> <span class="o">=</span> <span class="bp">None</span>            <span class="c"># prob. same as static_lib_format</span>
+    <span class="n">exe_extension</span> <span class="o">=</span> <span class="bp">None</span>                <span class="c"># string</span>
+
+    <span class="c"># Default language settings. language_map is used to detect a source</span>
+    <span class="c"># file or Extension target language, checking source filenames.</span>
+    <span class="c"># language_order is used to detect the language precedence, when deciding</span>
+    <span class="c"># what language to use when mixing source types. For example, if some</span>
+    <span class="c"># extension has two files with &quot;.c&quot; extension, and one with &quot;.cpp&quot;, it</span>
+    <span class="c"># is still linked as c++.</span>
+    <span class="n">language_map</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;.c&quot;</span>   <span class="p">:</span> <span class="s">&quot;c&quot;</span><span class="p">,</span>
+                    <span class="s">&quot;.cc&quot;</span>  <span class="p">:</span> <span class="s">&quot;c++&quot;</span><span class="p">,</span>
+                    <span class="s">&quot;.cpp&quot;</span> <span class="p">:</span> <span class="s">&quot;c++&quot;</span><span class="p">,</span>
+                    <span class="s">&quot;.cxx&quot;</span> <span class="p">:</span> <span class="s">&quot;c++&quot;</span><span class="p">,</span>
+                    <span class="s">&quot;.m&quot;</span>   <span class="p">:</span> <span class="s">&quot;objc&quot;</span><span class="p">,</span>
+                   <span class="p">}</span>
+    <span class="n">language_order</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;c++&quot;</span><span class="p">,</span> <span class="s">&quot;objc&quot;</span><span class="p">,</span> <span class="s">&quot;c&quot;</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span> <span class="o">=</span> <span class="n">dry_run</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">force</span> <span class="o">=</span> <span class="n">force</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">verbose</span> <span class="o">=</span> <span class="n">verbose</span>
+
+        <span class="c"># &#39;output_dir&#39;: a common output directory for object, library,</span>
+        <span class="c"># shared object, and shared library files</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="c"># &#39;macros&#39;: a list of macro definitions (or undefinitions).  A</span>
+        <span class="c"># macro definition is a 2-tuple (name, value), where the value is</span>
+        <span class="c"># either a string or None (no explicit value).  A macro</span>
+        <span class="c"># undefinition is a 1-tuple (name,).</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">macros</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c"># &#39;include_dirs&#39;: a list of directories to search for include files</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c"># &#39;libraries&#39;: a list of libraries to include in any link</span>
+        <span class="c"># (library names, not filenames: eg. &quot;foo&quot; not &quot;libfoo.a&quot;)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c"># &#39;library_dirs&#39;: a list of directories to search for libraries</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c"># &#39;runtime_library_dirs&#39;: a list of directories to search for</span>
+        <span class="c"># shared libraries/objects at runtime</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">runtime_library_dirs</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c"># &#39;objects&#39;: a list of object files (or similar, such as explicitly</span>
+        <span class="c"># named library files) to include on any link</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">objects</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">executables</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_executable</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">executables</span><span class="p">[</span><span class="n">key</span><span class="p">])</span>
+
+<div class="viewcode-block" id="CCompiler.set_executables"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.set_executables">[docs]</a>    <span class="k">def</span> <span class="nf">set_executables</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Define the executables (and options for them) that will be run</span>
+<span class="sd">        to perform the various stages of compilation.  The exact set of</span>
+<span class="sd">        executables that may be specified here depends on the compiler</span>
+<span class="sd">        class (via the &#39;executables&#39; class attribute), but most will have:</span>
+<span class="sd">          compiler      the C/C++ compiler</span>
+<span class="sd">          linker_so     linker used to create shared objects and libraries</span>
+<span class="sd">          linker_exe    linker used to create binary executables</span>
+<span class="sd">          archiver      static library creator</span>
+
+<span class="sd">        On platforms with a command-line (Unix, DOS/Windows), each of these</span>
+<span class="sd">        is a string that will be split into executable name and (optional)</span>
+<span class="sd">        list of arguments.  (Splitting the string is done similarly to how</span>
+<span class="sd">        Unix shells operate: words are delimited by spaces, but quotes and</span>
+<span class="sd">        backslashes can override this.  See</span>
+<span class="sd">        &#39;distutils.util.split_quoted()&#39;.)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="c"># Note that some CCompiler implementation classes will define class</span>
+        <span class="c"># attributes &#39;cpp&#39;, &#39;cc&#39;, etc. with hard-coded executable names;</span>
+        <span class="c"># this is appropriate when a compiler class is for exactly one</span>
+        <span class="c"># compiler/OS combination (eg. MSVCCompiler).  Other compiler</span>
+        <span class="c"># classes (UnixCCompiler, in particular) are driven by information</span>
+        <span class="c"># discovered at run-time, since there are many different ways to do</span>
+        <span class="c"># basically the same things with Unix C compilers.</span>
+
+        <span class="k">for</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">executables</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;unknown executable &#39;</span><span class="si">%s</span><span class="s">&#39; for class </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span>
+                      <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">set_executable</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">[</span><span class="n">key</span><span class="p">])</span>
+</div>
+<div class="viewcode-block" id="CCompiler.set_executable"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.set_executable">[docs]</a>    <span class="k">def</span> <span class="nf">set_executable</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">split_quoted</span><span class="p">(</span><span class="n">value</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="nb">setattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_find_macro</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">defn</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">macros</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">defn</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">i</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">return</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">_check_macro_definitions</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">definitions</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Ensures that every element of &#39;definitions&#39; is a valid macro</span>
+<span class="sd">        definition, ie. either (name,value) 2-tuple or a (name,) tuple.  Do</span>
+<span class="sd">        nothing if all definitions are OK, raise TypeError otherwise.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">defn</span> <span class="ow">in</span> <span class="n">definitions</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">defn</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">and</span>
+                    <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">defn</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">)</span> <span class="ow">and</span>
+                      <span class="p">(</span><span class="nb">isinstance</span> <span class="p">(</span><span class="n">defn</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="nb">str</span><span class="p">)</span> <span class="ow">or</span> <span class="n">defn</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">))</span> <span class="ow">and</span>
+                    <span class="nb">isinstance</span> <span class="p">(</span><span class="n">defn</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">str</span><span class="p">)):</span>
+                <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">((</span><span class="s">&quot;invalid macro definition &#39;</span><span class="si">%s</span><span class="s">&#39;: &quot;</span> <span class="o">%</span> <span class="n">defn</span><span class="p">)</span> <span class="o">+</span> \
+                      <span class="s">&quot;must be tuple (string,), (string, string), or &quot;</span> <span class="o">+</span> \
+                      <span class="s">&quot;(string, None)&quot;</span><span class="p">)</span>
+
+
+    <span class="c"># -- Bookkeeping methods -------------------------------------------</span>
+
+<div class="viewcode-block" id="CCompiler.define_macro"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.define_macro">[docs]</a>    <span class="k">def</span> <span class="nf">define_macro</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Define a preprocessor macro for all compilations driven by this</span>
+<span class="sd">        compiler object.  The optional parameter &#39;value&#39; should be a</span>
+<span class="sd">        string; if it is not supplied, then the macro will be defined</span>
+<span class="sd">        without an explicit value and the exact outcome depends on the</span>
+<span class="sd">        compiler used (XXX true? does ANSI say anything about this?)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Delete from the list of macro definitions/undefinitions if</span>
+        <span class="c"># already there (so that this one will take precedence).</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_macro</span> <span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">macros</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">macros</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="CCompiler.undefine_macro"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.undefine_macro">[docs]</a>    <span class="k">def</span> <span class="nf">undefine_macro</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Undefine a preprocessor macro for all compilations driven by</span>
+<span class="sd">        this compiler object.  If the same macro is defined by</span>
+<span class="sd">        &#39;define_macro()&#39; and undefined by &#39;undefine_macro()&#39; the last call</span>
+<span class="sd">        takes precedence (including multiple redefinitions or</span>
+<span class="sd">        undefinitions).  If the macro is redefined/undefined on a</span>
+<span class="sd">        per-compilation basis (ie. in the call to &#39;compile()&#39;), then that</span>
+<span class="sd">        takes precedence.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Delete from the list of macro definitions/undefinitions if</span>
+        <span class="c"># already there (so that this one will take precedence).</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_find_macro</span> <span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">macros</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+
+        <span class="n">undefn</span> <span class="o">=</span> <span class="p">(</span><span class="n">name</span><span class="p">,)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">macros</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">undefn</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.add_include_dir"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.add_include_dir">[docs]</a>    <span class="k">def</span> <span class="nf">add_include_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">dir</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add &#39;dir&#39; to the list of directories that will be searched for</span>
+<span class="sd">        header files.  The compiler is instructed to search directories in</span>
+<span class="sd">        the order in which they are supplied by successive calls to</span>
+<span class="sd">        &#39;add_include_dir()&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">dir</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.set_include_dirs"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.set_include_dirs">[docs]</a>    <span class="k">def</span> <span class="nf">set_include_dirs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the list of directories that will be searched to &#39;dirs&#39; (a</span>
+<span class="sd">        list of strings).  Overrides any preceding calls to</span>
+<span class="sd">        &#39;add_include_dir()&#39;; subsequence calls to &#39;add_include_dir()&#39; add</span>
+<span class="sd">        to the list passed to &#39;set_include_dirs()&#39;.  This does not affect</span>
+<span class="sd">        any list of standard include directories that the compiler may</span>
+<span class="sd">        search by default.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="o">=</span> <span class="n">dirs</span><span class="p">[:]</span>
+</div>
+<div class="viewcode-block" id="CCompiler.add_library"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.add_library">[docs]</a>    <span class="k">def</span> <span class="nf">add_library</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">libname</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add &#39;libname&#39; to the list of libraries that will be included in</span>
+<span class="sd">        all links driven by this compiler object.  Note that &#39;libname&#39;</span>
+<span class="sd">        should *not* be the name of a file containing a library, but the</span>
+<span class="sd">        name of the library itself: the actual filename will be inferred by</span>
+<span class="sd">        the linker, the compiler, or the compiler class (depending on the</span>
+<span class="sd">        platform).</span>
+
+<span class="sd">        The linker will be instructed to link against libraries in the</span>
+<span class="sd">        order they were supplied to &#39;add_library()&#39; and/or</span>
+<span class="sd">        &#39;set_libraries()&#39;.  It is perfectly valid to duplicate library</span>
+<span class="sd">        names; the linker will be instructed to link against libraries as</span>
+<span class="sd">        many times as they are mentioned.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">libname</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.set_libraries"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.set_libraries">[docs]</a>    <span class="k">def</span> <span class="nf">set_libraries</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">libnames</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the list of libraries to be included in all links driven by</span>
+<span class="sd">        this compiler object to &#39;libnames&#39; (a list of strings).  This does</span>
+<span class="sd">        not affect any standard system libraries that the linker may</span>
+<span class="sd">        include by default.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="o">=</span> <span class="n">libnames</span><span class="p">[:]</span>
+</div>
+<div class="viewcode-block" id="CCompiler.add_library_dir"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.add_library_dir">[docs]</a>    <span class="k">def</span> <span class="nf">add_library_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">dir</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add &#39;dir&#39; to the list of directories that will be searched for</span>
+<span class="sd">        libraries specified to &#39;add_library()&#39; and &#39;set_libraries()&#39;.  The</span>
+<span class="sd">        linker will be instructed to search for libraries in the order they</span>
+<span class="sd">        are supplied to &#39;add_library_dir()&#39; and/or &#39;set_library_dirs()&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">dir</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.set_library_dirs"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.set_library_dirs">[docs]</a>    <span class="k">def</span> <span class="nf">set_library_dirs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the list of library search directories to &#39;dirs&#39; (a list of</span>
+<span class="sd">        strings).  This does not affect any standard library search path</span>
+<span class="sd">        that the linker may search by default.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span> <span class="o">=</span> <span class="n">dirs</span><span class="p">[:]</span>
+</div>
+<div class="viewcode-block" id="CCompiler.add_runtime_library_dir"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.add_runtime_library_dir">[docs]</a>    <span class="k">def</span> <span class="nf">add_runtime_library_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">dir</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add &#39;dir&#39; to the list of directories that will be searched for</span>
+<span class="sd">        shared libraries at runtime.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">runtime_library_dirs</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">dir</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.set_runtime_library_dirs"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.set_runtime_library_dirs">[docs]</a>    <span class="k">def</span> <span class="nf">set_runtime_library_dirs</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the list of directories to search for shared libraries at</span>
+<span class="sd">        runtime to &#39;dirs&#39; (a list of strings).  This does not affect any</span>
+<span class="sd">        standard search path that the runtime linker may search by</span>
+<span class="sd">        default.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">runtime_library_dirs</span> <span class="o">=</span> <span class="n">dirs</span><span class="p">[:]</span>
+</div>
+<div class="viewcode-block" id="CCompiler.add_link_object"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.add_link_object">[docs]</a>    <span class="k">def</span> <span class="nf">add_link_object</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">object</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Add &#39;object&#39; to the list of object files (or analogues, such as</span>
+<span class="sd">        explicitly named library files or the output of &quot;resource</span>
+<span class="sd">        compilers&quot;) to be included in every link driven by this compiler</span>
+<span class="sd">        object.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">objects</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">object</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.set_link_objects"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.set_link_objects">[docs]</a>    <span class="k">def</span> <span class="nf">set_link_objects</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objects</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Set the list of object files (or analogues) to be included in</span>
+<span class="sd">        every link to &#39;objects&#39;.  This does not affect any standard object</span>
+<span class="sd">        files that the linker may include by default (such as system</span>
+<span class="sd">        libraries).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">objects</span> <span class="o">=</span> <span class="n">objects</span><span class="p">[:]</span>
+
+
+    <span class="c"># -- Private utility methods --------------------------------------</span>
+    <span class="c"># (here for the convenience of subclasses)</span>
+
+    <span class="c"># Helper method to prep compiler in subclass compile() methods</span>
+</div>
+    <span class="k">def</span> <span class="nf">_setup_compile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">outdir</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">incdirs</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">depends</span><span class="p">,</span>
+                       <span class="n">extra</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Process arguments and decide which source files to compile.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">outdir</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">outdir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">outdir</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;output_dir&#39; must be a string or None&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">macros</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">macros</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">macros</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">macros</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">macros</span> <span class="o">=</span> <span class="n">macros</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">macros</span> <span class="ow">or</span> <span class="p">[])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;macros&#39; (if supplied) must be a list of tuples&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">incdirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">incdirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">incdirs</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="n">incdirs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">incdirs</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="ow">or</span> <span class="p">[])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                  <span class="s">&quot;&#39;include_dirs&#39; (if supplied) must be a list of strings&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">extra</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">extra</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c"># Get the list of expected output (object) files</span>
+        <span class="n">objects</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">object_filenames</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="n">strip_dir</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                                        <span class="n">output_dir</span><span class="o">=</span><span class="n">outdir</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">objects</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
+
+        <span class="n">pp_opts</span> <span class="o">=</span> <span class="n">gen_preprocess_options</span><span class="p">(</span><span class="n">macros</span><span class="p">,</span> <span class="n">incdirs</span><span class="p">)</span>
+
+        <span class="n">build</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)):</span>
+            <span class="n">src</span> <span class="o">=</span> <span class="n">sources</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">obj</span> <span class="o">=</span> <span class="n">objects</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">src</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">mkpath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">obj</span><span class="p">))</span>
+            <span class="n">build</span><span class="p">[</span><span class="n">obj</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">ext</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">macros</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span> <span class="n">extra</span><span class="p">,</span> <span class="n">pp_opts</span><span class="p">,</span> <span class="n">build</span>
+
+    <span class="k">def</span> <span class="nf">_get_cc_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">pp_opts</span><span class="p">,</span> <span class="n">debug</span><span class="p">,</span> <span class="n">before</span><span class="p">):</span>
+        <span class="c"># works for unixccompiler, cygwinccompiler</span>
+        <span class="n">cc_args</span> <span class="o">=</span> <span class="n">pp_opts</span> <span class="o">+</span> <span class="p">[</span><span class="s">&#39;-c&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">debug</span><span class="p">:</span>
+            <span class="n">cc_args</span><span class="p">[:</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;-g&#39;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">before</span><span class="p">:</span>
+            <span class="n">cc_args</span><span class="p">[:</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">before</span>
+        <span class="k">return</span> <span class="n">cc_args</span>
+
+    <span class="k">def</span> <span class="nf">_fix_compile_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Typecheck and fix-up some of the arguments to the &#39;compile()&#39;</span>
+<span class="sd">        method, and return fixed-up values.  Specifically: if &#39;output_dir&#39;</span>
+<span class="sd">        is None, replaces it with &#39;self.output_dir&#39;; ensures that &#39;macros&#39;</span>
+<span class="sd">        is a list, and augments it with &#39;self.macros&#39;; ensures that</span>
+<span class="sd">        &#39;include_dirs&#39; is a list, and augments it with &#39;self.include_dirs&#39;.</span>
+<span class="sd">        Guarantees that the returned values are of the correct type,</span>
+<span class="sd">        i.e. for &#39;output_dir&#39; either string or None, and for &#39;macros&#39; and</span>
+<span class="sd">        &#39;include_dirs&#39; either list or None.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">output_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;output_dir&#39; must be a string or None&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">macros</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">macros</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">macros</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">macros</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">macros</span> <span class="o">=</span> <span class="n">macros</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">macros</span> <span class="ow">or</span> <span class="p">[])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;macros&#39; (if supplied) must be a list of tuples&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">include_dirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">include_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">include_dirs</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="n">include_dirs</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">include_dirs</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">include_dirs</span> <span class="ow">or</span> <span class="p">[])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                  <span class="s">&quot;&#39;include_dirs&#39; (if supplied) must be a list of strings&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">output_dir</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span>
+
+    <span class="k">def</span> <span class="nf">_prep_compile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">,</span> <span class="n">depends</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Decide which souce files must be recompiled.</span>
+
+<span class="sd">        Determine the list of object files corresponding to &#39;sources&#39;,</span>
+<span class="sd">        and figure out which ones really need to be recompiled.</span>
+<span class="sd">        Return a list of all object files and a dictionary telling</span>
+<span class="sd">        which source files can be skipped.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Get the list of expected output (object) files</span>
+        <span class="n">objects</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">object_filenames</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="n">output_dir</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">len</span><span class="p">(</span><span class="n">objects</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">sources</span><span class="p">)</span>
+
+        <span class="c"># Return an empty dict for the &quot;which source files can be skipped&quot;</span>
+        <span class="c"># return value to preserve API compatibility.</span>
+        <span class="k">return</span> <span class="n">objects</span><span class="p">,</span> <span class="p">{}</span>
+
+    <span class="k">def</span> <span class="nf">_fix_object_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Typecheck and fix up some arguments supplied to various methods.</span>
+<span class="sd">        Specifically: ensure that &#39;objects&#39; is a list; if output_dir is</span>
+<span class="sd">        None, replace with self.output_dir.  Return fixed versions of</span>
+<span class="sd">        &#39;objects&#39; and &#39;output_dir&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;objects&#39; must be a list or tuple of strings&quot;</span><span class="p">)</span>
+        <span class="n">objects</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">objects</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">output_dir</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_dir</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;output_dir&#39; must be a string or None&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_fix_lib_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Typecheck and fix up some of the arguments supplied to the</span>
+<span class="sd">        &#39;link_*&#39; methods.  Specifically: ensure that all arguments are</span>
+<span class="sd">        lists, and augment them with their permanent versions</span>
+<span class="sd">        (eg. &#39;self.libraries&#39; augments &#39;libraries&#39;).  Return a tuple with</span>
+<span class="sd">        fixed versions of all arguments.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">libraries</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">libraries</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">libraries</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">libraries</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="n">libraries</span> <span class="o">=</span> <span class="nb">list</span> <span class="p">(</span><span class="n">libraries</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">libraries</span> <span class="ow">or</span> <span class="p">[])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                  <span class="s">&quot;&#39;libraries&#39; (if supplied) must be a list of strings&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">library_dirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">library_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">library_dirs</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="n">library_dirs</span> <span class="o">=</span> <span class="nb">list</span> <span class="p">(</span><span class="n">library_dirs</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">library_dirs</span> <span class="ow">or</span> <span class="p">[])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                  <span class="s">&quot;&#39;library_dirs&#39; (if supplied) must be a list of strings&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">runtime_library_dirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">runtime_library_dirs</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">runtime_library_dirs</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">runtime_library_dirs</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="n">runtime_library_dirs</span> <span class="o">=</span> <span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">runtime_library_dirs</span><span class="p">)</span> <span class="o">+</span>
+                                    <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">runtime_library_dirs</span> <span class="ow">or</span> <span class="p">[]))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span><span class="s">&quot;&#39;runtime_library_dirs&#39; (if supplied) &quot;</span>
+                            <span class="s">&quot;must be a list of strings&quot;</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="p">(</span><span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_need_link</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span> <span class="n">output_file</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return true if we need to relink the files listed in &#39;objects&#39;</span>
+<span class="sd">        to recreate &#39;output_file&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">force</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">:</span>
+                <span class="n">newer</span> <span class="o">=</span> <span class="n">newer_group</span> <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_file</span><span class="p">,</span> <span class="n">missing</span><span class="o">=</span><span class="s">&#39;newer&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">newer</span> <span class="o">=</span> <span class="n">newer_group</span> <span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">output_file</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">newer</span>
+
+<div class="viewcode-block" id="CCompiler.detect_language"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.detect_language">[docs]</a>    <span class="k">def</span> <span class="nf">detect_language</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sources</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Detect the language of a given file, or list of files. Uses</span>
+<span class="sd">        language_map, and language_order to do the job.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">sources</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">sources</span> <span class="o">=</span> <span class="p">[</span><span class="n">sources</span><span class="p">]</span>
+        <span class="n">lang</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">index</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">language_order</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">source</span> <span class="ow">in</span> <span class="n">sources</span><span class="p">:</span>
+            <span class="n">base</span><span class="p">,</span> <span class="n">ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+            <span class="n">extlang</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">language_map</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">ext</span><span class="p">)</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">extindex</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">language_order</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">extlang</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">extindex</span> <span class="o">&lt;</span> <span class="n">index</span><span class="p">:</span>
+                    <span class="n">lang</span> <span class="o">=</span> <span class="n">extlang</span>
+                    <span class="n">index</span> <span class="o">=</span> <span class="n">extindex</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">pass</span>
+        <span class="k">return</span> <span class="n">lang</span>
+
+
+    <span class="c"># -- Worker methods ------------------------------------------------</span>
+    <span class="c"># (must be implemented by subclasses)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.preprocess"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.preprocess">[docs]</a>    <span class="k">def</span> <span class="nf">preprocess</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">source</span><span class="p">,</span> <span class="n">output_file</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">macros</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                   <span class="n">include_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Preprocess a single C/C++ source file, named in &#39;source&#39;.</span>
+<span class="sd">        Output will be written to file named &#39;output_file&#39;, or stdout if</span>
+<span class="sd">        &#39;output_file&#39; not supplied.  &#39;macros&#39; is a list of macro</span>
+<span class="sd">        definitions as for &#39;compile()&#39;, which will augment the macros set</span>
+<span class="sd">        with &#39;define_macro()&#39; and &#39;undefine_macro()&#39;.  &#39;include_dirs&#39; is a</span>
+<span class="sd">        list of directory names that will be added to the default list.</span>
+
+<span class="sd">        Raises PreprocessError on failure.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="CCompiler.compile"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.compile">[docs]</a>    <span class="k">def</span> <span class="nf">compile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">macros</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                <span class="n">include_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">depends</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compile one or more source files.</span>
+
+<span class="sd">        &#39;sources&#39; must be a list of filenames, most likely C/C++</span>
+<span class="sd">        files, but in reality anything that can be handled by a</span>
+<span class="sd">        particular compiler and compiler class (eg. MSVCCompiler can</span>
+<span class="sd">        handle resource files in &#39;sources&#39;).  Return a list of object</span>
+<span class="sd">        filenames, one per source filename in &#39;sources&#39;.  Depending on</span>
+<span class="sd">        the implementation, not all source files will necessarily be</span>
+<span class="sd">        compiled, but all corresponding object filenames will be</span>
+<span class="sd">        returned.</span>
+
+<span class="sd">        If &#39;output_dir&#39; is given, object files will be put under it, while</span>
+<span class="sd">        retaining their original path component.  That is, &quot;foo/bar.c&quot;</span>
+<span class="sd">        normally compiles to &quot;foo/bar.o&quot; (for a Unix implementation); if</span>
+<span class="sd">        &#39;output_dir&#39; is &quot;build&quot;, then it would compile to</span>
+<span class="sd">        &quot;build/foo/bar.o&quot;.</span>
+
+<span class="sd">        &#39;macros&#39;, if given, must be a list of macro definitions.  A macro</span>
+<span class="sd">        definition is either a (name, value) 2-tuple or a (name,) 1-tuple.</span>
+<span class="sd">        The former defines a macro; if the value is None, the macro is</span>
+<span class="sd">        defined without an explicit value.  The 1-tuple case undefines a</span>
+<span class="sd">        macro.  Later definitions/redefinitions/ undefinitions take</span>
+<span class="sd">        precedence.</span>
+
+<span class="sd">        &#39;include_dirs&#39;, if given, must be a list of strings, the</span>
+<span class="sd">        directories to add to the default include file search path for this</span>
+<span class="sd">        compilation only.</span>
+
+<span class="sd">        &#39;debug&#39; is a boolean; if true, the compiler will be instructed to</span>
+<span class="sd">        output debug symbols in (or alongside) the object file(s).</span>
+
+<span class="sd">        &#39;extra_preargs&#39; and &#39;extra_postargs&#39; are implementation- dependent.</span>
+<span class="sd">        On platforms that have the notion of a command-line (e.g. Unix,</span>
+<span class="sd">        DOS/Windows), they are most likely lists of strings: extra</span>
+<span class="sd">        command-line arguments to prepand/append to the compiler command</span>
+<span class="sd">        line.  On other platforms, consult the implementation class</span>
+<span class="sd">        documentation.  In any event, they are intended as an escape hatch</span>
+<span class="sd">        for those occasions when the abstract compiler framework doesn&#39;t</span>
+<span class="sd">        cut the mustard.</span>
+
+<span class="sd">        &#39;depends&#39;, if given, is a list of filenames that all targets</span>
+<span class="sd">        depend on.  If a source file is older than any file in</span>
+<span class="sd">        depends, then the source file will be recompiled.  This</span>
+<span class="sd">        supports dependency tracking, but only at a coarse</span>
+<span class="sd">        granularity.</span>
+
+<span class="sd">        Raises CompileError on failure.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># A concrete compiler class can either override this method</span>
+        <span class="c"># entirely or implement _compile().</span>
+        <span class="n">macros</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">,</span> <span class="n">pp_opts</span><span class="p">,</span> <span class="n">build</span> <span class="o">=</span> \
+                <span class="bp">self</span><span class="o">.</span><span class="n">_setup_compile</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">,</span> <span class="n">sources</span><span class="p">,</span>
+                                    <span class="n">depends</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">)</span>
+        <span class="n">cc_args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_cc_args</span><span class="p">(</span><span class="n">pp_opts</span><span class="p">,</span> <span class="n">debug</span><span class="p">,</span> <span class="n">extra_preargs</span><span class="p">)</span>
+
+        <span class="k">for</span> <span class="n">obj</span> <span class="ow">in</span> <span class="n">objects</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">src</span><span class="p">,</span> <span class="n">ext</span> <span class="o">=</span> <span class="n">build</span><span class="p">[</span><span class="n">obj</span><span class="p">]</span>
+            <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_compile</span><span class="p">(</span><span class="n">obj</span><span class="p">,</span> <span class="n">src</span><span class="p">,</span> <span class="n">ext</span><span class="p">,</span> <span class="n">cc_args</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">,</span> <span class="n">pp_opts</span><span class="p">)</span>
+
+        <span class="c"># Return *all* object filenames, not just the ones we just built.</span>
+        <span class="k">return</span> <span class="n">objects</span>
+</div>
+    <span class="k">def</span> <span class="nf">_compile</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">obj</span><span class="p">,</span> <span class="n">src</span><span class="p">,</span> <span class="n">ext</span><span class="p">,</span> <span class="n">cc_args</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">,</span> <span class="n">pp_opts</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Compile &#39;src&#39; to product &#39;obj&#39;.&quot;&quot;&quot;</span>
+        <span class="c"># A concrete compiler class that does not override compile()</span>
+        <span class="c"># should implement _compile().</span>
+        <span class="k">pass</span>
+
+<div class="viewcode-block" id="CCompiler.create_static_lib"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.create_static_lib">[docs]</a>    <span class="k">def</span> <span class="nf">create_static_lib</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span> <span class="n">output_libname</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                          <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Link a bunch of stuff together to create a static library file.</span>
+<span class="sd">        The &quot;bunch of stuff&quot; consists of the list of object files supplied</span>
+<span class="sd">        as &#39;objects&#39;, the extra object files supplied to</span>
+<span class="sd">        &#39;add_link_object()&#39; and/or &#39;set_link_objects()&#39;, the libraries</span>
+<span class="sd">        supplied to &#39;add_library()&#39; and/or &#39;set_libraries()&#39;, and the</span>
+<span class="sd">        libraries supplied as &#39;libraries&#39; (if any).</span>
+
+<span class="sd">        &#39;output_libname&#39; should be a library name, not a filename; the</span>
+<span class="sd">        filename will be inferred from the library name.  &#39;output_dir&#39; is</span>
+<span class="sd">        the directory where the library file will be put.</span>
+
+<span class="sd">        &#39;debug&#39; is a boolean; if true, debugging information will be</span>
+<span class="sd">        included in the library (note that on most platforms, it is the</span>
+<span class="sd">        compile step where this matters: the &#39;debug&#39; flag is included here</span>
+<span class="sd">        just for consistency).</span>
+
+<span class="sd">        &#39;target_lang&#39; is the target language for which the given objects</span>
+<span class="sd">        are being compiled. This allows specific linkage time treatment of</span>
+<span class="sd">        certain languages.</span>
+
+<span class="sd">        Raises LibError on failure.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">pass</span>
+
+
+    <span class="c"># values for target_desc parameter in link()</span></div>
+    <span class="n">SHARED_OBJECT</span> <span class="o">=</span> <span class="s">&quot;shared_object&quot;</span>
+    <span class="n">SHARED_LIBRARY</span> <span class="o">=</span> <span class="s">&quot;shared_library&quot;</span>
+    <span class="n">EXECUTABLE</span> <span class="o">=</span> <span class="s">&quot;executable&quot;</span>
+
+<div class="viewcode-block" id="CCompiler.link"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.link">[docs]</a>    <span class="k">def</span> <span class="nf">link</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+             <span class="n">target_desc</span><span class="p">,</span>
+             <span class="n">objects</span><span class="p">,</span>
+             <span class="n">output_filename</span><span class="p">,</span>
+             <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">libraries</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">runtime_library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">export_symbols</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+             <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">build_temp</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+             <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Link a bunch of stuff together to create an executable or</span>
+<span class="sd">        shared library file.</span>
+
+<span class="sd">        The &quot;bunch of stuff&quot; consists of the list of object files supplied</span>
+<span class="sd">        as &#39;objects&#39;.  &#39;output_filename&#39; should be a filename.  If</span>
+<span class="sd">        &#39;output_dir&#39; is supplied, &#39;output_filename&#39; is relative to it</span>
+<span class="sd">        (i.e. &#39;output_filename&#39; can provide directory components if</span>
+<span class="sd">        needed).</span>
+
+<span class="sd">        &#39;libraries&#39; is a list of libraries to link against.  These are</span>
+<span class="sd">        library names, not filenames, since they&#39;re translated into</span>
+<span class="sd">        filenames in a platform-specific way (eg. &quot;foo&quot; becomes &quot;libfoo.a&quot;</span>
+<span class="sd">        on Unix and &quot;foo.lib&quot; on DOS/Windows).  However, they can include a</span>
+<span class="sd">        directory component, which means the linker will look in that</span>
+<span class="sd">        specific directory rather than searching all the normal locations.</span>
+
+<span class="sd">        &#39;library_dirs&#39;, if supplied, should be a list of directories to</span>
+<span class="sd">        search for libraries that were specified as bare library names</span>
+<span class="sd">        (ie. no directory component).  These are on top of the system</span>
+<span class="sd">        default and those supplied to &#39;add_library_dir()&#39; and/or</span>
+<span class="sd">        &#39;set_library_dirs()&#39;.  &#39;runtime_library_dirs&#39; is a list of</span>
+<span class="sd">        directories that will be embedded into the shared library and used</span>
+<span class="sd">        to search for other shared libraries that *it* depends on at</span>
+<span class="sd">        run-time.  (This may only be relevant on Unix.)</span>
+
+<span class="sd">        &#39;export_symbols&#39; is a list of symbols that the shared library will</span>
+<span class="sd">        export.  (This appears to be relevant only on Windows.)</span>
+
+<span class="sd">        &#39;debug&#39; is as for &#39;compile()&#39; and &#39;create_static_lib()&#39;, with the</span>
+<span class="sd">        slight distinction that it actually matters on most platforms (as</span>
+<span class="sd">        opposed to &#39;create_static_lib()&#39;, which includes a &#39;debug&#39; flag</span>
+<span class="sd">        mostly for form&#39;s sake).</span>
+
+<span class="sd">        &#39;extra_preargs&#39; and &#39;extra_postargs&#39; are as for &#39;compile()&#39; (except</span>
+<span class="sd">        of course that they supply command-line arguments for the</span>
+<span class="sd">        particular linker being used).</span>
+
+<span class="sd">        &#39;target_lang&#39; is the target language for which the given objects</span>
+<span class="sd">        are being compiled. This allows specific linkage time treatment of</span>
+<span class="sd">        certain languages.</span>
+
+<span class="sd">        Raises LinkError on failure.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+
+    <span class="c"># Old &#39;link_*()&#39; methods, rewritten to use the new &#39;link()&#39; method.</span>
+</div>
+<div class="viewcode-block" id="CCompiler.link_shared_lib"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.link_shared_lib">[docs]</a>    <span class="k">def</span> <span class="nf">link_shared_lib</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                        <span class="n">objects</span><span class="p">,</span>
+                        <span class="n">output_libname</span><span class="p">,</span>
+                        <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">libraries</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">runtime_library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">export_symbols</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                        <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">build_temp</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">link</span><span class="p">(</span><span class="n">CCompiler</span><span class="o">.</span><span class="n">SHARED_LIBRARY</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span>
+                  <span class="bp">self</span><span class="o">.</span><span class="n">library_filename</span><span class="p">(</span><span class="n">output_libname</span><span class="p">,</span> <span class="n">lib_type</span><span class="o">=</span><span class="s">&#39;shared&#39;</span><span class="p">),</span>
+                  <span class="n">output_dir</span><span class="p">,</span>
+                  <span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">,</span>
+                  <span class="n">export_symbols</span><span class="p">,</span> <span class="n">debug</span><span class="p">,</span>
+                  <span class="n">extra_preargs</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">,</span> <span class="n">build_temp</span><span class="p">,</span> <span class="n">target_lang</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="CCompiler.link_shared_object"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.link_shared_object">[docs]</a>    <span class="k">def</span> <span class="nf">link_shared_object</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                           <span class="n">objects</span><span class="p">,</span>
+                           <span class="n">output_filename</span><span class="p">,</span>
+                           <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">libraries</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">runtime_library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">export_symbols</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                           <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">build_temp</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">link</span><span class="p">(</span><span class="n">CCompiler</span><span class="o">.</span><span class="n">SHARED_OBJECT</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span>
+                  <span class="n">output_filename</span><span class="p">,</span> <span class="n">output_dir</span><span class="p">,</span>
+                  <span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">,</span>
+                  <span class="n">export_symbols</span><span class="p">,</span> <span class="n">debug</span><span class="p">,</span>
+                  <span class="n">extra_preargs</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">,</span> <span class="n">build_temp</span><span class="p">,</span> <span class="n">target_lang</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="CCompiler.link_executable"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.link_executable">[docs]</a>    <span class="k">def</span> <span class="nf">link_executable</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+                        <span class="n">objects</span><span class="p">,</span>
+                        <span class="n">output_progname</span><span class="p">,</span>
+                        <span class="n">output_dir</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">libraries</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">runtime_library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+                        <span class="n">extra_preargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">extra_postargs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                        <span class="n">target_lang</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">link</span><span class="p">(</span><span class="n">CCompiler</span><span class="o">.</span><span class="n">EXECUTABLE</span><span class="p">,</span> <span class="n">objects</span><span class="p">,</span>
+                  <span class="bp">self</span><span class="o">.</span><span class="n">executable_filename</span><span class="p">(</span><span class="n">output_progname</span><span class="p">),</span> <span class="n">output_dir</span><span class="p">,</span>
+                  <span class="n">libraries</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+                  <span class="n">debug</span><span class="p">,</span> <span class="n">extra_preargs</span><span class="p">,</span> <span class="n">extra_postargs</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span> <span class="n">target_lang</span><span class="p">)</span>
+
+
+    <span class="c"># -- Miscellaneous methods -----------------------------------------</span>
+    <span class="c"># These are all used by the &#39;gen_lib_options() function; there is</span>
+    <span class="c"># no appropriate default implementation so subclasses should</span>
+    <span class="c"># implement all of these.</span>
+</div>
+<div class="viewcode-block" id="CCompiler.library_dir_option"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.library_dir_option">[docs]</a>    <span class="k">def</span> <span class="nf">library_dir_option</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">dir</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the compiler option to add &#39;dir&#39; to the list of</span>
+<span class="sd">        directories searched for libraries.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+</div>
+<div class="viewcode-block" id="CCompiler.runtime_library_dir_option"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.runtime_library_dir_option">[docs]</a>    <span class="k">def</span> <span class="nf">runtime_library_dir_option</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">dir</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the compiler option to add &#39;dir&#39; to the list of</span>
+<span class="sd">        directories searched for runtime libraries.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+</div>
+<div class="viewcode-block" id="CCompiler.library_option"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.library_option">[docs]</a>    <span class="k">def</span> <span class="nf">library_option</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lib</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the compiler option to add &#39;dir&#39; to the list of libraries</span>
+<span class="sd">        linked into the shared library or executable.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+</div>
+<div class="viewcode-block" id="CCompiler.has_function"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.has_function">[docs]</a>    <span class="k">def</span> <span class="nf">has_function</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">funcname</span><span class="p">,</span> <span class="n">includes</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">include_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                     <span class="n">libraries</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">library_dirs</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return a boolean indicating whether funcname is supported on</span>
+<span class="sd">        the current platform.  The optional arguments can be used to</span>
+<span class="sd">        augment the compilation environment.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># this can&#39;t be included at module scope because it tries to</span>
+        <span class="c"># import math which might not be available at that point - maybe</span>
+        <span class="c"># the necessary logic should just be inlined?</span>
+        <span class="kn">import</span> <span class="nn">tempfile</span>
+        <span class="k">if</span> <span class="n">includes</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">includes</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">include_dirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">include_dirs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">libraries</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">libraries</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">library_dirs</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">library_dirs</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">fd</span><span class="p">,</span> <span class="n">fname</span> <span class="o">=</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">mkstemp</span><span class="p">(</span><span class="s">&quot;.c&quot;</span><span class="p">,</span> <span class="n">funcname</span><span class="p">,</span> <span class="n">text</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">fdopen</span><span class="p">(</span><span class="n">fd</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">incl</span> <span class="ow">in</span> <span class="n">includes</span><span class="p">:</span>
+                <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&quot;&quot;#include &quot;</span><span class="si">%s</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;&quot;&quot;</span> <span class="o">%</span> <span class="n">incl</span><span class="p">)</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;&quot;&quot;</span><span class="se">\</span>
+<span class="s">main (int argc, char **argv) {</span>
+<span class="s">    </span><span class="si">%s</span><span class="s">();</span>
+<span class="s">}</span>
+<span class="s">&quot;&quot;&quot;</span> <span class="o">%</span> <span class="n">funcname</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">objects</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">compile</span><span class="p">([</span><span class="n">fname</span><span class="p">],</span> <span class="n">include_dirs</span><span class="o">=</span><span class="n">include_dirs</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">CompileError</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">False</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">link_executable</span><span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="s">&quot;a.out&quot;</span><span class="p">,</span>
+                                 <span class="n">libraries</span><span class="o">=</span><span class="n">libraries</span><span class="p">,</span>
+                                 <span class="n">library_dirs</span><span class="o">=</span><span class="n">library_dirs</span><span class="p">)</span>
+        <span class="k">except</span> <span class="p">(</span><span class="n">LinkError</span><span class="p">,</span> <span class="ne">TypeError</span><span class="p">):</span>
+            <span class="k">return</span> <span class="bp">False</span>
+        <span class="k">return</span> <span class="bp">True</span>
+</div>
+<div class="viewcode-block" id="CCompiler.find_library_file"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.find_library_file">[docs]</a>    <span class="k">def</span> <span class="nf">find_library_file</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dirs</span><span class="p">,</span> <span class="n">lib</span><span class="p">,</span> <span class="n">debug</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Search the specified list of directories for a static or shared</span>
+<span class="sd">        library file &#39;lib&#39; and return the full path to that file.  If</span>
+<span class="sd">        &#39;debug&#39; true, look for a debugging version (if that makes sense on</span>
+<span class="sd">        the current platform).  Return None if &#39;lib&#39; wasn&#39;t found in any of</span>
+<span class="sd">        the specified directories.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span>
+
+    <span class="c"># -- Filename generation methods -----------------------------------</span>
+
+    <span class="c"># The default implementation of the filename generating methods are</span>
+    <span class="c"># prejudiced towards the Unix/DOS/Windows view of the world:</span>
+    <span class="c">#   * object files are named by replacing the source file extension</span>
+    <span class="c">#     (eg. .c/.cpp -&gt; .o/.obj)</span>
+    <span class="c">#   * library files (shared or static) are named by plugging the</span>
+    <span class="c">#     library name and extension into a format string, eg.</span>
+    <span class="c">#     &quot;lib%s.%s&quot; % (lib_name, &quot;.a&quot;) for Unix static libraries</span>
+    <span class="c">#   * executables are named by appending an extension (possibly</span>
+    <span class="c">#     empty) to the program name: eg. progname + &quot;.exe&quot; for</span>
+    <span class="c">#     Windows</span>
+    <span class="c">#</span>
+    <span class="c"># To reduce redundant code, these methods expect to find</span>
+    <span class="c"># several attributes in the current object (presumably defined</span>
+    <span class="c"># as class attributes):</span>
+    <span class="c">#   * src_extensions -</span>
+    <span class="c">#     list of C/C++ source file extensions, eg. [&#39;.c&#39;, &#39;.cpp&#39;]</span>
+    <span class="c">#   * obj_extension -</span>
+    <span class="c">#     object file extension, eg. &#39;.o&#39; or &#39;.obj&#39;</span>
+    <span class="c">#   * static_lib_extension -</span>
+    <span class="c">#     extension for static library files, eg. &#39;.a&#39; or &#39;.lib&#39;</span>
+    <span class="c">#   * shared_lib_extension -</span>
+    <span class="c">#     extension for shared library/object files, eg. &#39;.so&#39;, &#39;.dll&#39;</span>
+    <span class="c">#   * static_lib_format -</span>
+    <span class="c">#     format string for generating static library filenames,</span>
+    <span class="c">#     eg. &#39;lib%s.%s&#39; or &#39;%s.%s&#39;</span>
+    <span class="c">#   * shared_lib_format</span>
+    <span class="c">#     format string for generating shared library filenames</span>
+    <span class="c">#     (probably same as static_lib_format, since the extension</span>
+    <span class="c">#     is one of the intended parameters to the format string)</span>
+    <span class="c">#   * exe_extension -</span>
+    <span class="c">#     extension for executable files, eg. &#39;&#39; or &#39;.exe&#39;</span>
+</div>
+<div class="viewcode-block" id="CCompiler.object_filenames"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.object_filenames">[docs]</a>    <span class="k">def</span> <span class="nf">object_filenames</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">source_filenames</span><span class="p">,</span> <span class="n">strip_dir</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">output_dir</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="n">obj_names</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">src_name</span> <span class="ow">in</span> <span class="n">source_filenames</span><span class="p">:</span>
+            <span class="n">base</span><span class="p">,</span> <span class="n">ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">src_name</span><span class="p">)</span>
+            <span class="n">base</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitdrive</span><span class="p">(</span><span class="n">base</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span> <span class="c"># Chop off the drive</span>
+            <span class="n">base</span> <span class="o">=</span> <span class="n">base</span><span class="p">[</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isabs</span><span class="p">(</span><span class="n">base</span><span class="p">):]</span>  <span class="c"># If abs, chop off leading /</span>
+            <span class="k">if</span> <span class="n">ext</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">src_extensions</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">UnknownFileError</span><span class="p">(</span>
+                      <span class="s">&quot;unknown file type &#39;</span><span class="si">%s</span><span class="s">&#39; (from &#39;</span><span class="si">%s</span><span class="s">&#39;)&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">ext</span><span class="p">,</span> <span class="n">src_name</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">strip_dir</span><span class="p">:</span>
+                <span class="n">base</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">base</span><span class="p">)</span>
+            <span class="n">obj_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span>
+                                          <span class="n">base</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">obj_extension</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">obj_names</span>
+</div>
+<div class="viewcode-block" id="CCompiler.shared_object_filename"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.shared_object_filename">[docs]</a>    <span class="k">def</span> <span class="nf">shared_object_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">basename</span><span class="p">,</span> <span class="n">strip_dir</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">strip_dir</span><span class="p">:</span>
+            <span class="n">basename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">basename</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">basename</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">shared_lib_extension</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.executable_filename"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.executable_filename">[docs]</a>    <span class="k">def</span> <span class="nf">executable_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">basename</span><span class="p">,</span> <span class="n">strip_dir</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">strip_dir</span><span class="p">:</span>
+            <span class="n">basename</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">basename</span><span class="p">(</span><span class="n">basename</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="n">basename</span> <span class="o">+</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">exe_extension</span> <span class="ow">or</span> <span class="s">&#39;&#39;</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="CCompiler.library_filename"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.library_filename">[docs]</a>    <span class="k">def</span> <span class="nf">library_filename</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">libname</span><span class="p">,</span> <span class="n">lib_type</span><span class="o">=</span><span class="s">&#39;static&#39;</span><span class="p">,</span>     <span class="c"># or &#39;shared&#39;</span>
+                         <span class="n">strip_dir</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">output_dir</span><span class="o">=</span><span class="s">&#39;&#39;</span><span class="p">):</span>
+        <span class="k">assert</span> <span class="n">output_dir</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="n">lib_type</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;static&quot;</span><span class="p">,</span> <span class="s">&quot;shared&quot;</span><span class="p">,</span> <span class="s">&quot;dylib&quot;</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span>
+                  <span class="s">&quot;&#39;lib_type&#39; must be </span><span class="se">\&quot;</span><span class="s">static</span><span class="se">\&quot;</span><span class="s">, </span><span class="se">\&quot;</span><span class="s">shared</span><span class="se">\&quot;</span><span class="s"> or </span><span class="se">\&quot;</span><span class="s">dylib</span><span class="se">\&quot;</span><span class="s">&quot;</span><span class="p">)</span>
+        <span class="n">fmt</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lib_type</span> <span class="o">+</span> <span class="s">&quot;_lib_format&quot;</span><span class="p">)</span>
+        <span class="n">ext</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lib_type</span> <span class="o">+</span> <span class="s">&quot;_lib_extension&quot;</span><span class="p">)</span>
+
+        <span class="nb">dir</span><span class="p">,</span> <span class="n">base</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">libname</span><span class="p">)</span>
+        <span class="n">filename</span> <span class="o">=</span> <span class="n">fmt</span> <span class="o">%</span> <span class="p">(</span><span class="n">base</span><span class="p">,</span> <span class="n">ext</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">strip_dir</span><span class="p">:</span>
+            <span class="nb">dir</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+
+        <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_dir</span><span class="p">,</span> <span class="nb">dir</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+
+
+    <span class="c"># -- Utility methods -----------------------------------------------</span>
+</div>
+<div class="viewcode-block" id="CCompiler.announce"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.announce">[docs]</a>    <span class="k">def</span> <span class="nf">announce</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.debug_print"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.debug_print">[docs]</a>    <span class="k">def</span> <span class="nf">debug_print</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="kn">from</span> <span class="nn">distutils.debug</span> <span class="kn">import</span> <span class="n">DEBUG</span>
+        <span class="k">if</span> <span class="n">DEBUG</span><span class="p">:</span>
+            <span class="k">print</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.warn"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.warn">[docs]</a>    <span class="k">def</span> <span class="nf">warn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">):</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;warning: </span><span class="si">%s</span><span class="se">\n</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.execute"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.execute">[docs]</a>    <span class="k">def</span> <span class="nf">execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">msg</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="n">execute</span><span class="p">(</span><span class="n">func</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.spawn"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.spawn">[docs]</a>    <span class="k">def</span> <span class="nf">spawn</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cmd</span><span class="p">):</span>
+        <span class="n">spawn</span><span class="p">(</span><span class="n">cmd</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.move_file"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.move_file">[docs]</a>    <span class="k">def</span> <span class="nf">move_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">src</span><span class="p">,</span> <span class="n">dst</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">move_file</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">dst</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="CCompiler.mkpath"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.CCompiler.mkpath">[docs]</a>    <span class="k">def</span> <span class="nf">mkpath</span> <span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="mi">0</span><span class="n">o777</span><span class="p">):</span>
+        <span class="n">mkpath</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">mode</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">dry_run</span><span class="p">)</span>
+
+
+<span class="c"># Map a sys.platform/os.name (&#39;posix&#39;, &#39;nt&#39;) to the default compiler</span>
+<span class="c"># type for that platform. Keys are interpreted as re match</span>
+<span class="c"># patterns. Order is important; platform mappings are preferred over</span>
+<span class="c"># OS names.</span></div></div>
+<span class="n">_default_compilers</span> <span class="o">=</span> <span class="p">(</span>
+
+    <span class="c"># Platform string mappings</span>
+
+    <span class="c"># on a cygwin built python we can use gcc like an ordinary UNIXish</span>
+    <span class="c"># compiler</span>
+    <span class="p">(</span><span class="s">&#39;cygwin.*&#39;</span><span class="p">,</span> <span class="s">&#39;unix&#39;</span><span class="p">),</span>
+
+    <span class="c"># OS name mappings</span>
+    <span class="p">(</span><span class="s">&#39;posix&#39;</span><span class="p">,</span> <span class="s">&#39;unix&#39;</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">&#39;nt&#39;</span><span class="p">,</span> <span class="s">&#39;msvc&#39;</span><span class="p">),</span>
+
+    <span class="p">)</span>
+
+<div class="viewcode-block" id="get_default_compiler"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.get_default_compiler">[docs]</a><span class="k">def</span> <span class="nf">get_default_compiler</span><span class="p">(</span><span class="n">osname</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">platform</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Determine the default compiler to use for the given platform.</span>
+
+<span class="sd">       osname should be one of the standard Python OS names (i.e. the</span>
+<span class="sd">       ones returned by os.name) and platform the common value</span>
+<span class="sd">       returned by sys.platform for the platform in question.</span>
+
+<span class="sd">       The default values are os.name and sys.platform in case the</span>
+<span class="sd">       parameters are not given.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">osname</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">osname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span>
+    <span class="k">if</span> <span class="n">platform</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">platform</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">platform</span>
+    <span class="k">for</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">compiler</span> <span class="ow">in</span> <span class="n">_default_compilers</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">platform</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">or</span> \
+           <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">pattern</span><span class="p">,</span> <span class="n">osname</span><span class="p">)</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">compiler</span>
+    <span class="c"># Default to Unix compiler</span>
+    <span class="k">return</span> <span class="s">&#39;unix&#39;</span>
+
+<span class="c"># Map compiler types to (module_name, class_name) pairs -- ie. where to</span>
+<span class="c"># find the code that implements an interface to this compiler.  (The module</span>
+<span class="c"># is assumed to be in the &#39;distutils&#39; package.)</span></div>
+<span class="n">compiler_class</span> <span class="o">=</span> <span class="p">{</span> <span class="s">&#39;unix&#39;</span><span class="p">:</span>    <span class="p">(</span><span class="s">&#39;unixccompiler&#39;</span><span class="p">,</span> <span class="s">&#39;UnixCCompiler&#39;</span><span class="p">,</span>
+                               <span class="s">&quot;standard UNIX-style compiler&quot;</span><span class="p">),</span>
+                   <span class="s">&#39;msvc&#39;</span><span class="p">:</span>    <span class="p">(</span><span class="s">&#39;msvccompiler&#39;</span><span class="p">,</span> <span class="s">&#39;MSVCCompiler&#39;</span><span class="p">,</span>
+                               <span class="s">&quot;Microsoft Visual C++&quot;</span><span class="p">),</span>
+                   <span class="s">&#39;cygwin&#39;</span><span class="p">:</span>  <span class="p">(</span><span class="s">&#39;cygwinccompiler&#39;</span><span class="p">,</span> <span class="s">&#39;CygwinCCompiler&#39;</span><span class="p">,</span>
+                               <span class="s">&quot;Cygwin port of GNU C Compiler for Win32&quot;</span><span class="p">),</span>
+                   <span class="s">&#39;mingw32&#39;</span><span class="p">:</span> <span class="p">(</span><span class="s">&#39;cygwinccompiler&#39;</span><span class="p">,</span> <span class="s">&#39;Mingw32CCompiler&#39;</span><span class="p">,</span>
+                               <span class="s">&quot;Mingw32 port of GNU C Compiler for Win32&quot;</span><span class="p">),</span>
+                   <span class="s">&#39;bcpp&#39;</span><span class="p">:</span>    <span class="p">(</span><span class="s">&#39;bcppcompiler&#39;</span><span class="p">,</span> <span class="s">&#39;BCPPCompiler&#39;</span><span class="p">,</span>
+                               <span class="s">&quot;Borland C++ Compiler&quot;</span><span class="p">),</span>
+                 <span class="p">}</span>
+
+<div class="viewcode-block" id="show_compilers"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.show_compilers">[docs]</a><span class="k">def</span> <span class="nf">show_compilers</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Print list of available compilers (used by the &quot;--help-compiler&quot;</span>
+<span class="sd">    options to &quot;build&quot;, &quot;build_ext&quot;, &quot;build_clib&quot;).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># XXX this &quot;knows&quot; that the compiler option it&#39;s describing is</span>
+    <span class="c"># &quot;--compiler&quot;, which just happens to be the case for the three</span>
+    <span class="c"># commands that use it.</span>
+    <span class="kn">from</span> <span class="nn">distutils.fancy_getopt</span> <span class="kn">import</span> <span class="n">FancyGetopt</span>
+    <span class="n">compilers</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">compiler</span> <span class="ow">in</span> <span class="n">compiler_class</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+        <span class="n">compilers</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s">&quot;compiler=&quot;</span><span class="o">+</span><span class="n">compiler</span><span class="p">,</span> <span class="bp">None</span><span class="p">,</span>
+                          <span class="n">compiler_class</span><span class="p">[</span><span class="n">compiler</span><span class="p">][</span><span class="mi">2</span><span class="p">]))</span>
+    <span class="n">compilers</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+    <span class="n">pretty_printer</span> <span class="o">=</span> <span class="n">FancyGetopt</span><span class="p">(</span><span class="n">compilers</span><span class="p">)</span>
+    <span class="n">pretty_printer</span><span class="o">.</span><span class="n">print_help</span><span class="p">(</span><span class="s">&quot;List of available compilers:&quot;</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="new_compiler"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.new_compiler">[docs]</a><span class="k">def</span> <span class="nf">new_compiler</span><span class="p">(</span><span class="n">plat</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">compiler</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">dry_run</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">force</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Generate an instance of some CCompiler subclass for the supplied</span>
+<span class="sd">    platform/compiler combination.  &#39;plat&#39; defaults to &#39;os.name&#39;</span>
+<span class="sd">    (eg. &#39;posix&#39;, &#39;nt&#39;), and &#39;compiler&#39; defaults to the default compiler</span>
+<span class="sd">    for that platform.  Currently only &#39;posix&#39; and &#39;nt&#39; are supported, and</span>
+<span class="sd">    the default compilers are &quot;traditional Unix interface&quot; (UnixCCompiler</span>
+<span class="sd">    class) and Visual C++ (MSVCCompiler class).  Note that it&#39;s perfectly</span>
+<span class="sd">    possible to ask for a Unix compiler object under Windows, and a</span>
+<span class="sd">    Microsoft compiler object under Unix -- if you supply a value for</span>
+<span class="sd">    &#39;compiler&#39;, &#39;plat&#39; is ignored.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">plat</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">plat</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">name</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">compiler</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">compiler</span> <span class="o">=</span> <span class="n">get_default_compiler</span><span class="p">(</span><span class="n">plat</span><span class="p">)</span>
+
+        <span class="p">(</span><span class="n">module_name</span><span class="p">,</span> <span class="n">class_name</span><span class="p">,</span> <span class="n">long_description</span><span class="p">)</span> <span class="o">=</span> <span class="n">compiler_class</span><span class="p">[</span><span class="n">compiler</span><span class="p">]</span>
+    <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;don&#39;t know how to compile C/C++ code on platform &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="n">plat</span>
+        <span class="k">if</span> <span class="n">compiler</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="n">msg</span> <span class="o">+</span> <span class="s">&quot; with &#39;</span><span class="si">%s</span><span class="s">&#39; compiler&quot;</span> <span class="o">%</span> <span class="n">compiler</span>
+        <span class="k">raise</span> <span class="n">DistutilsPlatformError</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+
+    <span class="k">try</span><span class="p">:</span>
+        <span class="n">module_name</span> <span class="o">=</span> <span class="s">&quot;distutils.&quot;</span> <span class="o">+</span> <span class="n">module_name</span>
+        <span class="nb">__import__</span> <span class="p">(</span><span class="n">module_name</span><span class="p">)</span>
+        <span class="n">module</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">modules</span><span class="p">[</span><span class="n">module_name</span><span class="p">]</span>
+        <span class="n">klass</span> <span class="o">=</span> <span class="nb">vars</span><span class="p">(</span><span class="n">module</span><span class="p">)[</span><span class="n">class_name</span><span class="p">]</span>
+    <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DistutilsModuleError</span><span class="p">(</span>
+              <span class="s">&quot;can&#39;t compile C/C++ code: unable to load module &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> \
+              <span class="n">module_name</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DistutilsModuleError</span><span class="p">(</span>
+               <span class="s">&quot;can&#39;t compile C/C++ code: unable to find class &#39;</span><span class="si">%s</span><span class="s">&#39; &quot;</span>
+               <span class="s">&quot;in module &#39;</span><span class="si">%s</span><span class="s">&#39;&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">class_name</span><span class="p">,</span> <span class="n">module_name</span><span class="p">))</span>
+
+    <span class="c"># XXX The None is necessary to preserve backwards compatibility</span>
+    <span class="c"># with classes that expect verbose to be the first positional</span>
+    <span class="c"># argument.</span>
+    <span class="k">return</span> <span class="n">klass</span><span class="p">(</span><span class="bp">None</span><span class="p">,</span> <span class="n">dry_run</span><span class="p">,</span> <span class="n">force</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="gen_preprocess_options"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.gen_preprocess_options">[docs]</a><span class="k">def</span> <span class="nf">gen_preprocess_options</span><span class="p">(</span><span class="n">macros</span><span class="p">,</span> <span class="n">include_dirs</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Generate C pre-processor options (-D, -U, -I) as used by at least</span>
+<span class="sd">    two types of compilers: the typical Unix compiler and Visual C++.</span>
+<span class="sd">    &#39;macros&#39; is the usual thing, a list of 1- or 2-tuples, where (name,)</span>
+<span class="sd">    means undefine (-U) macro &#39;name&#39;, and (name,value) means define (-D)</span>
+<span class="sd">    macro &#39;name&#39; to &#39;value&#39;.  &#39;include_dirs&#39; is just a list of directory</span>
+<span class="sd">    names to be added to the header file search path (-I).  Returns a list</span>
+<span class="sd">    of command-line options suitable for either Unix compilers or Visual</span>
+<span class="sd">    C++.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># XXX it would be nice (mainly aesthetic, and so we don&#39;t generate</span>
+    <span class="c"># stupid-looking command lines) to go over &#39;macros&#39; and eliminate</span>
+    <span class="c"># redundant definitions/undefinitions (ie. ensure that only the</span>
+    <span class="c"># latest mention of a particular macro winds up on the command</span>
+    <span class="c"># line).  I don&#39;t think it&#39;s essential, though, since most (all?)</span>
+    <span class="c"># Unix C compilers only pay attention to the latest -D or -U</span>
+    <span class="c"># mention of a macro on their command line.  Similar situation for</span>
+    <span class="c"># &#39;include_dirs&#39;.  I&#39;m punting on both for now.  Anyways, weeding out</span>
+    <span class="c"># redundancies like this should probably be the province of</span>
+    <span class="c"># CCompiler, since the data structures used are inherited from it</span>
+    <span class="c"># and therefore common to all CCompiler classes.</span>
+    <span class="n">pp_opts</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">macro</span> <span class="ow">in</span> <span class="n">macros</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">macro</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)</span> <span class="ow">and</span> <span class="mi">1</span> <span class="o">&lt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span> <span class="o">&lt;=</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">TypeError</span><span class="p">(</span>
+                  <span class="s">&quot;bad macro definition &#39;</span><span class="si">%s</span><span class="s">&#39;: &quot;</span>
+                  <span class="s">&quot;each element of &#39;macros&#39; list must be a 1- or 2-tuple&quot;</span>
+                  <span class="o">%</span> <span class="n">macro</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>        <span class="c"># undefine this macro</span>
+            <span class="n">pp_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;-U</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">macro</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">macro</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">macro</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>    <span class="c"># define with no explicit value</span>
+                <span class="n">pp_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;-D</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">macro</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># XXX *don&#39;t* need to be clever about quoting the</span>
+                <span class="c"># macro value here, because we&#39;re going to avoid the</span>
+                <span class="c"># shell at all costs when we spawn the command!</span>
+                <span class="n">pp_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;-D</span><span class="si">%s</span><span class="s">=</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">macro</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="nb">dir</span> <span class="ow">in</span> <span class="n">include_dirs</span><span class="p">:</span>
+        <span class="n">pp_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;-I</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="nb">dir</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">pp_opts</span>
+
+</div>
+<div class="viewcode-block" id="gen_lib_options"><a class="viewcode-back" href="../../distutils.html#distutils.ccompiler.gen_lib_options">[docs]</a><span class="k">def</span> <span class="nf">gen_lib_options</span> <span class="p">(</span><span class="n">compiler</span><span class="p">,</span> <span class="n">library_dirs</span><span class="p">,</span> <span class="n">runtime_library_dirs</span><span class="p">,</span> <span class="n">libraries</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Generate linker options for searching library directories and</span>
+<span class="sd">    linking with specific libraries.  &#39;libraries&#39; and &#39;library_dirs&#39; are,</span>
+<span class="sd">    respectively, lists of library names (not filenames!) and search</span>
+<span class="sd">    directories.  Returns a list of command-line options suitable for use</span>
+<span class="sd">    with some compiler (depending on the two format strings passed in).</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">lib_opts</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="k">for</span> <span class="nb">dir</span> <span class="ow">in</span> <span class="n">library_dirs</span><span class="p">:</span>
+        <span class="n">lib_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">compiler</span><span class="o">.</span><span class="n">library_dir_option</span><span class="p">(</span><span class="nb">dir</span><span class="p">))</span>
+
+    <span class="k">for</span> <span class="nb">dir</span> <span class="ow">in</span> <span class="n">runtime_library_dirs</span><span class="p">:</span>
+        <span class="n">opt</span> <span class="o">=</span> <span class="n">compiler</span><span class="o">.</span><span class="n">runtime_library_dir_option</span><span class="p">(</span><span class="nb">dir</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">opt</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+            <span class="n">lib_opts</span> <span class="o">=</span> <span class="n">lib_opts</span> <span class="o">+</span> <span class="n">opt</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">lib_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">opt</span><span class="p">)</span>
+
+    <span class="c"># XXX it&#39;s important that we *not* remove redundant library mentions!</span>
+    <span class="c"># sometimes you really do have to say &quot;-lfoo -lbar -lfoo&quot; in order to</span>
+    <span class="c"># resolve all symbols.  I just hope we never have to say &quot;-lfoo obj.o</span>
+    <span class="c"># -lbar&quot; to get things to work -- that&#39;s certainly a possibility, but a</span>
+    <span class="c"># pretty nasty way to arrange your C code.</span>
+
+    <span class="k">for</span> <span class="n">lib</span> <span class="ow">in</span> <span class="n">libraries</span><span class="p">:</span>
+        <span class="p">(</span><span class="n">lib_dir</span><span class="p">,</span> <span class="n">lib_name</span><span class="p">)</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="n">lib</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">lib_dir</span><span class="p">:</span>
+            <span class="n">lib_file</span> <span class="o">=</span> <span class="n">compiler</span><span class="o">.</span><span class="n">find_library_file</span><span class="p">([</span><span class="n">lib_dir</span><span class="p">],</span> <span class="n">lib_name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">lib_file</span><span class="p">:</span>
+                <span class="n">lib_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lib_file</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">compiler</span><span class="o">.</span><span class="n">warn</span><span class="p">(</span><span class="s">&quot;no library file corresponding to &quot;</span>
+                              <span class="s">&quot;&#39;</span><span class="si">%s</span><span class="s">&#39; found (skipping)&quot;</span> <span class="o">%</span> <span class="n">lib</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">lib_opts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">compiler</span><span class="o">.</span><span class="n">library_option</span> <span class="p">(</span><span class="n">lib</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">lib_opts</span></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

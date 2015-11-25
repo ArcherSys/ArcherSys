@@ -1,0 +1,30 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+import os
+
+if __name__ == '__main__':
+    while True:
+        buf = os.read(0, 1024)
+        if not buf:
+            break
+        os.write(1, buf)
+=======
+import os
+
+if __name__ == '__main__':
+    while True:
+        buf = os.read(0, 1024)
+        if not buf:
+            break
+        os.write(1, buf)
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+import os
+
+if __name__ == '__main__':
+    while True:
+        buf = os.read(0, 1024)
+        if not buf:
+            break
+        os.write(1, buf)
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

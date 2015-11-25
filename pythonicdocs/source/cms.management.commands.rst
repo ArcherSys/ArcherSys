@@ -1,0 +1,117 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+cms.management.commands package
+===============================
+
+Subpackages
+-----------
+
+.. toctree::
+
+    cms.management.commands.subcommands
+
+Submodules
+----------
+
+cms.management.commands.cms module
+----------------------------------
+
+.. automodule:: cms.management.commands.cms
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+cms.management.commands.publisher_publish module
+------------------------------------------------
+
+.. automodule:: cms.management.commands.publisher_publish
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: cms.management.commands
+    :members:
+    :undoc-members:
+    :show-inheritance:
+=======
+cms.management.commands package
+===============================
+
+Subpackages
+-----------
+
+.. toctree::
+
+    cms.management.commands.subcommands
+
+Submodules
+----------
+
+cms.management.commands.cms module
+----------------------------------
+
+.. automodule:: cms.management.commands.cms
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+cms.management.commands.publisher_publish module
+------------------------------------------------
+
+.. automodule:: cms.management.commands.publisher_publish
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: cms.management.commands
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+cms.management.commands package
+===============================
+
+Subpackages
+-----------
+
+.. toctree::
+
+    cms.management.commands.subcommands
+
+Submodules
+----------
+
+cms.management.commands.cms module
+----------------------------------
+
+.. automodule:: cms.management.commands.cms
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+cms.management.commands.publisher_publish module
+------------------------------------------------
+
+.. automodule:: cms.management.commands.publisher_publish
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: cms.management.commands
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

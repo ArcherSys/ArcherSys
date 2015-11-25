@@ -1,3 +1,0 @@
-<?php
-define("ARCHERVMCASHEW_ROOT", $_SERVER["DOCUMENT_ROOT"]);
-?>

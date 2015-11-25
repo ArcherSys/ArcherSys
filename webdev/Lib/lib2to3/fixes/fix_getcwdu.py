@@ -1,0 +1,63 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+"""
+Fixer that changes os.getcwdu() to os.getcwd().
+"""
+# Author: Victor Stinner
+
+# Local imports
+from .. import fixer_base
+from ..fixer_util import Name
+
+class FixGetcwdu(fixer_base.BaseFix):
+    BM_compatible = True
+
+    PATTERN = """
+              power< 'os' trailer< dot='.' name='getcwdu' > any* >
+              """
+
+    def transform(self, node, results):
+        name = results["name"]
+        name.replace(Name("getcwd", prefix=name.prefix))
+=======
+"""
+Fixer that changes os.getcwdu() to os.getcwd().
+"""
+# Author: Victor Stinner
+
+# Local imports
+from .. import fixer_base
+from ..fixer_util import Name
+
+class FixGetcwdu(fixer_base.BaseFix):
+    BM_compatible = True
+
+    PATTERN = """
+              power< 'os' trailer< dot='.' name='getcwdu' > any* >
+              """
+
+    def transform(self, node, results):
+        name = results["name"]
+        name.replace(Name("getcwd", prefix=name.prefix))
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+"""
+Fixer that changes os.getcwdu() to os.getcwd().
+"""
+# Author: Victor Stinner
+
+# Local imports
+from .. import fixer_base
+from ..fixer_util import Name
+
+class FixGetcwdu(fixer_base.BaseFix):
+    BM_compatible = True
+
+    PATTERN = """
+              power< 'os' trailer< dot='.' name='getcwdu' > any* >
+              """
+
+    def transform(self, node, results):
+        name = results["name"]
+        name.replace(Name("getcwd", prefix=name.prefix))
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

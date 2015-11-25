@@ -1,0 +1,908 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>lib2to3.refactor &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="Module code" href="../index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+    <li>lib2to3.refactor</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for lib2to3.refactor</h1><div class="highlight"><pre>
+<span class="c"># Copyright 2006 Google, Inc. All Rights Reserved.</span>
+<span class="c"># Licensed to PSF under a Contributor Agreement.</span>
+
+<span class="sd">&quot;&quot;&quot;Refactoring framework.</span>
+
+<span class="sd">Used as a main program, this can refactor any number of files and/or</span>
+<span class="sd">recursively descend down directories.  Imported as a module, this</span>
+<span class="sd">provides infrastructure to write your own refactoring tool.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">with_statement</span>
+
+<span class="n">__author__</span> <span class="o">=</span> <span class="s">&quot;Guido van Rossum &lt;guido@python.org&gt;&quot;</span>
+
+
+<span class="c"># Python imports</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">operator</span>
+<span class="kn">import</span> <span class="nn">collections</span>
+<span class="kn">import</span> <span class="nn">io</span>
+<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">chain</span>
+
+<span class="c"># Local imports</span>
+<span class="kn">from</span> <span class="nn">.pgen2</span> <span class="kn">import</span> <span class="n">driver</span><span class="p">,</span> <span class="n">tokenize</span><span class="p">,</span> <span class="n">token</span>
+<span class="kn">from</span> <span class="nn">.fixer_util</span> <span class="kn">import</span> <span class="n">find_root</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">pytree</span><span class="p">,</span> <span class="n">pygram</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">btm_utils</span> <span class="k">as</span> <span class="n">bu</span>
+<span class="kn">from</span> <span class="nn">.</span> <span class="kn">import</span> <span class="n">btm_matcher</span> <span class="k">as</span> <span class="n">bm</span>
+
+
+<div class="viewcode-block" id="get_all_fix_names"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.get_all_fix_names">[docs]</a><span class="k">def</span> <span class="nf">get_all_fix_names</span><span class="p">(</span><span class="n">fixer_pkg</span><span class="p">,</span> <span class="n">remove_prefix</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Return a sorted list of all available fix names in the given package.&quot;&quot;&quot;</span>
+    <span class="n">pkg</span> <span class="o">=</span> <span class="nb">__import__</span><span class="p">(</span><span class="n">fixer_pkg</span><span class="p">,</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[</span><span class="s">&quot;*&quot;</span><span class="p">])</span>
+    <span class="n">fixer_dir</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">dirname</span><span class="p">(</span><span class="n">pkg</span><span class="o">.</span><span class="n">__file__</span><span class="p">)</span>
+    <span class="n">fix_names</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">fixer_dir</span><span class="p">)):</span>
+        <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;fix_&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">name</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;.py&quot;</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">remove_prefix</span><span class="p">:</span>
+                <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="p">[</span><span class="mi">4</span><span class="p">:]</span>
+            <span class="n">fix_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">[:</span><span class="o">-</span><span class="mi">3</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">fix_names</span>
+
+</div>
+<span class="k">class</span> <span class="nc">_EveryNode</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+
+<span class="k">def</span> <span class="nf">_get_head_types</span><span class="p">(</span><span class="n">pat</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Accepts a pytree Pattern Node and returns a set</span>
+<span class="sd">        of the pattern types which will match first. &quot;&quot;&quot;</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pat</span><span class="p">,</span> <span class="p">(</span><span class="n">pytree</span><span class="o">.</span><span class="n">NodePattern</span><span class="p">,</span> <span class="n">pytree</span><span class="o">.</span><span class="n">LeafPattern</span><span class="p">)):</span>
+        <span class="c"># NodePatters must either have no type and no content</span>
+        <span class="c">#   or a type and content -- so they don&#39;t get any farther</span>
+        <span class="c"># Always return leafs</span>
+        <span class="k">if</span> <span class="n">pat</span><span class="o">.</span><span class="n">type</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">_EveryNode</span>
+        <span class="k">return</span> <span class="nb">set</span><span class="p">([</span><span class="n">pat</span><span class="o">.</span><span class="n">type</span><span class="p">])</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pat</span><span class="p">,</span> <span class="n">pytree</span><span class="o">.</span><span class="n">NegatedPattern</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">pat</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_get_head_types</span><span class="p">(</span><span class="n">pat</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+        <span class="k">raise</span> <span class="n">_EveryNode</span> <span class="c"># Negated Patterns don&#39;t have a type</span>
+
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">pat</span><span class="p">,</span> <span class="n">pytree</span><span class="o">.</span><span class="n">WildcardPattern</span><span class="p">):</span>
+        <span class="c"># Recurse on each node in content</span>
+        <span class="n">r</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">pat</span><span class="o">.</span><span class="n">content</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">p</span><span class="p">:</span>
+                <span class="n">r</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">_get_head_types</span><span class="p">(</span><span class="n">x</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">r</span>
+
+    <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&quot;Oh no! I don&#39;t understand pattern </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span><span class="p">(</span><span class="n">pat</span><span class="p">))</span>
+
+
+<span class="k">def</span> <span class="nf">_get_headnode_dict</span><span class="p">(</span><span class="n">fixer_list</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Accepts a list of fixers and returns a dictionary</span>
+<span class="sd">        of head node type --&gt; fixer list.  &quot;&quot;&quot;</span>
+    <span class="n">head_nodes</span> <span class="o">=</span> <span class="n">collections</span><span class="o">.</span><span class="n">defaultdict</span><span class="p">(</span><span class="nb">list</span><span class="p">)</span>
+    <span class="n">every</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="n">fixer_list</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">fixer</span><span class="o">.</span><span class="n">pattern</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">heads</span> <span class="o">=</span> <span class="n">_get_head_types</span><span class="p">(</span><span class="n">fixer</span><span class="o">.</span><span class="n">pattern</span><span class="p">)</span>
+            <span class="k">except</span> <span class="n">_EveryNode</span><span class="p">:</span>
+                <span class="n">every</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">node_type</span> <span class="ow">in</span> <span class="n">heads</span><span class="p">:</span>
+                    <span class="n">head_nodes</span><span class="p">[</span><span class="n">node_type</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">fixer</span><span class="o">.</span><span class="n">_accept_type</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">head_nodes</span><span class="p">[</span><span class="n">fixer</span><span class="o">.</span><span class="n">_accept_type</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">every</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">node_type</span> <span class="ow">in</span> <span class="n">chain</span><span class="p">(</span><span class="n">pygram</span><span class="o">.</span><span class="n">python_grammar</span><span class="o">.</span><span class="n">symbol2number</span><span class="o">.</span><span class="n">values</span><span class="p">(),</span>
+                           <span class="n">pygram</span><span class="o">.</span><span class="n">python_grammar</span><span class="o">.</span><span class="n">tokens</span><span class="p">):</span>
+        <span class="n">head_nodes</span><span class="p">[</span><span class="n">node_type</span><span class="p">]</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">every</span><span class="p">)</span>
+    <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span><span class="n">head_nodes</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="get_fixers_from_package"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.get_fixers_from_package">[docs]</a><span class="k">def</span> <span class="nf">get_fixers_from_package</span><span class="p">(</span><span class="n">pkg_name</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return the fully qualified names for fixers in the package pkg_name.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">pkg_name</span> <span class="o">+</span> <span class="s">&quot;.&quot;</span> <span class="o">+</span> <span class="n">fix_name</span>
+            <span class="k">for</span> <span class="n">fix_name</span> <span class="ow">in</span> <span class="n">get_all_fix_names</span><span class="p">(</span><span class="n">pkg_name</span><span class="p">,</span> <span class="bp">False</span><span class="p">)]</span>
+</div>
+<span class="k">def</span> <span class="nf">_identity</span><span class="p">(</span><span class="n">obj</span><span class="p">):</span>
+    <span class="k">return</span> <span class="n">obj</span>
+
+<span class="k">if</span> <span class="n">sys</span><span class="o">.</span><span class="n">version_info</span> <span class="o">&lt;</span> <span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="mi">0</span><span class="p">):</span>
+    <span class="kn">import</span> <span class="nn">codecs</span>
+    <span class="n">_open_with_encoding</span> <span class="o">=</span> <span class="n">codecs</span><span class="o">.</span><span class="n">open</span>
+    <span class="c"># codecs.open doesn&#39;t translate newlines sadly.</span>
+    <span class="k">def</span> <span class="nf">_from_system_newlines</span><span class="p">(</span><span class="nb">input</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">input</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\r\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">_to_system_newlines</span><span class="p">(</span><span class="nb">input</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">linesep</span> <span class="o">!=</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">input</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">linesep</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">input</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="n">_open_with_encoding</span> <span class="o">=</span> <span class="nb">open</span>
+    <span class="n">_from_system_newlines</span> <span class="o">=</span> <span class="n">_identity</span>
+    <span class="n">_to_system_newlines</span> <span class="o">=</span> <span class="n">_identity</span>
+
+
+<span class="k">def</span> <span class="nf">_detect_future_features</span><span class="p">(</span><span class="n">source</span><span class="p">):</span>
+    <span class="n">have_docstring</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">gen</span> <span class="o">=</span> <span class="n">tokenize</span><span class="o">.</span><span class="n">generate_tokens</span><span class="p">(</span><span class="n">io</span><span class="o">.</span><span class="n">StringIO</span><span class="p">(</span><span class="n">source</span><span class="p">)</span><span class="o">.</span><span class="n">readline</span><span class="p">)</span>
+    <span class="k">def</span> <span class="nf">advance</span><span class="p">():</span>
+        <span class="n">tok</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">gen</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">tok</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">tok</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">ignore</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">((</span><span class="n">token</span><span class="o">.</span><span class="n">NEWLINE</span><span class="p">,</span> <span class="n">tokenize</span><span class="o">.</span><span class="n">NL</span><span class="p">,</span> <span class="n">token</span><span class="o">.</span><span class="n">COMMENT</span><span class="p">))</span>
+    <span class="n">features</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="n">tp</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">advance</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">tp</span> <span class="ow">in</span> <span class="n">ignore</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">elif</span> <span class="n">tp</span> <span class="o">==</span> <span class="n">token</span><span class="o">.</span><span class="n">STRING</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">have_docstring</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="n">have_docstring</span> <span class="o">=</span> <span class="bp">True</span>
+            <span class="k">elif</span> <span class="n">tp</span> <span class="o">==</span> <span class="n">token</span><span class="o">.</span><span class="n">NAME</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">==</span> <span class="s">&quot;from&quot;</span><span class="p">:</span>
+                <span class="n">tp</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">advance</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">tp</span> <span class="o">!=</span> <span class="n">token</span><span class="o">.</span><span class="n">NAME</span> <span class="ow">or</span> <span class="n">value</span> <span class="o">!=</span> <span class="s">&quot;__future__&quot;</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="n">tp</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">advance</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">tp</span> <span class="o">!=</span> <span class="n">token</span><span class="o">.</span><span class="n">NAME</span> <span class="ow">or</span> <span class="n">value</span> <span class="o">!=</span> <span class="s">&quot;import&quot;</span><span class="p">:</span>
+                    <span class="k">break</span>
+                <span class="n">tp</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">advance</span><span class="p">()</span>
+                <span class="k">if</span> <span class="n">tp</span> <span class="o">==</span> <span class="n">token</span><span class="o">.</span><span class="n">OP</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">==</span> <span class="s">&quot;(&quot;</span><span class="p">:</span>
+                    <span class="n">tp</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">advance</span><span class="p">()</span>
+                <span class="k">while</span> <span class="n">tp</span> <span class="o">==</span> <span class="n">token</span><span class="o">.</span><span class="n">NAME</span><span class="p">:</span>
+                    <span class="n">features</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+                    <span class="n">tp</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">advance</span><span class="p">()</span>
+                    <span class="k">if</span> <span class="n">tp</span> <span class="o">!=</span> <span class="n">token</span><span class="o">.</span><span class="n">OP</span> <span class="ow">or</span> <span class="n">value</span> <span class="o">!=</span> <span class="s">&quot;,&quot;</span><span class="p">:</span>
+                        <span class="k">break</span>
+                    <span class="n">tp</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">advance</span><span class="p">()</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">break</span>
+    <span class="k">except</span> <span class="ne">StopIteration</span><span class="p">:</span>
+        <span class="k">pass</span>
+    <span class="k">return</span> <span class="nb">frozenset</span><span class="p">(</span><span class="n">features</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="FixerError"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.FixerError">[docs]</a><span class="k">class</span> <span class="nc">FixerError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A fixer could not be loaded.&quot;&quot;&quot;</span>
+
+</div>
+<div class="viewcode-block" id="RefactoringTool"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool">[docs]</a><span class="k">class</span> <span class="nc">RefactoringTool</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+
+    <span class="n">_default_options</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;print_function&quot;</span> <span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+                        <span class="s">&quot;write_unchanged_files&quot;</span> <span class="p">:</span> <span class="bp">False</span><span class="p">}</span>
+
+    <span class="n">CLASS_PREFIX</span> <span class="o">=</span> <span class="s">&quot;Fix&quot;</span> <span class="c"># The prefix for fixer classes</span>
+    <span class="n">FILE_PREFIX</span> <span class="o">=</span> <span class="s">&quot;fix_&quot;</span> <span class="c"># The prefix for modules with a fixer within</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fixer_names</span><span class="p">,</span> <span class="n">options</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">explicit</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Initializer.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            fixer_names: a list of fixers to import</span>
+<span class="sd">            options: an dict with configuration.</span>
+<span class="sd">            explicit: a list of fixers to run even if they are explicit.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fixers</span> <span class="o">=</span> <span class="n">fixer_names</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">explicit</span> <span class="o">=</span> <span class="n">explicit</span> <span class="ow">or</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">options</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_default_options</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">options</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">options</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="p">[</span><span class="s">&quot;print_function&quot;</span><span class="p">]:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">grammar</span> <span class="o">=</span> <span class="n">pygram</span><span class="o">.</span><span class="n">python_grammar_no_print_statement</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">grammar</span> <span class="o">=</span> <span class="n">pygram</span><span class="o">.</span><span class="n">python_grammar</span>
+        <span class="c"># When this is True, the refactor*() methods will call write_file() for</span>
+        <span class="c"># files processed even if they were not changed during refactoring. If</span>
+        <span class="c"># and only if the refactor method&#39;s write parameter was True.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">write_unchanged_files</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;write_unchanged_files&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">errors</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="s">&quot;RefactoringTool&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fixer_log</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wrote</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">driver</span> <span class="o">=</span> <span class="n">driver</span><span class="o">.</span><span class="n">Driver</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">grammar</span><span class="p">,</span>
+                                    <span class="n">convert</span><span class="o">=</span><span class="n">pytree</span><span class="o">.</span><span class="n">convert</span><span class="p">,</span>
+                                    <span class="n">logger</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">pre_order</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">post_order</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_fixers</span><span class="p">()</span>
+
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">files</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c"># List of files that were or should be modified</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">BM</span> <span class="o">=</span> <span class="n">bm</span><span class="o">.</span><span class="n">BottomMatcher</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bmi_pre_order</span> <span class="o">=</span> <span class="p">[]</span> <span class="c"># Bottom Matcher incompatible fixers</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bmi_post_order</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="k">for</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="n">chain</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">post_order</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_order</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">fixer</span><span class="o">.</span><span class="n">BM_compatible</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">BM</span><span class="o">.</span><span class="n">add_fixer</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+                <span class="c"># remove fixers that will be handled by the bottom-up</span>
+                <span class="c"># matcher</span>
+            <span class="k">elif</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_order</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bmi_pre_order</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">post_order</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bmi_post_order</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">bmi_pre_order_heads</span> <span class="o">=</span> <span class="n">_get_headnode_dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bmi_pre_order</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bmi_post_order_heads</span> <span class="o">=</span> <span class="n">_get_headnode_dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bmi_post_order</span><span class="p">)</span>
+
+
+
+<div class="viewcode-block" id="RefactoringTool.get_fixers"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.get_fixers">[docs]</a>    <span class="k">def</span> <span class="nf">get_fixers</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Inspects the options to load the requested patterns and handlers.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">          (pre_order, post_order), where pre_order is the list of fixers that</span>
+<span class="sd">          want a pre-order AST traversal, and post_order is the list that want</span>
+<span class="sd">          post-order traversal.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">pre_order_fixers</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">post_order_fixers</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">fix_mod_path</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixers</span><span class="p">:</span>
+            <span class="n">mod</span> <span class="o">=</span> <span class="nb">__import__</span><span class="p">(</span><span class="n">fix_mod_path</span><span class="p">,</span> <span class="p">{},</span> <span class="p">{},</span> <span class="p">[</span><span class="s">&quot;*&quot;</span><span class="p">])</span>
+            <span class="n">fix_name</span> <span class="o">=</span> <span class="n">fix_mod_path</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">fix_name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">FILE_PREFIX</span><span class="p">):</span>
+                <span class="n">fix_name</span> <span class="o">=</span> <span class="n">fix_name</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">FILE_PREFIX</span><span class="p">):]</span>
+            <span class="n">parts</span> <span class="o">=</span> <span class="n">fix_name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;_&quot;</span><span class="p">)</span>
+            <span class="n">class_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">CLASS_PREFIX</span> <span class="o">+</span> <span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="n">p</span><span class="o">.</span><span class="n">title</span><span class="p">()</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">])</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="n">fix_class</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">mod</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">AttributeError</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">FixerError</span><span class="p">(</span><span class="s">&quot;Can&#39;t find </span><span class="si">%s</span><span class="s">.</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">fix_name</span><span class="p">,</span> <span class="n">class_name</span><span class="p">))</span>
+            <span class="n">fixer</span> <span class="o">=</span> <span class="n">fix_class</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">options</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixer_log</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">fixer</span><span class="o">.</span><span class="n">explicit</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">explicit</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">True</span> <span class="ow">and</span> \
+                    <span class="n">fix_mod_path</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">explicit</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="s">&quot;Skipping implicit fixer: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">fix_name</span><span class="p">)</span>
+                <span class="k">continue</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;Adding transformation: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">fix_name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">fixer</span><span class="o">.</span><span class="n">order</span> <span class="o">==</span> <span class="s">&quot;pre&quot;</span><span class="p">:</span>
+                <span class="n">pre_order_fixers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">fixer</span><span class="o">.</span><span class="n">order</span> <span class="o">==</span> <span class="s">&quot;post&quot;</span><span class="p">:</span>
+                <span class="n">post_order_fixers</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">FixerError</span><span class="p">(</span><span class="s">&quot;Illegal fixer order: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">fixer</span><span class="o">.</span><span class="n">order</span><span class="p">)</span>
+
+        <span class="n">key_func</span> <span class="o">=</span> <span class="n">operator</span><span class="o">.</span><span class="n">attrgetter</span><span class="p">(</span><span class="s">&quot;run_order&quot;</span><span class="p">)</span>
+        <span class="n">pre_order_fixers</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">key_func</span><span class="p">)</span>
+        <span class="n">post_order_fixers</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">key_func</span><span class="p">)</span>
+        <span class="k">return</span> <span class="p">(</span><span class="n">pre_order_fixers</span><span class="p">,</span> <span class="n">post_order_fixers</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.log_error"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.log_error">[docs]</a>    <span class="k">def</span> <span class="nf">log_error</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Called when an error occurs.&quot;&quot;&quot;</span>
+        <span class="k">raise</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.log_message"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.log_message">[docs]</a>    <span class="k">def</span> <span class="nf">log_message</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Hook to log a message.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">args</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="n">msg</span> <span class="o">%</span> <span class="n">args</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.log_debug"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.log_debug">[docs]</a>    <span class="k">def</span> <span class="nf">log_debug</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">msg</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">args</span><span class="p">:</span>
+            <span class="n">msg</span> <span class="o">=</span> <span class="n">msg</span> <span class="o">%</span> <span class="n">args</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">debug</span><span class="p">(</span><span class="n">msg</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.print_output"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.print_output">[docs]</a>    <span class="k">def</span> <span class="nf">print_output</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">old_text</span><span class="p">,</span> <span class="n">new_text</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">equal</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Called with the old version, new version, and filename of a</span>
+<span class="sd">        refactored file.&quot;&quot;&quot;</span>
+        <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.refactor"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.refactor">[docs]</a>    <span class="k">def</span> <span class="nf">refactor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">write</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">doctests_only</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Refactor a list of files and directories.&quot;&quot;&quot;</span>
+
+        <span class="k">for</span> <span class="n">dir_or_file</span> <span class="ow">in</span> <span class="n">items</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">dir_or_file</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">refactor_dir</span><span class="p">(</span><span class="n">dir_or_file</span><span class="p">,</span> <span class="n">write</span><span class="p">,</span> <span class="n">doctests_only</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">refactor_file</span><span class="p">(</span><span class="n">dir_or_file</span><span class="p">,</span> <span class="n">write</span><span class="p">,</span> <span class="n">doctests_only</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.refactor_dir"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.refactor_dir">[docs]</a>    <span class="k">def</span> <span class="nf">refactor_dir</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dir_name</span><span class="p">,</span> <span class="n">write</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">doctests_only</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Descends down a directory and refactor every Python file found.</span>
+
+<span class="sd">        Python files are assumed to have a .py extension.</span>
+
+<span class="sd">        Files and subdirectories starting with &#39;.&#39; are skipped.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">py_ext</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">extsep</span> <span class="o">+</span> <span class="s">&quot;py&quot;</span>
+        <span class="k">for</span> <span class="n">dirpath</span><span class="p">,</span> <span class="n">dirnames</span><span class="p">,</span> <span class="n">filenames</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">walk</span><span class="p">(</span><span class="n">dir_name</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;Descending into </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">dirpath</span><span class="p">)</span>
+            <span class="n">dirnames</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+            <span class="n">filenames</span><span class="o">.</span><span class="n">sort</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">filenames</span><span class="p">:</span>
+                <span class="k">if</span> <span class="p">(</span><span class="ow">not</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">)</span> <span class="ow">and</span>
+                    <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">splitext</span><span class="p">(</span><span class="n">name</span><span class="p">)[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">py_ext</span><span class="p">):</span>
+                    <span class="n">fullname</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">dirpath</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">refactor_file</span><span class="p">(</span><span class="n">fullname</span><span class="p">,</span> <span class="n">write</span><span class="p">,</span> <span class="n">doctests_only</span><span class="p">)</span>
+            <span class="c"># Modify dirnames in-place to remove subdirs with leading dots</span>
+            <span class="n">dirnames</span><span class="p">[:]</span> <span class="o">=</span> <span class="p">[</span><span class="n">dn</span> <span class="k">for</span> <span class="n">dn</span> <span class="ow">in</span> <span class="n">dirnames</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">dn</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">)]</span>
+</div>
+    <span class="k">def</span> <span class="nf">_read_python_source</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Do our best to decode a Python source file correctly.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&quot;rb&quot;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_error</span><span class="p">(</span><span class="s">&quot;Can&#39;t open </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+            <span class="k">return</span> <span class="bp">None</span><span class="p">,</span> <span class="bp">None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">encoding</span> <span class="o">=</span> <span class="n">tokenize</span><span class="o">.</span><span class="n">detect_encoding</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">readline</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="k">with</span> <span class="n">_open_with_encoding</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&quot;r&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="n">encoding</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_from_system_newlines</span><span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()),</span> <span class="n">encoding</span>
+
+<div class="viewcode-block" id="RefactoringTool.refactor_file"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.refactor_file">[docs]</a>    <span class="k">def</span> <span class="nf">refactor_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">write</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">doctests_only</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Refactors a file.&quot;&quot;&quot;</span>
+        <span class="nb">input</span><span class="p">,</span> <span class="n">encoding</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_python_source</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">input</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="c"># Reading the file failed.</span>
+            <span class="k">return</span>
+        <span class="nb">input</span> <span class="o">+=</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span> <span class="c"># Silence certain parse errors</span>
+        <span class="k">if</span> <span class="n">doctests_only</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;Refactoring doctests in </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">refactor_docstring</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_unchanged_files</span> <span class="ow">or</span> <span class="n">output</span> <span class="o">!=</span> <span class="nb">input</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">processed_file</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">write</span><span class="p">,</span> <span class="n">encoding</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;No doctest changes in </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">tree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">refactor_string</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_unchanged_files</span> <span class="ow">or</span> <span class="p">(</span><span class="n">tree</span> <span class="ow">and</span> <span class="n">tree</span><span class="o">.</span><span class="n">was_changed</span><span class="p">):</span>
+                <span class="c"># The [:-1] is to take off the \n we added earlier</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">processed_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">tree</span><span class="p">)[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">filename</span><span class="p">,</span>
+                                    <span class="n">write</span><span class="o">=</span><span class="n">write</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="n">encoding</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;No changes in </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.refactor_string"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.refactor_string">[docs]</a>    <span class="k">def</span> <span class="nf">refactor_string</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Refactor a given input string.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            data: a string holding the code to be refactored.</span>
+<span class="sd">            name: a human-readable name for use in error/log messages.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            An AST corresponding to the refactored input stream; None if</span>
+<span class="sd">            there were errors during the parse.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">features</span> <span class="o">=</span> <span class="n">_detect_future_features</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s">&quot;print_function&quot;</span> <span class="ow">in</span> <span class="n">features</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">driver</span><span class="o">.</span><span class="n">grammar</span> <span class="o">=</span> <span class="n">pygram</span><span class="o">.</span><span class="n">python_grammar_no_print_statement</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">tree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">driver</span><span class="o">.</span><span class="n">parse_string</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_error</span><span class="p">(</span><span class="s">&quot;Can&#39;t parse </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span>
+                           <span class="n">name</span><span class="p">,</span> <span class="n">err</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">driver</span><span class="o">.</span><span class="n">grammar</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">grammar</span>
+        <span class="n">tree</span><span class="o">.</span><span class="n">future_features</span> <span class="o">=</span> <span class="n">features</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;Refactoring </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">refactor_tree</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">tree</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.refactor_stdin"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.refactor_stdin">[docs]</a>    <span class="k">def</span> <span class="nf">refactor_stdin</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">doctests_only</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="nb">input</span> <span class="o">=</span> <span class="n">sys</span><span class="o">.</span><span class="n">stdin</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">doctests_only</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;Refactoring doctests in stdin&quot;</span><span class="p">)</span>
+            <span class="n">output</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">refactor_docstring</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="s">&quot;&lt;stdin&gt;&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_unchanged_files</span> <span class="ow">or</span> <span class="n">output</span> <span class="o">!=</span> <span class="nb">input</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">processed_file</span><span class="p">(</span><span class="n">output</span><span class="p">,</span> <span class="s">&quot;&lt;stdin&gt;&quot;</span><span class="p">,</span> <span class="nb">input</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;No doctest changes in stdin&quot;</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">tree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">refactor_string</span><span class="p">(</span><span class="nb">input</span><span class="p">,</span> <span class="s">&quot;&lt;stdin&gt;&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_unchanged_files</span> <span class="ow">or</span> <span class="p">(</span><span class="n">tree</span> <span class="ow">and</span> <span class="n">tree</span><span class="o">.</span><span class="n">was_changed</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">processed_file</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">tree</span><span class="p">),</span> <span class="s">&quot;&lt;stdin&gt;&quot;</span><span class="p">,</span> <span class="nb">input</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;No changes in stdin&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.refactor_tree"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.refactor_tree">[docs]</a>    <span class="k">def</span> <span class="nf">refactor_tree</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">tree</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Refactors a parse tree (modifying the tree in place).</span>
+
+<span class="sd">        For compatible patterns the bottom matcher module is</span>
+<span class="sd">        used. Otherwise the tree is traversed node-to-node for</span>
+<span class="sd">        matches.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            tree: a pytree.Node instance representing the root of the tree</span>
+<span class="sd">                  to be refactored.</span>
+<span class="sd">            name: a human-readable name for this tree.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            True if the tree was modified, False otherwise.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">for</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="n">chain</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pre_order</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">post_order</span><span class="p">):</span>
+            <span class="n">fixer</span><span class="o">.</span><span class="n">start_tree</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+
+        <span class="c">#use traditional matching for the incompatible fixers</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">traverse_by</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bmi_pre_order_heads</span><span class="p">,</span> <span class="n">tree</span><span class="o">.</span><span class="n">pre_order</span><span class="p">())</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">traverse_by</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bmi_post_order_heads</span><span class="p">,</span> <span class="n">tree</span><span class="o">.</span><span class="n">post_order</span><span class="p">())</span>
+
+        <span class="c"># obtain a set of candidate nodes</span>
+        <span class="n">match_set</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">BM</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">tree</span><span class="o">.</span><span class="n">leaves</span><span class="p">())</span>
+
+        <span class="k">while</span> <span class="nb">any</span><span class="p">(</span><span class="n">match_set</span><span class="o">.</span><span class="n">values</span><span class="p">()):</span>
+            <span class="k">for</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">BM</span><span class="o">.</span><span class="n">fixers</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="n">match_set</span> <span class="ow">and</span> <span class="n">match_set</span><span class="p">[</span><span class="n">fixer</span><span class="p">]:</span>
+                    <span class="c">#sort by depth; apply fixers from bottom(of the AST) to top</span>
+                    <span class="n">match_set</span><span class="p">[</span><span class="n">fixer</span><span class="p">]</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">pytree</span><span class="o">.</span><span class="n">Base</span><span class="o">.</span><span class="n">depth</span><span class="p">,</span> <span class="n">reverse</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+
+                    <span class="k">if</span> <span class="n">fixer</span><span class="o">.</span><span class="n">keep_line_order</span><span class="p">:</span>
+                        <span class="c">#some fixers(eg fix_imports) must be applied</span>
+                        <span class="c">#with the original file&#39;s line order</span>
+                        <span class="n">match_set</span><span class="p">[</span><span class="n">fixer</span><span class="p">]</span><span class="o">.</span><span class="n">sort</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">pytree</span><span class="o">.</span><span class="n">Base</span><span class="o">.</span><span class="n">get_lineno</span><span class="p">)</span>
+
+                    <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">match_set</span><span class="p">[</span><span class="n">fixer</span><span class="p">]):</span>
+                        <span class="k">if</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">match_set</span><span class="p">[</span><span class="n">fixer</span><span class="p">]:</span>
+                            <span class="n">match_set</span><span class="p">[</span><span class="n">fixer</span><span class="p">]</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+
+                        <span class="k">try</span><span class="p">:</span>
+                            <span class="n">find_root</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+                        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                            <span class="c"># this node has been cut off from a</span>
+                            <span class="c"># previous transformation ; skip</span>
+                            <span class="k">continue</span>
+
+                        <span class="k">if</span> <span class="n">node</span><span class="o">.</span><span class="n">fixers_applied</span> <span class="ow">and</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="n">node</span><span class="o">.</span><span class="n">fixers_applied</span><span class="p">:</span>
+                            <span class="c"># do not apply the same fixer again</span>
+                            <span class="k">continue</span>
+
+                        <span class="n">results</span> <span class="o">=</span> <span class="n">fixer</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+
+                        <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+                            <span class="n">new</span> <span class="o">=</span> <span class="n">fixer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">results</span><span class="p">)</span>
+                            <span class="k">if</span> <span class="n">new</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                                <span class="n">node</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">new</span><span class="p">)</span>
+                                <span class="c">#new.fixers_applied.append(fixer)</span>
+                                <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">new</span><span class="o">.</span><span class="n">post_order</span><span class="p">():</span>
+                                    <span class="c"># do not apply the fixer again to</span>
+                                    <span class="c"># this or any subnode</span>
+                                    <span class="k">if</span> <span class="ow">not</span> <span class="n">node</span><span class="o">.</span><span class="n">fixers_applied</span><span class="p">:</span>
+                                        <span class="n">node</span><span class="o">.</span><span class="n">fixers_applied</span> <span class="o">=</span> <span class="p">[]</span>
+                                    <span class="n">node</span><span class="o">.</span><span class="n">fixers_applied</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">fixer</span><span class="p">)</span>
+
+                                <span class="c"># update the original match set for</span>
+                                <span class="c"># the added code</span>
+                                <span class="n">new_matches</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">BM</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">new</span><span class="o">.</span><span class="n">leaves</span><span class="p">())</span>
+                                <span class="k">for</span> <span class="n">fxr</span> <span class="ow">in</span> <span class="n">new_matches</span><span class="p">:</span>
+                                    <span class="k">if</span> <span class="ow">not</span> <span class="n">fxr</span> <span class="ow">in</span> <span class="n">match_set</span><span class="p">:</span>
+                                        <span class="n">match_set</span><span class="p">[</span><span class="n">fxr</span><span class="p">]</span><span class="o">=</span><span class="p">[]</span>
+
+                                    <span class="n">match_set</span><span class="p">[</span><span class="n">fxr</span><span class="p">]</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">new_matches</span><span class="p">[</span><span class="n">fxr</span><span class="p">])</span>
+
+        <span class="k">for</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="n">chain</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pre_order</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">post_order</span><span class="p">):</span>
+            <span class="n">fixer</span><span class="o">.</span><span class="n">finish_tree</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">tree</span><span class="o">.</span><span class="n">was_changed</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.traverse_by"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.traverse_by">[docs]</a>    <span class="k">def</span> <span class="nf">traverse_by</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">fixers</span><span class="p">,</span> <span class="n">traversal</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Traverse an AST, applying a set of fixers to each node.</span>
+
+<span class="sd">        This is a helper method for refactor_tree().</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            fixers: a list of fixer instances.</span>
+<span class="sd">            traversal: a generator that yields AST nodes.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">fixers</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="k">for</span> <span class="n">node</span> <span class="ow">in</span> <span class="n">traversal</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">fixer</span> <span class="ow">in</span> <span class="n">fixers</span><span class="p">[</span><span class="n">node</span><span class="o">.</span><span class="n">type</span><span class="p">]:</span>
+                <span class="n">results</span> <span class="o">=</span> <span class="n">fixer</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">node</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">results</span><span class="p">:</span>
+                    <span class="n">new</span> <span class="o">=</span> <span class="n">fixer</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">node</span><span class="p">,</span> <span class="n">results</span><span class="p">)</span>
+                    <span class="k">if</span> <span class="n">new</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                        <span class="n">node</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">new</span><span class="p">)</span>
+                        <span class="n">node</span> <span class="o">=</span> <span class="n">new</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.processed_file"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.processed_file">[docs]</a>    <span class="k">def</span> <span class="nf">processed_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">new_text</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">old_text</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">write</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                       <span class="n">encoding</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Called when a file has been refactored and there may be changes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">files</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">old_text</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">old_text</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_read_python_source</span><span class="p">(</span><span class="n">filename</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">old_text</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="k">return</span>
+        <span class="n">equal</span> <span class="o">=</span> <span class="n">old_text</span> <span class="o">==</span> <span class="n">new_text</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">print_output</span><span class="p">(</span><span class="n">old_text</span><span class="p">,</span> <span class="n">new_text</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">equal</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">equal</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;No changes to </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">write_unchanged_files</span><span class="p">:</span>
+                <span class="k">return</span>
+        <span class="k">if</span> <span class="n">write</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">write_file</span><span class="p">(</span><span class="n">new_text</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">old_text</span><span class="p">,</span> <span class="n">encoding</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;Not writing changes to </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.write_file"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.write_file">[docs]</a>    <span class="k">def</span> <span class="nf">write_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">new_text</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">old_text</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Writes a string to a file.</span>
+
+<span class="sd">        It first shows a unified diff between the old text and the new text, and</span>
+<span class="sd">        then rewrites the file; the latter is only done if the write option is</span>
+<span class="sd">        set.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">f</span> <span class="o">=</span> <span class="n">_open_with_encoding</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s">&quot;w&quot;</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="n">encoding</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_error</span><span class="p">(</span><span class="s">&quot;Can&#39;t create </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">_to_system_newlines</span><span class="p">(</span><span class="n">new_text</span><span class="p">))</span>
+        <span class="k">except</span> <span class="ne">OSError</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_error</span><span class="p">(</span><span class="s">&quot;Can&#39;t write </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;Wrote changes to </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">wrote</span> <span class="o">=</span> <span class="bp">True</span>
+</div>
+    <span class="n">PS1</span> <span class="o">=</span> <span class="s">&quot;&gt;&gt;&gt; &quot;</span>
+    <span class="n">PS2</span> <span class="o">=</span> <span class="s">&quot;... &quot;</span>
+
+<div class="viewcode-block" id="RefactoringTool.refactor_docstring"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.refactor_docstring">[docs]</a>    <span class="k">def</span> <span class="nf">refactor_docstring</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="nb">input</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Refactors a docstring, looking for doctests.</span>
+
+<span class="sd">        This returns a modified version of the input string.  It looks</span>
+<span class="sd">        for doctests, which start with a &quot;&gt;&gt;&gt;&quot; prompt, and may be</span>
+<span class="sd">        continued with &quot;...&quot; prompts, as long as the &quot;...&quot; is indented</span>
+<span class="sd">        the same as the &quot;&gt;&gt;&gt;&quot;.</span>
+
+<span class="sd">        (Unfortunately we can&#39;t use the doctest module&#39;s parser,</span>
+<span class="sd">        since, like most parsers, it is not geared towards preserving</span>
+<span class="sd">        the original source.)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">block</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">block_lineno</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">indent</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">lineno</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="nb">input</span><span class="o">.</span><span class="n">splitlines</span><span class="p">(</span><span class="n">keepends</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+            <span class="n">lineno</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">lstrip</span><span class="p">()</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">PS1</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">block</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="n">result</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">refactor_doctest</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">block_lineno</span><span class="p">,</span>
+                                                        <span class="n">indent</span><span class="p">,</span> <span class="n">filename</span><span class="p">))</span>
+                <span class="n">block_lineno</span> <span class="o">=</span> <span class="n">lineno</span>
+                <span class="n">block</span> <span class="o">=</span> <span class="p">[</span><span class="n">line</span><span class="p">]</span>
+                <span class="n">i</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">PS1</span><span class="p">)</span>
+                <span class="n">indent</span> <span class="o">=</span> <span class="n">line</span><span class="p">[:</span><span class="n">i</span><span class="p">]</span>
+            <span class="k">elif</span> <span class="p">(</span><span class="n">indent</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="ow">and</span>
+                  <span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">indent</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">PS2</span><span class="p">)</span> <span class="ow">or</span>
+                   <span class="n">line</span> <span class="o">==</span> <span class="n">indent</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">PS2</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">)):</span>
+                <span class="n">block</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">block</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="n">result</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">refactor_doctest</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">block_lineno</span><span class="p">,</span>
+                                                        <span class="n">indent</span><span class="p">,</span> <span class="n">filename</span><span class="p">))</span>
+                <span class="n">block</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="n">indent</span> <span class="o">=</span> <span class="bp">None</span>
+                <span class="n">result</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">block</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">refactor_doctest</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">block_lineno</span><span class="p">,</span>
+                                                <span class="n">indent</span><span class="p">,</span> <span class="n">filename</span><span class="p">))</span>
+        <span class="k">return</span> <span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">result</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.refactor_doctest"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.refactor_doctest">[docs]</a>    <span class="k">def</span> <span class="nf">refactor_doctest</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">indent</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Refactors one doctest.</span>
+
+<span class="sd">        A doctest is given as a block of lines, the first of which starts</span>
+<span class="sd">        with &quot;&gt;&gt;&gt;&quot; (possibly indented), while the remaining lines start</span>
+<span class="sd">        with &quot;...&quot; (identically indented).</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">tree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">parse_block</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">indent</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">err</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">logger</span><span class="o">.</span><span class="n">isEnabledFor</span><span class="p">(</span><span class="n">logging</span><span class="o">.</span><span class="n">DEBUG</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">block</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">log_debug</span><span class="p">(</span><span class="s">&quot;Source: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">line</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_error</span><span class="p">(</span><span class="s">&quot;Can&#39;t parse docstring in </span><span class="si">%s</span><span class="s"> line </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span>
+                           <span class="n">filename</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">err</span><span class="o">.</span><span class="n">__class__</span><span class="o">.</span><span class="n">__name__</span><span class="p">,</span> <span class="n">err</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">block</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">refactor_tree</span><span class="p">(</span><span class="n">tree</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+            <span class="n">new</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">tree</span><span class="p">)</span><span class="o">.</span><span class="n">splitlines</span><span class="p">(</span><span class="n">keepends</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+            <span class="c"># Undo the adjustment of the line numbers in wrap_toks() below.</span>
+            <span class="n">clipped</span><span class="p">,</span> <span class="n">new</span> <span class="o">=</span> <span class="n">new</span><span class="p">[:</span><span class="n">lineno</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">new</span><span class="p">[</span><span class="n">lineno</span><span class="o">-</span><span class="mi">1</span><span class="p">:]</span>
+            <span class="k">assert</span> <span class="n">clipped</span> <span class="o">==</span> <span class="p">[</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">lineno</span><span class="o">-</span><span class="mi">1</span><span class="p">),</span> <span class="n">clipped</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">new</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">):</span>
+                <span class="n">new</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span>
+            <span class="n">block</span> <span class="o">=</span> <span class="p">[</span><span class="n">indent</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">PS1</span> <span class="o">+</span> <span class="n">new</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="mi">0</span><span class="p">)]</span>
+            <span class="k">if</span> <span class="n">new</span><span class="p">:</span>
+                <span class="n">block</span> <span class="o">+=</span> <span class="p">[</span><span class="n">indent</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">PS2</span> <span class="o">+</span> <span class="n">line</span> <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">new</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">block</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.summarize"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.summarize">[docs]</a>    <span class="k">def</span> <span class="nf">summarize</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">wrote</span><span class="p">:</span>
+            <span class="n">were</span> <span class="o">=</span> <span class="s">&quot;were&quot;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">were</span> <span class="o">=</span> <span class="s">&quot;need to be&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">files</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="s">&quot;No files </span><span class="si">%s</span><span class="s"> modified.&quot;</span><span class="p">,</span> <span class="n">were</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="s">&quot;Files that </span><span class="si">%s</span><span class="s"> modified:&quot;</span><span class="p">,</span> <span class="n">were</span><span class="p">)</span>
+            <span class="k">for</span> <span class="nb">file</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">files</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="nb">file</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixer_log</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="s">&quot;Warnings/messages while refactoring:&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">message</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">fixer_log</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="s">&quot;There was 1 error:&quot;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="s">&quot;There were </span><span class="si">%d</span><span class="s"> errors:&quot;</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">msg</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span> <span class="n">kwds</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">errors</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">log_message</span><span class="p">(</span><span class="n">msg</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwds</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.parse_block"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.parse_block">[docs]</a>    <span class="k">def</span> <span class="nf">parse_block</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">indent</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Parses a block into a tree.</span>
+
+<span class="sd">        This is necessary to get correct line number / offset information</span>
+<span class="sd">        in the parser diagnostics and embedded into the parse tree.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">tree</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">driver</span><span class="o">.</span><span class="n">parse_tokens</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">wrap_toks</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">indent</span><span class="p">))</span>
+        <span class="n">tree</span><span class="o">.</span><span class="n">future_features</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">()</span>
+        <span class="k">return</span> <span class="n">tree</span>
+</div>
+<div class="viewcode-block" id="RefactoringTool.wrap_toks"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.wrap_toks">[docs]</a>    <span class="k">def</span> <span class="nf">wrap_toks</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">,</span> <span class="n">lineno</span><span class="p">,</span> <span class="n">indent</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Wraps a tokenize stream to systematically modify start/end.&quot;&quot;&quot;</span>
+        <span class="n">tokens</span> <span class="o">=</span> <span class="n">tokenize</span><span class="o">.</span><span class="n">generate_tokens</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">gen_lines</span><span class="p">(</span><span class="n">block</span><span class="p">,</span> <span class="n">indent</span><span class="p">)</span><span class="o">.</span><span class="n">__next__</span><span class="p">)</span>
+        <span class="k">for</span> <span class="nb">type</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="n">line0</span><span class="p">,</span> <span class="n">col0</span><span class="p">),</span> <span class="p">(</span><span class="n">line1</span><span class="p">,</span> <span class="n">col1</span><span class="p">),</span> <span class="n">line_text</span> <span class="ow">in</span> <span class="n">tokens</span><span class="p">:</span>
+            <span class="n">line0</span> <span class="o">+=</span> <span class="n">lineno</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="n">line1</span> <span class="o">+=</span> <span class="n">lineno</span> <span class="o">-</span> <span class="mi">1</span>
+            <span class="c"># Don&#39;t bother updating the columns; this is too complicated</span>
+            <span class="c"># since line_text would also have to be updated and it would</span>
+            <span class="c"># still break for tokens spanning lines.  Let the user guess</span>
+            <span class="c"># that the column numbers for doctests are relative to the</span>
+            <span class="c"># end of the prompt string (PS1 or PS2).</span>
+            <span class="k">yield</span> <span class="nb">type</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="p">(</span><span class="n">line0</span><span class="p">,</span> <span class="n">col0</span><span class="p">),</span> <span class="p">(</span><span class="n">line1</span><span class="p">,</span> <span class="n">col1</span><span class="p">),</span> <span class="n">line_text</span>
+
+</div>
+<div class="viewcode-block" id="RefactoringTool.gen_lines"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.RefactoringTool.gen_lines">[docs]</a>    <span class="k">def</span> <span class="nf">gen_lines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">block</span><span class="p">,</span> <span class="n">indent</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Generates lines as expected by tokenize from a list of lines.</span>
+
+<span class="sd">        This strips the first len(indent + self.PS1) characters off each line.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">prefix1</span> <span class="o">=</span> <span class="n">indent</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">PS1</span>
+        <span class="n">prefix2</span> <span class="o">=</span> <span class="n">indent</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">PS2</span>
+        <span class="n">prefix</span> <span class="o">=</span> <span class="n">prefix1</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">block</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">prefix</span><span class="p">):</span>
+                <span class="k">yield</span> <span class="n">line</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">prefix</span><span class="p">):]</span>
+            <span class="k">elif</span> <span class="n">line</span> <span class="o">==</span> <span class="n">prefix</span><span class="o">.</span><span class="n">rstrip</span><span class="p">()</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">:</span>
+                <span class="k">yield</span> <span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="ne">AssertionError</span><span class="p">(</span><span class="s">&quot;line=</span><span class="si">%r</span><span class="s">, prefix=</span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">line</span><span class="p">,</span> <span class="n">prefix</span><span class="p">))</span>
+            <span class="n">prefix</span> <span class="o">=</span> <span class="n">prefix2</span>
+        <span class="k">while</span> <span class="bp">True</span><span class="p">:</span>
+            <span class="k">yield</span> <span class="s">&quot;&quot;</span>
+
+</div></div>
+<div class="viewcode-block" id="MultiprocessingUnsupported"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.MultiprocessingUnsupported">[docs]</a><span class="k">class</span> <span class="nc">MultiprocessingUnsupported</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+</div>
+<div class="viewcode-block" id="MultiprocessRefactoringTool"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.MultiprocessRefactoringTool">[docs]</a><span class="k">class</span> <span class="nc">MultiprocessRefactoringTool</span><span class="p">(</span><span class="n">RefactoringTool</span><span class="p">):</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="nb">super</span><span class="p">(</span><span class="n">MultiprocessRefactoringTool</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">queue</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_lock</span> <span class="o">=</span> <span class="bp">None</span>
+
+<div class="viewcode-block" id="MultiprocessRefactoringTool.refactor"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.MultiprocessRefactoringTool.refactor">[docs]</a>    <span class="k">def</span> <span class="nf">refactor</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">items</span><span class="p">,</span> <span class="n">write</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">doctests_only</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                 <span class="n">num_processes</span><span class="o">=</span><span class="mi">1</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">num_processes</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">MultiprocessRefactoringTool</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">refactor</span><span class="p">(</span>
+                <span class="n">items</span><span class="p">,</span> <span class="n">write</span><span class="p">,</span> <span class="n">doctests_only</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">import</span> <span class="nn">multiprocessing</span>
+        <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">MultiprocessingUnsupported</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">queue</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="s">&quot;already doing multiple processes&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">queue</span> <span class="o">=</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">JoinableQueue</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_lock</span> <span class="o">=</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Lock</span><span class="p">()</span>
+        <span class="n">processes</span> <span class="o">=</span> <span class="p">[</span><span class="n">multiprocessing</span><span class="o">.</span><span class="n">Process</span><span class="p">(</span><span class="n">target</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">_child</span><span class="p">)</span>
+                     <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_processes</span><span class="p">)]</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">processes</span><span class="p">:</span>
+                <span class="n">p</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>
+            <span class="nb">super</span><span class="p">(</span><span class="n">MultiprocessRefactoringTool</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">refactor</span><span class="p">(</span><span class="n">items</span><span class="p">,</span> <span class="n">write</span><span class="p">,</span>
+                                                              <span class="n">doctests_only</span><span class="p">)</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">queue</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">num_processes</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">queue</span><span class="o">.</span><span class="n">put</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">processes</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">p</span><span class="o">.</span><span class="n">is_alive</span><span class="p">():</span>
+                    <span class="n">p</span><span class="o">.</span><span class="n">join</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">queue</span> <span class="o">=</span> <span class="bp">None</span>
+</div>
+    <span class="k">def</span> <span class="nf">_child</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">queue</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+        <span class="k">while</span> <span class="n">task</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span> <span class="o">=</span> <span class="n">task</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="nb">super</span><span class="p">(</span><span class="n">MultiprocessRefactoringTool</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">refactor_file</span><span class="p">(</span>
+                    <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+            <span class="k">finally</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">queue</span><span class="o">.</span><span class="n">task_done</span><span class="p">()</span>
+            <span class="n">task</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">queue</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+
+<div class="viewcode-block" id="MultiprocessRefactoringTool.refactor_file"><a class="viewcode-back" href="../../lib2to3.html#lib2to3.refactor.MultiprocessRefactoringTool.refactor_file">[docs]</a>    <span class="k">def</span> <span class="nf">refactor_file</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">queue</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">queue</span><span class="o">.</span><span class="n">put</span><span class="p">((</span><span class="n">args</span><span class="p">,</span> <span class="n">kwargs</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="nb">super</span><span class="p">(</span><span class="n">MultiprocessRefactoringTool</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">refactor_file</span><span class="p">(</span>
+                <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span></div></div>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

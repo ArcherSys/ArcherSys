@@ -1,0 +1,577 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>email.charset &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../../index.html"/>
+        <link rel="up" title="email" href="../email.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="../index.html">Module code</a> &raquo;</li>
+      
+          <li><a href="../email.html">email</a> &raquo;</li>
+      
+    <li>email.charset</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for email.charset</h1><div class="highlight"><pre>
+<span class="c"># Copyright (C) 2001-2007 Python Software Foundation</span>
+<span class="c"># Author: Ben Gertzfield, Barry Warsaw</span>
+<span class="c"># Contact: email-sig@python.org</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s">&#39;Charset&#39;</span><span class="p">,</span>
+    <span class="s">&#39;add_alias&#39;</span><span class="p">,</span>
+    <span class="s">&#39;add_charset&#39;</span><span class="p">,</span>
+    <span class="s">&#39;add_codec&#39;</span><span class="p">,</span>
+    <span class="p">]</span>
+
+<span class="kn">from</span> <span class="nn">functools</span> <span class="kn">import</span> <span class="n">partial</span>
+
+<span class="kn">import</span> <span class="nn">email.base64mime</span>
+<span class="kn">import</span> <span class="nn">email.quoprimime</span>
+
+<span class="kn">from</span> <span class="nn">email</span> <span class="kn">import</span> <span class="n">errors</span>
+<span class="kn">from</span> <span class="nn">email.encoders</span> <span class="kn">import</span> <span class="n">encode_7or8bit</span>
+
+
+
+
+<span class="c"># Flags for types of header encodings</span>
+<span class="n">QP</span>          <span class="o">=</span> <span class="mi">1</span> <span class="c"># Quoted-Printable</span>
+<span class="n">BASE64</span>      <span class="o">=</span> <span class="mi">2</span> <span class="c"># Base64</span>
+<span class="n">SHORTEST</span>    <span class="o">=</span> <span class="mi">3</span> <span class="c"># the shorter of QP and base64, but only for headers</span>
+
+<span class="c"># In &quot;=?charset?q?hello_world?=&quot;, the =?, ?q?, and ?= add up to 7</span>
+<span class="n">RFC2047_CHROME_LEN</span> <span class="o">=</span> <span class="mi">7</span>
+
+<span class="n">DEFAULT_CHARSET</span> <span class="o">=</span> <span class="s">&#39;us-ascii&#39;</span>
+<span class="n">UNKNOWN8BIT</span> <span class="o">=</span> <span class="s">&#39;unknown-8bit&#39;</span>
+<span class="n">EMPTYSTRING</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+
+
+
+
+<span class="c"># Defaults</span>
+<span class="n">CHARSETS</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="c"># input        header enc  body enc output conv</span>
+    <span class="s">&#39;iso-8859-1&#39;</span><span class="p">:</span>  <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;iso-8859-2&#39;</span><span class="p">:</span>  <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;iso-8859-3&#39;</span><span class="p">:</span>  <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;iso-8859-4&#39;</span><span class="p">:</span>  <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="c"># iso-8859-5 is Cyrillic, and not especially used</span>
+    <span class="c"># iso-8859-6 is Arabic, also not particularly used</span>
+    <span class="c"># iso-8859-7 is Greek, QP will not make it readable</span>
+    <span class="c"># iso-8859-8 is Hebrew, QP will not make it readable</span>
+    <span class="s">&#39;iso-8859-9&#39;</span><span class="p">:</span>  <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;iso-8859-10&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="c"># iso-8859-11 is Thai, QP will not make it readable</span>
+    <span class="s">&#39;iso-8859-13&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;iso-8859-14&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;iso-8859-15&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;iso-8859-16&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;windows-1252&#39;</span><span class="p">:(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;viscii&#39;</span><span class="p">:</span>      <span class="p">(</span><span class="n">QP</span><span class="p">,</span>        <span class="n">QP</span><span class="p">,</span>      <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;us-ascii&#39;</span><span class="p">:</span>    <span class="p">(</span><span class="bp">None</span><span class="p">,</span>      <span class="bp">None</span><span class="p">,</span>    <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;big5&#39;</span><span class="p">:</span>        <span class="p">(</span><span class="n">BASE64</span><span class="p">,</span>    <span class="n">BASE64</span><span class="p">,</span>  <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;gb2312&#39;</span><span class="p">:</span>      <span class="p">(</span><span class="n">BASE64</span><span class="p">,</span>    <span class="n">BASE64</span><span class="p">,</span>  <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;euc-jp&#39;</span><span class="p">:</span>      <span class="p">(</span><span class="n">BASE64</span><span class="p">,</span>    <span class="bp">None</span><span class="p">,</span>    <span class="s">&#39;iso-2022-jp&#39;</span><span class="p">),</span>
+    <span class="s">&#39;shift_jis&#39;</span><span class="p">:</span>   <span class="p">(</span><span class="n">BASE64</span><span class="p">,</span>    <span class="bp">None</span><span class="p">,</span>    <span class="s">&#39;iso-2022-jp&#39;</span><span class="p">),</span>
+    <span class="s">&#39;iso-2022-jp&#39;</span><span class="p">:</span> <span class="p">(</span><span class="n">BASE64</span><span class="p">,</span>    <span class="bp">None</span><span class="p">,</span>    <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;koi8-r&#39;</span><span class="p">:</span>      <span class="p">(</span><span class="n">BASE64</span><span class="p">,</span>    <span class="n">BASE64</span><span class="p">,</span>  <span class="bp">None</span><span class="p">),</span>
+    <span class="s">&#39;utf-8&#39;</span><span class="p">:</span>       <span class="p">(</span><span class="n">SHORTEST</span><span class="p">,</span>  <span class="n">BASE64</span><span class="p">,</span> <span class="s">&#39;utf-8&#39;</span><span class="p">),</span>
+    <span class="p">}</span>
+
+<span class="c"># Aliases for other commonly-used names for character sets.  Map</span>
+<span class="c"># them to the real ones used in email.</span>
+<span class="n">ALIASES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&#39;latin_1&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-1&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-1&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-1&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_2&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-2&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-2&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-2&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_3&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-3&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-3&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-3&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_4&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-4&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-4&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-4&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_5&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-9&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-5&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-9&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_6&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-10&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-6&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-10&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_7&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-13&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-7&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-13&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_8&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-14&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-8&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-14&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_9&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-15&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-9&#39;</span><span class="p">:</span> <span class="s">&#39;iso-8859-15&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin_10&#39;</span><span class="p">:</span><span class="s">&#39;iso-8859-16&#39;</span><span class="p">,</span>
+    <span class="s">&#39;latin-10&#39;</span><span class="p">:</span><span class="s">&#39;iso-8859-16&#39;</span><span class="p">,</span>
+    <span class="s">&#39;cp949&#39;</span><span class="p">:</span>   <span class="s">&#39;ks_c_5601-1987&#39;</span><span class="p">,</span>
+    <span class="s">&#39;euc_jp&#39;</span><span class="p">:</span>  <span class="s">&#39;euc-jp&#39;</span><span class="p">,</span>
+    <span class="s">&#39;euc_kr&#39;</span><span class="p">:</span>  <span class="s">&#39;euc-kr&#39;</span><span class="p">,</span>
+    <span class="s">&#39;ascii&#39;</span><span class="p">:</span>   <span class="s">&#39;us-ascii&#39;</span><span class="p">,</span>
+    <span class="p">}</span>
+
+
+<span class="c"># Map charsets to their Unicode codec strings.</span>
+<span class="n">CODEC_MAP</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&#39;gb2312&#39;</span><span class="p">:</span>      <span class="s">&#39;eucgb2312_cn&#39;</span><span class="p">,</span>
+    <span class="s">&#39;big5&#39;</span><span class="p">:</span>        <span class="s">&#39;big5_tw&#39;</span><span class="p">,</span>
+    <span class="c"># Hack: We don&#39;t want *any* conversion for stuff marked us-ascii, as all</span>
+    <span class="c"># sorts of garbage might be sent to us in the guise of 7-bit us-ascii.</span>
+    <span class="c"># Let that stuff pass through without conversion to/from Unicode.</span>
+    <span class="s">&#39;us-ascii&#39;</span><span class="p">:</span>    <span class="bp">None</span><span class="p">,</span>
+    <span class="p">}</span>
+
+
+<div class="viewcode-block" id="add_charset"><a class="viewcode-back" href="../../email.html#email.charset.add_charset">[docs]</a>
+
+<span class="c"># Convenience functions for extending the above mappings</span>
+<span class="k">def</span> <span class="nf">add_charset</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">header_enc</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">body_enc</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">output_charset</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Add character set properties to the global registry.</span>
+
+<span class="sd">    charset is the input character set, and must be the canonical name of a</span>
+<span class="sd">    character set.</span>
+
+<span class="sd">    Optional header_enc and body_enc is either Charset.QP for</span>
+<span class="sd">    quoted-printable, Charset.BASE64 for base64 encoding, Charset.SHORTEST for</span>
+<span class="sd">    the shortest of qp or base64 encoding, or None for no encoding.  SHORTEST</span>
+<span class="sd">    is only valid for header_enc.  It describes how message headers and</span>
+<span class="sd">    message bodies in the input charset are to be encoded.  Default is no</span>
+<span class="sd">    encoding.</span>
+
+<span class="sd">    Optional output_charset is the character set that the output should be</span>
+<span class="sd">    in.  Conversions will proceed from input charset, to Unicode, to the</span>
+<span class="sd">    output charset when the method Charset.convert() is called.  The default</span>
+<span class="sd">    is to output in the same character set as the input.</span>
+
+<span class="sd">    Both input_charset and output_charset must have Unicode codec entries in</span>
+<span class="sd">    the module&#39;s charset-to-codec mapping; use add_codec(charset, codecname)</span>
+<span class="sd">    to add codecs the module does not know about.  See the codecs module&#39;s</span>
+<span class="sd">    documentation for more information.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">body_enc</span> <span class="o">==</span> <span class="n">SHORTEST</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&#39;SHORTEST not allowed for body_enc&#39;</span><span class="p">)</span></div>
+<div class="viewcode-block" id="add_alias"><a class="viewcode-back" href="../../email.html#email.charset.add_alias">[docs]</a>    <span class="n">CHARSETS</span><span class="p">[</span><span class="n">charset</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">header_enc</span><span class="p">,</span> <span class="n">body_enc</span><span class="p">,</span> <span class="n">output_charset</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">add_alias</span><span class="p">(</span><span class="n">alias</span><span class="p">,</span> <span class="n">canonical</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Add a character set alias.</span>
+
+<span class="sd">    alias is the alias name, e.g. latin-1</span>
+<span class="sd">    canonical is the character set&#39;s canonical name, e.g. iso-8859-1</span>
+<span class="sd">    &quot;&quot;&quot;</span></div>
+<div class="viewcode-block" id="add_codec"><a class="viewcode-back" href="../../email.html#email.charset.add_codec">[docs]</a>    <span class="n">ALIASES</span><span class="p">[</span><span class="n">alias</span><span class="p">]</span> <span class="o">=</span> <span class="n">canonical</span>
+
+
+<span class="k">def</span> <span class="nf">add_codec</span><span class="p">(</span><span class="n">charset</span><span class="p">,</span> <span class="n">codecname</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Add a codec that map characters in the given charset to/from Unicode.</span>
+
+<span class="sd">    charset is the canonical name of a character set.  codecname is the name</span>
+<span class="sd">    of a Python codec, as appropriate for the second argument to the unicode()</span>
+<span class="sd">    built-in, or to the encode() method of a Unicode string.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">CODEC_MAP</span><span class="p">[</span><span class="n">charset</span><span class="p">]</span> <span class="o">=</span> <span class="n">codecname</span>
+
+</div>
+
+
+<span class="c"># Convenience function for encoding strings, taking into account</span>
+<span class="c"># that they might be unknown-8bit (ie: have surrogate-escaped bytes)</span>
+<span class="k">def</span> <span class="nf">_encode</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="n">codec</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">codec</span> <span class="o">==</span> <span class="n">UNKNOWN8BIT</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">string</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">,</span> <span class="s">&#39;surrogateescape&#39;</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+<div class="viewcode-block" id="Charset"><a class="viewcode-back" href="../../email.html#email.charset.Charset">[docs]</a>        <span class="k">return</span> <span class="n">string</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">codec</span><span class="p">)</span>
+
+
+
+
+<span class="k">class</span> <span class="nc">Charset</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;Map character sets to their email properties.</span>
+
+<span class="sd">    This class provides information about the requirements imposed on email</span>
+<span class="sd">    for a specific character set.  It also provides convenience routines for</span>
+<span class="sd">    converting between character sets, given the availability of the</span>
+<span class="sd">    applicable codecs.  Given a character set, it will do its best to provide</span>
+<span class="sd">    information on how to use that character set in an email in an</span>
+<span class="sd">    RFC-compliant way.</span>
+
+<span class="sd">    Certain character sets must be encoded with quoted-printable or base64</span>
+<span class="sd">    when used in email headers or bodies.  Certain character sets must be</span>
+<span class="sd">    converted outright, and are not allowed in email.  Instances of this</span>
+<span class="sd">    module expose the following information about a character set:</span>
+
+<span class="sd">    input_charset: The initial character set specified.  Common aliases</span>
+<span class="sd">                   are converted to their `official&#39; email names (e.g. latin_1</span>
+<span class="sd">                   is converted to iso-8859-1).  Defaults to 7-bit us-ascii.</span>
+
+<span class="sd">    header_encoding: If the character set must be encoded before it can be</span>
+<span class="sd">                     used in an email header, this attribute will be set to</span>
+<span class="sd">                     Charset.QP (for quoted-printable), Charset.BASE64 (for</span>
+<span class="sd">                     base64 encoding), or Charset.SHORTEST for the shortest of</span>
+<span class="sd">                     QP or BASE64 encoding.  Otherwise, it will be None.</span>
+
+<span class="sd">    body_encoding: Same as header_encoding, but describes the encoding for the</span>
+<span class="sd">                   mail message&#39;s body, which indeed may be different than the</span>
+<span class="sd">                   header encoding.  Charset.SHORTEST is not allowed for</span>
+<span class="sd">                   body_encoding.</span>
+
+<span class="sd">    output_charset: Some character sets must be converted before they can be</span>
+<span class="sd">                    used in email headers or bodies.  If the input_charset is</span>
+<span class="sd">                    one of them, this attribute will contain the name of the</span>
+<span class="sd">                    charset output will be converted to.  Otherwise, it will</span>
+<span class="sd">                    be None.</span>
+
+<span class="sd">    input_codec: The name of the Python codec used to convert the</span>
+<span class="sd">                 input_charset to Unicode.  If no conversion codec is</span>
+<span class="sd">                 necessary, this attribute will be None.</span>
+
+<span class="sd">    output_codec: The name of the Python codec used to convert Unicode</span>
+<span class="sd">                  to the output_charset.  If no conversion codec is necessary,</span>
+<span class="sd">                  this attribute will have the same value as the input_codec.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">input_charset</span><span class="o">=</span><span class="n">DEFAULT_CHARSET</span><span class="p">):</span>
+        <span class="c"># RFC 2046, $4.1.2 says charsets are not case sensitive.  We coerce to</span>
+        <span class="c"># unicode because its .lower() is locale insensitive.  If the argument</span>
+        <span class="c"># is already a unicode, we leave it at that, but ensure that the</span>
+        <span class="c"># charset is ASCII, as the standard (RFC XXX) requires.</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_charset</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="n">input_charset</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">input_charset</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">input_charset</span><span class="p">,</span> <span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">UnicodeError</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">errors</span><span class="o">.</span><span class="n">CharsetError</span><span class="p">(</span><span class="n">input_charset</span><span class="p">)</span>
+        <span class="n">input_charset</span> <span class="o">=</span> <span class="n">input_charset</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="c"># Set the input charset after filtering through the aliases</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_charset</span> <span class="o">=</span> <span class="n">ALIASES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">input_charset</span><span class="p">,</span> <span class="n">input_charset</span><span class="p">)</span>
+        <span class="c"># We can try to guess which encoding and conversion to use by the</span>
+        <span class="c"># charset_map dictionary.  Try that first, but let the user override</span>
+        <span class="c"># it.</span>
+        <span class="n">henc</span><span class="p">,</span> <span class="n">benc</span><span class="p">,</span> <span class="n">conv</span> <span class="o">=</span> <span class="n">CHARSETS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">input_charset</span><span class="p">,</span>
+                                        <span class="p">(</span><span class="n">SHORTEST</span><span class="p">,</span> <span class="n">BASE64</span><span class="p">,</span> <span class="bp">None</span><span class="p">))</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">conv</span><span class="p">:</span>
+            <span class="n">conv</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_charset</span>
+        <span class="c"># Set the attributes, allowing the arguments to override the default.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">header_encoding</span> <span class="o">=</span> <span class="n">henc</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">body_encoding</span> <span class="o">=</span> <span class="n">benc</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_charset</span> <span class="o">=</span> <span class="n">ALIASES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">conv</span><span class="p">,</span> <span class="n">conv</span><span class="p">)</span>
+        <span class="c"># Now set the codecs.  If one isn&#39;t defined for input_charset,</span>
+        <span class="c"># guess and try a Unicode codec with the same name as input_codec.</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">input_codec</span> <span class="o">=</span> <span class="n">CODEC_MAP</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">input_charset</span><span class="p">,</span>
+                                         <span class="bp">self</span><span class="o">.</span><span class="n">input_charset</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">output_codec</span> <span class="o">=</span> <span class="n">CODEC_MAP</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_charset</span><span class="p">,</span>
+                                          <span class="bp">self</span><span class="o">.</span><span class="n">output_charset</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_charset</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+    <span class="n">__repr__</span> <span class="o">=</span> <span class="n">__str__</span>
+
+    <span class="k">def</span> <span class="nf">__eq__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+<div class="viewcode-block" id="Charset.get_body_encoding"><a class="viewcode-back" href="../../email.html#email.charset.Charset.get_body_encoding">[docs]</a>        <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">==</span> <span class="nb">str</span><span class="p">(</span><span class="n">other</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">__ne__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">):</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">__eq__</span><span class="p">(</span><span class="n">other</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get_body_encoding</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the content-transfer-encoding used for body encoding.</span>
+
+<span class="sd">        This is either the string `quoted-printable&#39; or `base64&#39; depending on</span>
+<span class="sd">        the encoding used, or it is a function in which case you should call</span>
+<span class="sd">        the function with a single argument, the Message object being</span>
+<span class="sd">        encoded.  The function should then set the Content-Transfer-Encoding</span>
+<span class="sd">        header itself to whatever is appropriate.</span>
+
+<span class="sd">        Returns &quot;quoted-printable&quot; if self.body_encoding is QP.</span>
+<span class="sd">        Returns &quot;base64&quot; if self.body_encoding is BASE64.</span>
+<span class="sd">        Returns conversion function otherwise.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">body_encoding</span> <span class="o">!=</span> <span class="n">SHORTEST</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">body_encoding</span> <span class="o">==</span> <span class="n">QP</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;quoted-printable&#39;</span></div>
+<div class="viewcode-block" id="Charset.get_output_charset"><a class="viewcode-back" href="../../email.html#email.charset.Charset.get_output_charset">[docs]</a>        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">body_encoding</span> <span class="o">==</span> <span class="n">BASE64</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&#39;base64&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">encode_7or8bit</span>
+
+    <span class="k">def</span> <span class="nf">get_output_charset</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Return the output character set.</span>
+</div>
+<div class="viewcode-block" id="Charset.header_encode"><a class="viewcode-back" href="../../email.html#email.charset.Charset.header_encode">[docs]</a><span class="sd">        This is self.output_charset if that is not None, otherwise it is</span>
+<span class="sd">        self.input_charset.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_charset</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">input_charset</span>
+
+    <span class="k">def</span> <span class="nf">header_encode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Header-encode a string by converting it first to bytes.</span>
+
+<span class="sd">        The type of encoding (base64 or quoted-printable) will be based on</span>
+<span class="sd">        this charset&#39;s `header_encoding`.</span>
+
+<span class="sd">        :param string: A unicode string for the header.  It must be possible</span>
+<span class="sd">            to encode this string to bytes using the character set&#39;s</span>
+<span class="sd">            output codec.</span>
+<span class="sd">        :return: The encoded string, with RFC 2047 chrome.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">codec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_codec</span> <span class="ow">or</span> <span class="s">&#39;us-ascii&#39;</span>
+        <span class="n">header_bytes</span> <span class="o">=</span> <span class="n">_encode</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="n">codec</span><span class="p">)</span>
+        <span class="c"># 7bit/8bit encodings return the string unchanged (modulo conversions)</span></div>
+<div class="viewcode-block" id="Charset.header_encode_lines"><a class="viewcode-back" href="../../email.html#email.charset.Charset.header_encode_lines">[docs]</a>        <span class="n">encoder_module</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_encoder</span><span class="p">(</span><span class="n">header_bytes</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">encoder_module</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">string</span>
+        <span class="k">return</span> <span class="n">encoder_module</span><span class="o">.</span><span class="n">header_encode</span><span class="p">(</span><span class="n">header_bytes</span><span class="p">,</span> <span class="n">codec</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">header_encode_lines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">,</span> <span class="n">maxlengths</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Header-encode a string by converting it first to bytes.</span>
+
+<span class="sd">        This is similar to `header_encode()` except that the string is fit</span>
+<span class="sd">        into maximum line lengths as given by the argument.</span>
+
+<span class="sd">        :param string: A unicode string for the header.  It must be possible</span>
+<span class="sd">            to encode this string to bytes using the character set&#39;s</span>
+<span class="sd">            output codec.</span>
+<span class="sd">        :param maxlengths: Maximum line length iterator.  Each element</span>
+<span class="sd">            returned from this iterator will provide the next maximum line</span>
+<span class="sd">            length.  This parameter is used as an argument to built-in next()</span>
+<span class="sd">            and should never be exhausted.  The maximum line lengths should</span>
+<span class="sd">            not count the RFC 2047 chrome.  These line lengths are only a</span>
+<span class="sd">            hint; the splitter does the best it can.</span>
+<span class="sd">        :return: Lines of encoded strings, each with RFC 2047 chrome.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># See which encoding we should use.</span>
+        <span class="n">codec</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_codec</span> <span class="ow">or</span> <span class="s">&#39;us-ascii&#39;</span>
+        <span class="n">header_bytes</span> <span class="o">=</span> <span class="n">_encode</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="n">codec</span><span class="p">)</span>
+        <span class="n">encoder_module</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_encoder</span><span class="p">(</span><span class="n">header_bytes</span><span class="p">)</span>
+        <span class="n">encoder</span> <span class="o">=</span> <span class="n">partial</span><span class="p">(</span><span class="n">encoder_module</span><span class="o">.</span><span class="n">header_encode</span><span class="p">,</span> <span class="n">charset</span><span class="o">=</span><span class="n">codec</span><span class="p">)</span>
+        <span class="c"># Calculate the number of characters that the RFC 2047 chrome will</span>
+        <span class="c"># contribute to each line.</span>
+        <span class="n">charset</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_output_charset</span><span class="p">()</span>
+        <span class="n">extra</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">charset</span><span class="p">)</span> <span class="o">+</span> <span class="n">RFC2047_CHROME_LEN</span>
+        <span class="c"># Now comes the hard part.  We must encode bytes but we can&#39;t split on</span>
+        <span class="c"># bytes because some character sets are variable length and each</span>
+        <span class="c"># encoded word must stand on its own.  So the problem is you have to</span>
+        <span class="c"># encode to bytes to figure out this word&#39;s length, but you must split</span>
+        <span class="c"># on characters.  This causes two problems: first, we don&#39;t know how</span>
+        <span class="c"># many octets a specific substring of unicode characters will get</span>
+        <span class="c"># encoded to, and second, we don&#39;t know how many ASCII characters</span>
+        <span class="c"># those octets will get encoded to.  Unless we try it.  Which seems</span>
+        <span class="c"># inefficient.  In the interest of being correct rather than fast (and</span>
+        <span class="c"># in the hope that there will be few encoded headers in any such</span>
+        <span class="c"># message), brute force it. :(</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">current_line</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">maxlen</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">maxlengths</span><span class="p">)</span> <span class="o">-</span> <span class="n">extra</span>
+        <span class="k">for</span> <span class="n">character</span> <span class="ow">in</span> <span class="n">string</span><span class="p">:</span>
+            <span class="n">current_line</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">character</span><span class="p">)</span>
+            <span class="n">this_line</span> <span class="o">=</span> <span class="n">EMPTYSTRING</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">current_line</span><span class="p">)</span>
+            <span class="n">length</span> <span class="o">=</span> <span class="n">encoder_module</span><span class="o">.</span><span class="n">header_length</span><span class="p">(</span><span class="n">_encode</span><span class="p">(</span><span class="n">this_line</span><span class="p">,</span> <span class="n">charset</span><span class="p">))</span>
+            <span class="k">if</span> <span class="n">length</span> <span class="o">&gt;</span> <span class="n">maxlen</span><span class="p">:</span>
+                <span class="c"># This last character doesn&#39;t fit so pop it off.</span>
+                <span class="n">current_line</span><span class="o">.</span><span class="n">pop</span><span class="p">()</span>
+                <span class="c"># Does nothing fit on the first line?</span>
+                <span class="k">if</span> <span class="ow">not</span> <span class="n">lines</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">current_line</span><span class="p">:</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">separator</span> <span class="o">=</span> <span class="p">(</span><span class="s">&#39; &#39;</span> <span class="k">if</span> <span class="n">lines</span> <span class="k">else</span> <span class="s">&#39;&#39;</span><span class="p">)</span>
+                    <span class="n">joined_line</span> <span class="o">=</span> <span class="n">EMPTYSTRING</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">current_line</span><span class="p">)</span>
+                    <span class="n">header_bytes</span> <span class="o">=</span> <span class="n">_encode</span><span class="p">(</span><span class="n">joined_line</span><span class="p">,</span> <span class="n">codec</span><span class="p">)</span>
+                    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">encoder</span><span class="p">(</span><span class="n">header_bytes</span><span class="p">))</span>
+                <span class="n">current_line</span> <span class="o">=</span> <span class="p">[</span><span class="n">character</span><span class="p">]</span>
+                <span class="n">maxlen</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">maxlengths</span><span class="p">)</span> <span class="o">-</span> <span class="n">extra</span></div>
+        <span class="n">joined_line</span> <span class="o">=</span> <span class="n">EMPTYSTRING</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">current_line</span><span class="p">)</span>
+        <span class="n">header_bytes</span> <span class="o">=</span> <span class="n">_encode</span><span class="p">(</span><span class="n">joined_line</span><span class="p">,</span> <span class="n">codec</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">encoder</span><span class="p">(</span><span class="n">header_bytes</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">lines</span>
+
+    <span class="k">def</span> <span class="nf">_get_encoder</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">header_bytes</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">header_encoding</span> <span class="o">==</span> <span class="n">BASE64</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">email</span><span class="o">.</span><span class="n">base64mime</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">header_encoding</span> <span class="o">==</span> <span class="n">QP</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">email</span><span class="o">.</span><span class="n">quoprimime</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">header_encoding</span> <span class="o">==</span> <span class="n">SHORTEST</span><span class="p">:</span>
+            <span class="n">len64</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">base64mime</span><span class="o">.</span><span class="n">header_length</span><span class="p">(</span><span class="n">header_bytes</span><span class="p">)</span>
+            <span class="n">lenqp</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">quoprimime</span><span class="o">.</span><span class="n">header_length</span><span class="p">(</span><span class="n">header_bytes</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">len64</span> <span class="o">&lt;</span> <span class="n">lenqp</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">email</span><span class="o">.</span><span class="n">base64mime</span>
+<div class="viewcode-block" id="Charset.body_encode"><a class="viewcode-back" href="../../email.html#email.charset.Charset.body_encode">[docs]</a>            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">email</span><span class="o">.</span><span class="n">quoprimime</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">body_encode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">string</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Body-encode a string by converting it first to bytes.</span>
+
+<span class="sd">        The type of encoding (base64 or quoted-printable) will be based on</span>
+<span class="sd">        self.body_encoding.  If body_encoding is None, we assume the</span>
+<span class="sd">        output charset is a 7bit encoding, so re-encoding the decoded</span>
+<span class="sd">        string using the ascii codec produces the correct string version</span>
+<span class="sd">        of the content.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">string</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">string</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">body_encoding</span> <span class="ow">is</span> <span class="n">BASE64</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="n">string</span> <span class="o">=</span> <span class="n">string</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_charset</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">email</span><span class="o">.</span><span class="n">base64mime</span><span class="o">.</span><span class="n">body_encode</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">body_encoding</span> <span class="ow">is</span> <span class="n">QP</span><span class="p">:</span>
+            <span class="c"># quopromime.body_encode takes a string, but operates on it as if</span>
+            <span class="c"># it were a list of byte codes.  For a (minimal) history on why</span>
+            <span class="c"># this is so, see changeset 0cf700464177.  To correctly encode a</span>
+            <span class="c"># character set, then, we must turn it into pseudo bytes via the</span>
+            <span class="c"># latin1 charset, which will encode any byte as a single code point</span>
+            <span class="c"># between 0 and 255, which is what body_encode is expecting.</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="n">string</span> <span class="o">=</span> <span class="n">string</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_charset</span><span class="p">)</span>
+            <span class="n">string</span> <span class="o">=</span> <span class="n">string</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;latin1&#39;</span><span class="p">)</span></div></div>
+            <span class="k">return</span> <span class="n">email</span><span class="o">.</span><span class="n">quoprimime</span><span class="o">.</span><span class="n">body_encode</span><span class="p">(</span><span class="n">string</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">string</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+                <span class="n">string</span> <span class="o">=</span> <span class="n">string</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">output_charset</span><span class="p">)</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&#39;ascii&#39;</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">string</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../../_static/jquery.js"></script>
+      <script type="text/javascript" src="../../_static/underscore.js"></script>
+      <script type="text/javascript" src="../../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

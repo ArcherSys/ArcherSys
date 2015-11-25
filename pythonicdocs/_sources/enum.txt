@@ -1,0 +1,27 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+enum module
+===========
+
+.. automodule:: enum
+    :members:
+    :undoc-members:
+    :show-inheritance:
+=======
+enum module
+===========
+
+.. automodule:: enum
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+enum module
+===========
+
+.. automodule:: enum
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

@@ -2,6 +2,7 @@
 namespace ArcherSys\Bootstrap;
 require_once "AbstractComponent.php";
 use ArcherSys\Viewer\UI\AbstractComponent;
+<<<<<<< HEAD
 
 class Container extends AbstractComponent{
 	public $onCreate;
@@ -25,3 +26,17 @@ class  NavBar extends AbstractComponent{
 	}
 }
 ?>
+=======
+class DropdownComponent extends AbstractComponent{
+	 public $links;
+	 public $menutitle;
+	 function __construct($menutitle,$links){
+	 	$this->menutitle = $menutitle;
+	 	$this->links = $links;
+	 	
+	 }
+	 function __call(){
+	 
+	 }
+}
+>>>>>>> 5e7b2c757565054acf1b6acdbff6480e574a8d68

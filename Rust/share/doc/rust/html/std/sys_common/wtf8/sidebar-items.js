@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["EncodeWide",""],["Wtf8Buf","An owned, growable string of well-formed WTF-8 data."]]});

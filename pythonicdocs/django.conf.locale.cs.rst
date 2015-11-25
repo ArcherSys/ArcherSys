@@ -1,0 +1,72 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+django.conf.locale.cs package
+=============================
+
+Submodules
+----------
+
+django.conf.locale.cs.formats module
+------------------------------------
+
+.. automodule:: django.conf.locale.cs.formats
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: django.conf.locale.cs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+=======
+django.conf.locale.cs package
+=============================
+
+Submodules
+----------
+
+django.conf.locale.cs.formats module
+------------------------------------
+
+.. automodule:: django.conf.locale.cs.formats
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: django.conf.locale.cs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+django.conf.locale.cs package
+=============================
+
+Submodules
+----------
+
+django.conf.locale.cs.formats module
+------------------------------------
+
+.. automodule:: django.conf.locale.cs.formats
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: django.conf.locale.cs
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

@@ -1,0 +1,371 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>ensurepip &mdash; ArcherBashPYDocs 1.0.0. documentation</title>
+  
+
+  
+  
+
+  
+  <link href='https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic|Roboto+Slab:400,700|Inconsolata:400,700&subset=latin,cyrillic' rel='stylesheet' type='text/css'>
+
+  
+  
+    
+
+  
+
+  
+  
+    <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  
+
+  
+
+  
+    <link rel="top" title="ArcherBashPYDocs 1.0.0. documentation" href="../index.html"/>
+        <link rel="up" title="Module code" href="index.html"/> 
+
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/modernizr/2.6.2/modernizr.min.js"></script>
+
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-nav-search">
+        
+          <a href="../index.html" class="fa fa-home"> ArcherBashPYDocs</a>
+        
+        
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+        
+          
+          
+              <ul class="simple">
+</ul>
+
+          
+        
+      </div>
+      &nbsp;
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href="../index.html">ArcherBashPYDocs</a>
+      </nav>
+
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href="../index.html">Docs</a> &raquo;</li>
+      
+          <li><a href="index.html">Module code</a> &raquo;</li>
+      
+    <li>ensurepip</li>
+      <li class="wy-breadcrumbs-aside">
+        
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document">
+            
+  <h1>Source code for ensurepip</h1><div class="highlight"><pre>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">os.path</span>
+<span class="kn">import</span> <span class="nn">pkgutil</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">tempfile</span>
+
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;version&quot;</span><span class="p">,</span> <span class="s">&quot;bootstrap&quot;</span><span class="p">]</span>
+
+
+<span class="n">_SETUPTOOLS_VERSION</span> <span class="o">=</span> <span class="s">&quot;2.1&quot;</span>
+
+<span class="n">_PIP_VERSION</span> <span class="o">=</span> <span class="s">&quot;1.5.6&quot;</span>
+
+<span class="c"># pip currently requires ssl support, so we try to provide a nicer</span>
+<span class="c"># error message when that is missing (http://bugs.python.org/issue19744)</span>
+<span class="n">_MISSING_SSL_MESSAGE</span> <span class="o">=</span> <span class="p">(</span><span class="s">&quot;pip {} requires SSL/TLS&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">_PIP_VERSION</span><span class="p">))</span>
+<span class="k">try</span><span class="p">:</span>
+    <span class="kn">import</span> <span class="nn">ssl</span>
+<span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+    <span class="n">ssl</span> <span class="o">=</span> <span class="bp">None</span>
+    <span class="k">def</span> <span class="nf">_require_ssl_for_pip</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="ne">RuntimeError</span><span class="p">(</span><span class="n">_MISSING_SSL_MESSAGE</span><span class="p">)</span>
+<span class="k">else</span><span class="p">:</span>
+    <span class="k">def</span> <span class="nf">_require_ssl_for_pip</span><span class="p">():</span>
+        <span class="k">pass</span>
+
+<span class="n">_PROJECTS</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s">&quot;setuptools&quot;</span><span class="p">,</span> <span class="n">_SETUPTOOLS_VERSION</span><span class="p">),</span>
+    <span class="p">(</span><span class="s">&quot;pip&quot;</span><span class="p">,</span> <span class="n">_PIP_VERSION</span><span class="p">),</span>
+<span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">_run_pip</span><span class="p">(</span><span class="n">args</span><span class="p">,</span> <span class="n">additional_paths</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="c"># Add our bundled software to the sys.path so we can import it</span>
+    <span class="k">if</span> <span class="n">additional_paths</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path</span> <span class="o">=</span> <span class="n">additional_paths</span> <span class="o">+</span> <span class="n">sys</span><span class="o">.</span><span class="n">path</span>
+
+    <span class="c"># Install the bundled software</span>
+    <span class="kn">import</span> <span class="nn">pip</span>
+    <span class="n">pip</span><span class="o">.</span><span class="n">main</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="version"><a class="viewcode-back" href="../ensurepip.html#ensurepip.version">[docs]</a><span class="k">def</span> <span class="nf">version</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Returns a string specifying the bundled version of pip.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_PIP_VERSION</span>
+</div>
+<span class="k">def</span> <span class="nf">_disable_pip_configuration_settings</span><span class="p">():</span>
+    <span class="c"># We deliberately ignore all pip environment variables</span>
+    <span class="c"># when invoking pip</span>
+    <span class="c"># See http://bugs.python.org/issue19734 for details</span>
+    <span class="n">keys_to_remove</span> <span class="o">=</span> <span class="p">[</span><span class="n">k</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span> <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;PIP_&quot;</span><span class="p">)]</span>
+    <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">keys_to_remove</span><span class="p">:</span>
+        <span class="k">del</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+    <span class="c"># We also ignore the settings in the default pip configuration file</span>
+    <span class="c"># See http://bugs.python.org/issue20053 for details</span>
+    <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s">&#39;PIP_CONFIG_FILE&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">devnull</span>
+
+
+<div class="viewcode-block" id="bootstrap"><a class="viewcode-back" href="../ensurepip.html#ensurepip.bootstrap">[docs]</a><span class="k">def</span> <span class="nf">bootstrap</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">root</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">upgrade</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">user</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+              <span class="n">altinstall</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">default_pip</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+              <span class="n">verbosity</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Bootstrap pip into the current Python installation (or the given root</span>
+<span class="sd">    directory).</span>
+
+<span class="sd">    Note that calling this function will alter both sys.path and os.environ.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">altinstall</span> <span class="ow">and</span> <span class="n">default_pip</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s">&quot;Cannot use altinstall and default_pip together&quot;</span><span class="p">)</span>
+
+    <span class="n">_require_ssl_for_pip</span><span class="p">()</span>
+    <span class="n">_disable_pip_configuration_settings</span><span class="p">()</span>
+
+    <span class="c"># By default, installing pip and setuptools installs all of the</span>
+    <span class="c"># following scripts (X.Y == running Python version):</span>
+    <span class="c">#</span>
+    <span class="c">#   pip, pipX, pipX.Y, easy_install, easy_install-X.Y</span>
+    <span class="c">#</span>
+    <span class="c"># pip 1.5+ allows ensurepip to request that some of those be left out</span>
+    <span class="k">if</span> <span class="n">altinstall</span><span class="p">:</span>
+        <span class="c"># omit pip, pipX and easy_install</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s">&quot;ENSUREPIP_OPTIONS&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;altinstall&quot;</span>
+    <span class="k">elif</span> <span class="ow">not</span> <span class="n">default_pip</span><span class="p">:</span>
+        <span class="c"># omit pip and easy_install</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s">&quot;ENSUREPIP_OPTIONS&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;install&quot;</span>
+
+    <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">()</span> <span class="k">as</span> <span class="n">tmpdir</span><span class="p">:</span>
+        <span class="c"># Put our bundled wheels into a temporary directory and construct the</span>
+        <span class="c"># additional paths that need added to sys.path</span>
+        <span class="n">additional_paths</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">project</span><span class="p">,</span> <span class="n">version</span> <span class="ow">in</span> <span class="n">_PROJECTS</span><span class="p">:</span>
+            <span class="n">wheel_name</span> <span class="o">=</span> <span class="s">&quot;{}-{}-py2.py3-none-any.whl&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">project</span><span class="p">,</span> <span class="n">version</span><span class="p">)</span>
+            <span class="n">whl</span> <span class="o">=</span> <span class="n">pkgutil</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span>
+                <span class="s">&quot;ensurepip&quot;</span><span class="p">,</span>
+                <span class="s">&quot;_bundled/{}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">wheel_name</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmpdir</span><span class="p">,</span> <span class="n">wheel_name</span><span class="p">),</span> <span class="s">&quot;wb&quot;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fp</span><span class="p">:</span>
+                <span class="n">fp</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">whl</span><span class="p">)</span>
+
+            <span class="n">additional_paths</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">tmpdir</span><span class="p">,</span> <span class="n">wheel_name</span><span class="p">))</span>
+
+        <span class="c"># Construct the arguments to be passed to the pip command</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;install&quot;</span><span class="p">,</span> <span class="s">&quot;--no-index&quot;</span><span class="p">,</span> <span class="s">&quot;--find-links&quot;</span><span class="p">,</span> <span class="n">tmpdir</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">root</span><span class="p">:</span>
+            <span class="n">args</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&quot;--root&quot;</span><span class="p">,</span> <span class="n">root</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">upgrade</span><span class="p">:</span>
+            <span class="n">args</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&quot;--upgrade&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">user</span><span class="p">:</span>
+            <span class="n">args</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&quot;--user&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">verbosity</span><span class="p">:</span>
+            <span class="n">args</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&quot;-&quot;</span> <span class="o">+</span> <span class="s">&quot;v&quot;</span> <span class="o">*</span> <span class="n">verbosity</span><span class="p">]</span>
+
+        <span class="n">_run_pip</span><span class="p">(</span><span class="n">args</span> <span class="o">+</span> <span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">_PROJECTS</span><span class="p">],</span> <span class="n">additional_paths</span><span class="p">)</span>
+</div>
+<span class="k">def</span> <span class="nf">_uninstall_helper</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">verbosity</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Helper to support a clean default uninstall process on Windows</span>
+
+<span class="sd">    Note that calling this function may alter os.environ.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># Nothing to do if pip was never installed, or has been removed</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="kn">import</span> <span class="nn">pip</span>
+    <span class="k">except</span> <span class="ne">ImportError</span><span class="p">:</span>
+        <span class="k">return</span>
+
+    <span class="c"># If the pip version doesn&#39;t match the bundled one, leave it alone</span>
+    <span class="k">if</span> <span class="n">pip</span><span class="o">.</span><span class="n">__version__</span> <span class="o">!=</span> <span class="n">_PIP_VERSION</span><span class="p">:</span>
+        <span class="n">msg</span> <span class="o">=</span> <span class="p">(</span><span class="s">&quot;ensurepip will only uninstall a matching version &quot;</span>
+               <span class="s">&quot;({!r} installed, {!r} bundled)&quot;</span><span class="p">)</span>
+        <span class="k">print</span><span class="p">(</span><span class="n">msg</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">pip</span><span class="o">.</span><span class="n">__version__</span><span class="p">,</span> <span class="n">_PIP_VERSION</span><span class="p">),</span> <span class="nb">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="n">_require_ssl_for_pip</span><span class="p">()</span>
+    <span class="n">_disable_pip_configuration_settings</span><span class="p">()</span>
+
+    <span class="c"># Construct the arguments to be passed to the pip command</span>
+    <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;uninstall&quot;</span><span class="p">,</span> <span class="s">&quot;-y&quot;</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">verbosity</span><span class="p">:</span>
+        <span class="n">args</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&quot;-&quot;</span> <span class="o">+</span> <span class="s">&quot;v&quot;</span> <span class="o">*</span> <span class="n">verbosity</span><span class="p">]</span>
+
+    <span class="n">_run_pip</span><span class="p">(</span><span class="n">args</span> <span class="o">+</span> <span class="p">[</span><span class="n">p</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">reversed</span><span class="p">(</span><span class="n">_PROJECTS</span><span class="p">)])</span>
+
+
+<span class="k">def</span> <span class="nf">_main</span><span class="p">(</span><span class="n">argv</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="k">if</span> <span class="n">ssl</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+        <span class="k">print</span><span class="p">(</span><span class="s">&quot;Ignoring ensurepip failure: {}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">_MISSING_SSL_MESSAGE</span><span class="p">),</span>
+              <span class="nb">file</span><span class="o">=</span><span class="n">sys</span><span class="o">.</span><span class="n">stderr</span><span class="p">)</span>
+        <span class="k">return</span>
+
+    <span class="kn">import</span> <span class="nn">argparse</span>
+    <span class="n">parser</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s">&quot;python -m ensurepip&quot;</span><span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s">&quot;--version&quot;</span><span class="p">,</span>
+        <span class="n">action</span><span class="o">=</span><span class="s">&quot;version&quot;</span><span class="p">,</span>
+        <span class="n">version</span><span class="o">=</span><span class="s">&quot;pip {}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">version</span><span class="p">()),</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;Show the version of pip that is bundled with this Python.&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s">&quot;-v&quot;</span><span class="p">,</span> <span class="s">&quot;--verbose&quot;</span><span class="p">,</span>
+        <span class="n">action</span><span class="o">=</span><span class="s">&quot;count&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>
+        <span class="n">dest</span><span class="o">=</span><span class="s">&quot;verbosity&quot;</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="p">(</span><span class="s">&quot;Give more output. Option is additive, and can be used up to 3 &quot;</span>
+              <span class="s">&quot;times.&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s">&quot;-U&quot;</span><span class="p">,</span> <span class="s">&quot;--upgrade&quot;</span><span class="p">,</span>
+        <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;Upgrade pip and dependencies, even if already installed.&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s">&quot;--user&quot;</span><span class="p">,</span>
+        <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;Install using the user scheme.&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s">&quot;--root&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="s">&quot;Install everything relative to this alternate root directory.&quot;</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s">&quot;--altinstall&quot;</span><span class="p">,</span>
+        <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="p">(</span><span class="s">&quot;Make an alternate install, installing only the X.Y versioned&quot;</span>
+              <span class="s">&quot;scripts (Default: pipX, pipX.Y, easy_install-X.Y)&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+    <span class="n">parser</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span>
+        <span class="s">&quot;--default-pip&quot;</span><span class="p">,</span>
+        <span class="n">action</span><span class="o">=</span><span class="s">&quot;store_true&quot;</span><span class="p">,</span>
+        <span class="n">default</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+        <span class="n">help</span><span class="o">=</span><span class="p">(</span><span class="s">&quot;Make a default pip install, installing the unqualified pip &quot;</span>
+              <span class="s">&quot;and easy_install in addition to the versioned scripts&quot;</span><span class="p">),</span>
+    <span class="p">)</span>
+
+    <span class="n">args</span> <span class="o">=</span> <span class="n">parser</span><span class="o">.</span><span class="n">parse_args</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+
+    <span class="n">bootstrap</span><span class="p">(</span>
+        <span class="n">root</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">root</span><span class="p">,</span>
+        <span class="n">upgrade</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">upgrade</span><span class="p">,</span>
+        <span class="n">user</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">user</span><span class="p">,</span>
+        <span class="n">verbosity</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">verbosity</span><span class="p">,</span>
+        <span class="n">altinstall</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">altinstall</span><span class="p">,</span>
+        <span class="n">default_pip</span><span class="o">=</span><span class="n">args</span><span class="o">.</span><span class="n">default_pip</span><span class="p">,</span>
+    <span class="p">)</span>
+</pre></div>
+
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2015, Weldon Henson.
+    </p>
+  </div>
+
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+  
+</footer>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  
+
+    <script type="text/javascript">
+        var DOCUMENTATION_OPTIONS = {
+            URL_ROOT:'../',
+            VERSION:'1.0.0.',
+            COLLAPSE_INDEX:false,
+            FILE_SUFFIX:'.html',
+            HAS_SOURCE:  true
+        };
+    </script>
+      <script type="text/javascript" src="../_static/jquery.js"></script>
+      <script type="text/javascript" src="../_static/underscore.js"></script>
+      <script type="text/javascript" src="../_static/doctools.js"></script>
+      <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+
+  
+
+  
+  
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+  
+
+  
+  
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.StickyNav.enable();
+      });
+  </script>
+   
+
+</body>
+</html>

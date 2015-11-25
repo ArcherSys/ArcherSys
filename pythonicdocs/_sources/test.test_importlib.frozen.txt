@@ -1,0 +1,96 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+test.test_importlib.frozen package
+==================================
+
+Submodules
+----------
+
+test.test_importlib.frozen.test_finder module
+---------------------------------------------
+
+.. automodule:: test.test_importlib.frozen.test_finder
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+test.test_importlib.frozen.test_loader module
+---------------------------------------------
+
+.. automodule:: test.test_importlib.frozen.test_loader
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: test.test_importlib.frozen
+    :members:
+    :undoc-members:
+    :show-inheritance:
+=======
+test.test_importlib.frozen package
+==================================
+
+Submodules
+----------
+
+test.test_importlib.frozen.test_finder module
+---------------------------------------------
+
+.. automodule:: test.test_importlib.frozen.test_finder
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+test.test_importlib.frozen.test_loader module
+---------------------------------------------
+
+.. automodule:: test.test_importlib.frozen.test_loader
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: test.test_importlib.frozen
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+test.test_importlib.frozen package
+==================================
+
+Submodules
+----------
+
+test.test_importlib.frozen.test_finder module
+---------------------------------------------
+
+.. automodule:: test.test_importlib.frozen.test_finder
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+test.test_importlib.frozen.test_loader module
+---------------------------------------------
+
+.. automodule:: test.test_importlib.frozen.test_loader
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: test.test_importlib.frozen
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

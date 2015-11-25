@@ -1,0 +1,120 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+pathtools package
+=================
+
+Submodules
+----------
+
+pathtools.path module
+---------------------
+
+.. automodule:: pathtools.path
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pathtools.patterns module
+-------------------------
+
+.. automodule:: pathtools.patterns
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pathtools.version module
+------------------------
+
+.. automodule:: pathtools.version
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: pathtools
+    :members:
+    :undoc-members:
+    :show-inheritance:
+=======
+pathtools package
+=================
+
+Submodules
+----------
+
+pathtools.path module
+---------------------
+
+.. automodule:: pathtools.path
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pathtools.patterns module
+-------------------------
+
+.. automodule:: pathtools.patterns
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pathtools.version module
+------------------------
+
+.. automodule:: pathtools.version
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: pathtools
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+pathtools package
+=================
+
+Submodules
+----------
+
+pathtools.path module
+---------------------
+
+.. automodule:: pathtools.path
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pathtools.patterns module
+-------------------------
+
+.. automodule:: pathtools.patterns
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pathtools.version module
+------------------------
+
+.. automodule:: pathtools.version
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: pathtools
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

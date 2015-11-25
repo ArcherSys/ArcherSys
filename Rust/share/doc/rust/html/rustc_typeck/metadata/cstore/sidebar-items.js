@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["CStore",""],["CrateSource",""],["ImportedFileMap","Holds information about a codemap::FileMap imported from another crate. See creader::import_codemap() for more information."],["crate_metadata",""]],"enum":[["LinkagePreference",""],["MetadataBlob",""],["NativeLibraryKind",""]],"type":[["cnum_map",""]]});

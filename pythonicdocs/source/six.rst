@@ -1,0 +1,27 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+six module
+==========
+
+.. automodule:: six
+    :members:
+    :undoc-members:
+    :show-inheritance:
+=======
+six module
+==========
+
+.. automodule:: six
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+six module
+==========
+
+.. automodule:: six
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

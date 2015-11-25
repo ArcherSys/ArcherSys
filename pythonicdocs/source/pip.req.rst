@@ -1,0 +1,168 @@
+<<<<<<< HEAD
+<<<<<<< HEAD
+pip.req package
+===============
+
+Submodules
+----------
+
+pip.req.req_file module
+-----------------------
+
+.. automodule:: pip.req.req_file
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_install module
+--------------------------
+
+.. automodule:: pip.req.req_install
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_requirement module
+------------------------------
+
+.. automodule:: pip.req.req_requirement
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_set module
+----------------------
+
+.. automodule:: pip.req.req_set
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_uninstall module
+----------------------------
+
+.. automodule:: pip.req.req_uninstall
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: pip.req
+    :members:
+    :undoc-members:
+    :show-inheritance:
+=======
+pip.req package
+===============
+
+Submodules
+----------
+
+pip.req.req_file module
+-----------------------
+
+.. automodule:: pip.req.req_file
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_install module
+--------------------------
+
+.. automodule:: pip.req.req_install
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_requirement module
+------------------------------
+
+.. automodule:: pip.req.req_requirement
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_set module
+----------------------
+
+.. automodule:: pip.req.req_set
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_uninstall module
+----------------------------
+
+.. automodule:: pip.req.req_uninstall
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: pip.req
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+=======
+pip.req package
+===============
+
+Submodules
+----------
+
+pip.req.req_file module
+-----------------------
+
+.. automodule:: pip.req.req_file
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_install module
+--------------------------
+
+.. automodule:: pip.req.req_install
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_requirement module
+------------------------------
+
+.. automodule:: pip.req.req_requirement
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_set module
+----------------------
+
+.. automodule:: pip.req.req_set
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+pip.req.req_uninstall module
+----------------------------
+
+.. automodule:: pip.req.req_uninstall
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: pip.req
+    :members:
+    :undoc-members:
+    :show-inheritance:
+>>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
