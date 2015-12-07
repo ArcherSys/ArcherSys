@@ -1,4 +1,4 @@
-define(function(){
+Neokit.lib(["require"],function(require){
    /** @namespace
      * Activity Manager for ArcherSys OS
      * @author Weldon Henson
