@@ -14,6 +14,10 @@ class DataManager{
 DataManager::initUserRegConnection($config);
       DataManager::useDatabase("acoserver_acoserver");
   }
+    static function ConnectFull($config,$db){
+DataManager::initUserRegConnection($config);
+      DataManager::useDatabase($db);
+  }
  static function notify(){
  die(mysql_error());
 }
