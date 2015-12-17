@@ -47,9 +47,10 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 
  //if the cookie has the wrong password, they are taken to the login page
 
- 		if ($pass != $info['password'] || $info["role"] != "Admin")
+ 		if ($pass != $info['password'] || $info["role"] != $_GET["roleDetect
+ 		"])
 
- 			{ 			header("Location: http://localhost/login.php?redirect_uri=${_SERVER['PHP_SELF']}&roleDetect=Admin");
+ 			{ 			header("Location: http://localhost/login.php?redirect_uri=".$_SERVER['PHP_SELF']."&roleDetect='Admin'");
 
  			}
 
@@ -113,7 +114,7 @@ $(function(){
     window.location.assign("http://localhost/admin/piwik/");
  });
  $("#phpMyAdmin").click(function(){
-    window.location.assign("http://localhost/admin/phpMyAdmin/");
+    window.location.assign("http://localhost/admin/WebMyAdmin/phpMyAdmin2/");
  });
 
 });
