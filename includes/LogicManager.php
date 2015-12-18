@@ -1,16 +1,5 @@
 <?php
   namespace ArcherSys\Viewer;
-<<<<<<< HEAD
-  /*@package ArcherSysOS 
-   * 
-   * 
-   * */
- class LogicManager {
-    static function addJSModule($module){
-    	echo '<script src="'.$module.'.js"></script>';
-    }
-=======
-
 
   /*@package ArcherSysOS
    *
@@ -22,7 +11,7 @@
      }
 
  
->>>>>>> 5e7b2c757565054acf1b6acdbff6480e574a8d68
+
  	static function addjQuery(){
  		echo '<script src="/core/js/jquery.js"></script>';
  	}
@@ -54,12 +43,4 @@
  
   exec("start startscreen.py");
  }
- 
-<<<<<<< HEAD
- static function addPubNub(){
- 	echo '<script src="http://cdn.pubnub.com/pubnub.min.js"></script>';
- }
-=======
- 
->>>>>>> 5e7b2c757565054acf1b6acdbff6480e574a8d68
 }

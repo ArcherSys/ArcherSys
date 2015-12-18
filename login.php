@@ -2,7 +2,7 @@
      <?php
 require_once "includes\ViewManager.php";
 require_once "includes\LogicManager.php";
-require_once "includes\ConfigManager.php";
+
  use ArcherSys\Viewer\ViewManager;
  use ArcherSys\Viewer\LogicManager;
 

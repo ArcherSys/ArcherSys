@@ -2,7 +2,6 @@
 <?php
 @ini_set("display_errors","0");
   require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
-  require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/component-functions.php";
   require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/ViewManager.php";
   require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/DataManager.php";
 
@@ -69,12 +68,17 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 <html>
 <head>
 <title>Admin Portal</title>
-<script src="/core/components/webcomponentsjs/webcomponents.js"></script>
+<script src="/core/components/webcomponentsjs/webcomponents-min..js"></script>
 <link rel="import" href="/core/components/polymer/polymer.html">
 <link rel="import" href="/core/components/core-header-panel/core-header-panel.html">
 
 <link rel="import" href="/core/components/core-icon-button/core-icon-button.html">
 
+  <link rel="import" href="/core/components/marked-element/marked-element.html">
+  <link rel="import" href="/core/components/iron-doc-viewer/iron-doc-viewer.html">
+  <link rel="import" href="/core/components/iron-selector/iron-selector.html">
+  <link rel="import" href="/core/components/iron-ajax/iron-ajax.html">
+  <link rel="import" href="/core/components/iron-component-page/iron-component-page.html">
 <link rel="import" href="/core/components/paper-card/paper-card.html">
 
 <link rel="import" href="/core/components/core-menu/core-menu.html">
