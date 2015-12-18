@@ -1,5 +1,6 @@
 
 <?php
+@ini_set("display_errors","0");
   require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
   require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/component-functions.php";
   require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/ViewManager.php";
@@ -47,9 +48,10 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 
  //if the cookie has the wrong password, they are taken to the login page
 
- 		if ($pass != $info['password'] || $info["role"] != "Admin")
+ 		if ($pass != $info['password'] || $info["role"] != $_GET["roleDetect
+ 		"])
 
- 			{ 			header("Location: http://localhost/login.php?redirect_uri=${_SERVER['PHP_SELF']}&roleDetect=Admin");
+ 			{ 			header("Location: http://localhost/login.php?redirect_uri=".$_SERVER['PHP_SELF']."&roleDetect=Admin");
 
  			}
 
@@ -67,18 +69,25 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 <html>
 <head>
 <title>Admin Portal</title>
-<script src="/settings/components/webcomponentsjs/webcomponents.js"></script>
-<link rel="import" href="/settings/components/polymer/polymer.html">
-<link rel="import" href="/settings/components/core-header-panel/core-header-panel.html">
+<script src="/core/components/webcomponentsjs/webcomponents.js"></script>
+<link rel="import" href="/core/components/polymer/polymer.html">
+<link rel="import" href="/core/components/core-header-panel/core-header-panel.html">
 
-<link rel="import" href="/settings/components/core-icon-button/core-icon-button.html">
+<link rel="import" href="/core/components/core-icon-button/core-icon-button.html">
 
-<link rel="import" href="/settings/components/core-menu/core-menu.html">
-<link rel="import" href="/settings/components/core-item/core-item.html">
+<link rel="import" href="/core/components/paper-card/paper-card.html">
+
+<link rel="import" href="/core/components/core-menu/core-menu.html">
+<link rel="import" href="/core/components/core-item/core-item.html">
 <script src="/core/js/jquery.js"></script>
+<link rel="import" href="/core/components/iron-image/iron-image.html">
+<link rel="import" href="/core/components/paper-material/paper-material.html">
+<link rel="import" href="/core/components/paper-styles/shadow.html">
 
-<link rel="import" href="/settings/components/font-roboto/roboto.html">
-<link rel="import" href="/settings/components/core-toolbar/core-toolbar.html">
+<link rel="import" href="/core/components/iron-flex-layout/iron-flex-layout.html">
+
+<link rel="import" href="/core/components/font-roboto/roboto.html">
+<link rel="import" href="/core/components/core-toolbar/core-toolbar.html">
 </head>
 <body fullbleed layout horizontal>
 <style>
@@ -87,6 +96,15 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
    background-color: crimson;
    color: whitesmoke;
 
+}
+.card-content{
+    font-weight: bold;
+     font-family: Segoe UI;
+     background-color: silver;
+}
+paper-card{
+    font-family: Segoe UI;
+    --paper-card-header-color: green;
 }
 core-menu{
   font-family:  RobotoDraft, Segoe UI;
@@ -113,13 +131,18 @@ $(function(){
     window.location.assign("http://localhost/admin/piwik/");
  });
  $("#phpMyAdmin").click(function(){
-    window.location.assign("http://localhost/admin/phpMyAdmin/");
+    window.location.assign("http://localhost/admin/WebMyAdmin/phpMyAdmin2/");
  });
 
 });
 
 </script>
-
+<paper-card heading="User">
+ <div class="card-content">Some content</div>
+  <div class="card-actions">
+    <paper-button>Some action</paper-button>
+  </div>
+</paper-card>
 </core-header-panel>
 </body>
 </html>

@@ -262,7 +262,7 @@ localStorage.setItem("Name","Guest");
 <button class="logout"><i class="icon-off"></i></button>
 </div>
     </div>
-<<<<<<< HEAD
+
     
 
 

@@ -5,7 +5,7 @@
 		 *  @license MIT
 		 *  The Namespace for client side ArcherSys OS Operations
 		 */
-var ArcherSysOS = {
+var ArcherSysOS =  {
 		/** @constructor Class
 		 * The Class Creator for ArcherSys OS.
 		 * @param constructor (Function) - The Constructor
@@ -39,7 +39,7 @@ var ArcherSysOS = {
 		
 		},
          
-		$: jQuery.noConflict(),
+	
 		defineEnumeration: function(statics){
 		 var   constructor  = function(){};
 		 for (var s in statics){
@@ -50,5 +50,14 @@ var ArcherSysOS = {
 		     });
 		 }
 		 return constructor;
-		}
+		},
+		Lib: require.config({
+    context: "archersysos",
+    baseUrl: ".",
+    shim:{
+        'archersysos-apps':{
+            deps:['archersysos']
+        }
+    }
+})
 };
