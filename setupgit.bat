@@ -1,0 +1,1 @@
+C:/Railsinstaller/Ruby2.1.0/setup_environment.bat .

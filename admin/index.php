@@ -68,12 +68,17 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 <html>
 <head>
 <title>Admin Portal</title>
-<script src="/core/components/webcomponentsjs/webcomponents-min..js"></script>
+<script src="/core/components/webcomponentsjs/webcomponents.js"></script>
 <link rel="import" href="/core/components/polymer/polymer.html">
 <link rel="import" href="/core/components/core-header-panel/core-header-panel.html">
 
+<script src="/core/components/prism/prism.js"></script>
+<link rel="import" href="/core/components/promise-polyfill/promise-polyfill-lite.html">
+
+<link rel="import" href="/core/components/prism-element/prism-highlighter.html">
 <link rel="import" href="/core/components/core-icon-button/core-icon-button.html">
 
+  <link rel="import" href="/core/components/iron-icons/iron-icons.html">
   <link rel="import" href="/core/components/marked-element/marked-element.html">
   <link rel="import" href="/core/components/iron-doc-viewer/iron-doc-viewer.html">
   <link rel="import" href="/core/components/iron-selector/iron-selector.html">
@@ -88,7 +93,6 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 <link rel="import" href="/core/components/paper-material/paper-material.html">
 <link rel="import" href="/core/components/paper-styles/shadow.html">
 
-<link rel="import" href="/core/components/iron-flex-layout/iron-flex-layout.html">
 
 <link rel="import" href="/core/components/font-roboto/roboto.html">
 <link rel="import" href="/core/components/core-toolbar/core-toolbar.html">
@@ -114,6 +118,10 @@ core-menu{
   font-family:  RobotoDraft, Segoe UI;
 color: whitesmoke;
 background-color: blue;
+}
+paper-button.fancy {
+  background: green;
+  color: yellow;
 }
 
 </style>
@@ -142,9 +150,9 @@ $(function(){
 
 </script>
 <paper-card heading="User">
- <div class="card-content">Some content</div>
+ <div class="card-content"><?php echo $_COOKIE["ID_ARCHERVMCASHEW"];?></div>
   <div class="card-actions">
-    <paper-button>Some action</paper-button>
+    <paper-button class="fancy" onclick="window.alert('Delete')"> <iron-icon icon="delete"></iron-icon>Delete</paper-button>
   </div>
 </paper-card>
 </core-header-panel>
