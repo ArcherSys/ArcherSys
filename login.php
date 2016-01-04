@@ -108,7 +108,17 @@ $role = $_GET["roleDetect"];
  	$_POST['pass'] = md5($_POST['pass']);
 
 
-
+if ($info["Disabled"] == 1) {
+                echo "<!DOCTYPE HTML>";
+                echo "<html>";
+                   echo "<head>";
+                  echo "<title>Account Disabled</title>";
+                 echo "<link rel=\"stylesheet\" type=\"text/css\" href=\"/core/css/err-rf.css\"/>";
+                 echo "</head>";
+                 echo "<body>";
+ 		die('<div class="asos-incorrect-pass"><p>Your account has been disabled.</p> <button class="asos-ipass-button" onclick="window.reload()">Please contact an administrator for assistance.</button></div></body></html>');
+             
+ 	}
  //gives error if the password is wrong
 
  	if ($_POST['pass'] != $info['password']) {

@@ -43,12 +43,11 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 
  		{
 
- 
+  $role = $_COOKIE["Role_ARCHERVMCASHEW"];
 
  //if the cookie has the wrong password, they are taken to the login page
 
- 		if ($pass != $info['password'] || $info["role"] != $_GET["roleDetect
- 		"])
+ 		if ($pass != $info['password'] || $role != $_GET["roleDetect"])
 
  			{ 			header("Location: http://localhost/login.php?redirect_uri=".$_SERVER['PHP_SELF']."&roleDetect=Admin");
 
@@ -145,16 +144,46 @@ $(function(){
  $("#phpMyAdmin").click(function(){
     window.location.assign("http://localhost/admin/WebMyAdmin/phpMyAdmin2/");
  });
+ $(".fancy.disable").click(function(){
+     runDisabler($(this).data("username"));
+ });
+ $(".fancy.enable").click(function(){
+     runEnabler($(this).data("username"));
+ });
 
 });
 
 </script>
+<script>
+    function runDisabler(username){
+    $.post( "disable.php", {username: username},function( data ) {
+        alert(data);
+});
+}
+ function runEnabler(username){
+    $.post( "enabler.php", {username: username},function( data ) {
+        alert(data);
+});
+}
+</script>
+<?php
+	$check = mysql_query("SELECT * FROM users WHERE 1")or DataManager::notify();
+	while($info = mysql_fetch_array( $check ))
+
+ 		{
+ 		    ?>
+
 <paper-card heading="User">
- <div class="card-content"><?php echo $_COOKIE["ID_ARCHERVMCASHEW"];?></div>
+ <div class="card-content"><h1><?php echo $info["username"];?></h1></div>
   <div class="card-actions">
     <paper-button class="fancy" onclick="window.alert('Delete')"> <iron-icon icon="delete"></iron-icon>Delete</paper-button>
+    <paper-button class="fancy disable" data-username="<?php echo $info["username"];?>"> <iron-icon icon="delete"></iron-icon>Disable</paper-button>
+       <paper-button class="fancy enable" data-username="<?php echo $info["username"];?>"> <iron-icon icon="add"></iron-icon>Enable</paper-button>
   </div>
 </paper-card>
+<?php
+}
+?>
 </core-header-panel>
 </body>
 </html>
@@ -168,7 +197,8 @@ $(function(){
 
 else {
   
-header("Location: http://localhost/login.php?redirect_uri=${_SERVER['PHP_SELF']}&roleDetect=Admin");
+header("Location: http://localhost/login.php?redirect_uri=".$_SERVER['PHP_SELF'].
+"&roleDetect=Admin");
 
  }
 
