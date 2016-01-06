@@ -89,6 +89,8 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 <link rel="import" href="/core/components/core-item/core-item.html">
 <script src="/core/js/jquery.js"></script>
 <link rel="import" href="/core/components/iron-image/iron-image.html">
+
+<link rel="import" href="/core/components/iron-dropdown/iron-dropdown.html">
 <link rel="import" href="/core/components/paper-material/paper-material.html">
 <link rel="import" href="/core/components/paper-styles/shadow.html">
 
@@ -150,13 +152,23 @@ $(function(){
  $(".fancy.enable").click(function(){
      runEnabler($(this).data("username"));
  });
-
+ $("role").change(function(){
+    $(this).data("roleacct",$(this).val());
+ })
+  $(".fancy.save").click(function(){
+      saveSettings($(this).data("username"),$("#role").val());
+  });
 });
 
 </script>
 <script>
     function runDisabler(username){
     $.post( "disable.php", {username: username},function( data ) {
+        alert(data);
+});
+}
+ function saveSettings(username,role){
+    $.post( "savesettings.php", {role: role,username:username},function( data ) {
         alert(data);
 });
 }
@@ -179,6 +191,12 @@ $(function(){
     <paper-button class="fancy" onclick="window.alert('Delete')"> <iron-icon icon="delete"></iron-icon>Delete</paper-button>
     <paper-button class="fancy disable" data-username="<?php echo $info["username"];?>"> <iron-icon icon="delete"></iron-icon>Disable</paper-button>
        <paper-button class="fancy enable" data-username="<?php echo $info["username"];?>"> <iron-icon icon="add"></iron-icon>Enable</paper-button>
+       <select data-username="<?php echo $info["username"];?>" name="role" id="role">
+           <option value="Guest">Guest</option>
+           <option value="Admin">Administrator</option>
+           <option value="User">User</option>
+       </select>
+       <paper-button class="fancy save" data-username="<?php echo $info["username"];?>"> <iron-icon icon="save"></iron-icon>Save Settings</paper-button>
   </div>
 </paper-card>
 <?php
