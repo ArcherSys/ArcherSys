@@ -121,7 +121,7 @@ if ($info["Disabled"] == 1) {
  	}
  //gives error if the password is wrong
 
- 	if ($_POST['pass'] != $info['password']) {
+ 	else if ($_POST['pass'] != $info['password']) {
                 echo "<!DOCTYPE HTML>";
                 echo "<html>";
                    echo "<head>";
