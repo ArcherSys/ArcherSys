@@ -15,7 +15,7 @@ require_once "includes/AuthenticatorBuilder.php";
   use ArcherSys\Styles\StyleSheetManager;
   use ArcherSys\Nav\AuthenticatorBuilder;
   use ArcherSys\Timex\DateManager;
-  LogicManager::runStartScreen();
+
  // Connects to your Database
 @ini_set("max_execution_time", 300);
    mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or DataManager::notify();
@@ -74,7 +74,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
   ViewManager::setupFavicons();
  ViewManager::addMSAppConfig();
  ViewManager::addAppleAppConfig();
- addStartScreen();
+
 ?>
 <meta content='width=device-width, initial-scale=1.0, user-scalable=no' name='viewport'>
 
@@ -95,6 +95,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 <meta http-equiv="X-UA-Compatible" content="IE=Edge">
 <?php
     
+StyleSheetManager::addStyle("/core/css/start",false);
 StyleSheetManager::addStyle("/core/css/start2",true);
 
 ?>

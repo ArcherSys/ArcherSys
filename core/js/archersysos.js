@@ -51,13 +51,6 @@ var ArcherSysOS =  {
 		 }
 		 return constructor;
 		},
-		Lib: require.config({
-    context: "archersysos",
-    baseUrl: ".",
-    shim:{
-        'archersysos-apps':{
-            deps:['archersysos']
-        }
-    }
-})
+		$: $.noConflict()
+	
 };
