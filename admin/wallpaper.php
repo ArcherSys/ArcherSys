@@ -61,7 +61,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 
  			{
 
-  
+
 ?>
 <!DOCTYPE HTML>
 <html>
@@ -83,8 +83,11 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
   <link rel="import" href="/core/components/iron-selector/iron-selector.html">
   <link rel="import" href="/core/components/iron-ajax/iron-ajax.html">
   <link rel="import" href="/core/components/iron-component-page/iron-component-page.html">
+  <link rel="import" href="/core/components/iron-resizable-behavior/iron-resizable-behavior.html">
+  <link rel="import" href="/core/components/iron-overlay-behavior/iron-overlay-behavior.html">
+<link rel="import" href="/core/components/iron-a11y-keys-behavior/iron-a11y-keys-behavior.html">
 <link rel="import" href="/core/components/paper-card/paper-card.html">
-
+<link rel="import" href="/core/components/iron-pages/iron-pages.html">
 <link rel="import" href="/core/components/core-menu/core-menu.html">
 <link rel="import" href="/core/components/core-item/core-item.html">
 <script src="/core/js/jquery.js"></script>
@@ -158,6 +161,7 @@ $(function(){
   $(".fancy.save").click(function(){
       saveSettings($(this).data("username"),$("#role").val());
   });
+ 
 });
 
 </script>
@@ -178,31 +182,27 @@ $(function(){
 });
 }
 </script>
+
 <?php
-	$check = mysql_query("SELECT * FROM users WHERE 1")or DataManager::notify();
-	while($info = mysql_fetch_array( $check ))
+	$walls = mysql_query("SELECT * FROM wallpaper WHERE 1") or DataManager::notify();
+	while($info = mysql_fetch_array( $walls ))
 
  		{
  		    ?>
 
-<paper-card heading="User">
- <div class="card-content"><h1><?php echo $info["username"];?></h1></div>
-  <div class="card-actions">
-    <paper-button class="fancy" onclick="window.alert('Delete')"> <iron-icon icon="delete"></iron-icon>Delete</paper-button>
-    <paper-button class="fancy disable" data-username="<?php echo $info["username"];?>"> <iron-icon icon="delete"></iron-icon>Disable</paper-button>
-       <paper-button class="fancy enable" data-username="<?php echo $info["username"];?>"> <iron-icon icon="add"></iron-icon>Enable</paper-button>
-       <select data-username="<?php echo $info["username"];?>" name="role" id="role">
-           <option value="Guest">Guest</option>
-           <option value="Admin">Administrator</option>
-           <option value="User">User</option>
-       </select>
-       
-       <paper-button class="fancy save" data-username="<?php echo $info["username"];?>"> <iron-icon icon="save"></iron-icon>Save Settings</paper-button>
-  </div>
+
+<paper-card heading="Wallpaper">
+    
+ <div class="card-content"><h1><?php echo $info["Name"];?></h1></div>
+  <img src="<?php echo $info["Image"];?>">
+  <paper-button class = "fancy use">Use Wallpaper</paper-button>
 </paper-card>
+
+
 <?php
 }
 ?>
+
 </core-header-panel>
 </body>
 </html>
