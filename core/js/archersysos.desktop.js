@@ -1,8 +1,6 @@
  $(window).load(function() {
   var $container = $('.start-screen');
-   $(".taskbar__item.taskbar__item--start").click(function(){
-           window.location.assign("http://localhost");
-   });
+  
   $container.masonry({
     itemSelector: '.masonry-item',
     columnWidth: 128
@@ -345,14 +343,23 @@ function toggleStart(e) {
   $('.start-menu').fadeToggle(250).toggleClass('start-menu--open');
   $('.taskbar__item--start').toggleClass('start--open');
 }
-$('.taskbar__item--start').click(toggleStart);
-$('.start-menu__recent li a').click(toggleStart);
-$('.start-screen__tile').click(toggleStart);
+$('.taskbar__item--start').click(function(e){
+    toggleStart(e);
+});
+$('.start-menu__recent li a').click(function(e){
+    toggleStart(e);
+});
+$('.start-screen__tile').click(function(e){
+    toggleStart(e);
+});
 
 // Prevent "open" class on start
 $(function() {
-  $('.taskbar__item--start').click(function() {
+  $('.taskbar__item--start').click(function(e) {
     $(this).removeClass('taskbar__item--open taskbar__item--active');
+ 
+    toggleStart(e);
+
   });
 });
 $(document).mouseup(function(e) {
@@ -361,7 +368,7 @@ $(document).mouseup(function(e) {
 
 
     if (start.is(':visible') && !startToggle.is(e.target) && startToggle.has(e.target).length === 0 && !start.is(e.target) && start.has(e.target).length === 0 ) {
-      toggleStart();
+      toggleStart(e);
       //alert('clicked outside start');
     }
   
@@ -453,7 +460,7 @@ $(function(){
 
             $('.time').html(curr_hour + ':' + curr_min + ' ' + a_p);
         }, 60000);
-})
+});
 $('.menu-toggle').each(function() {
   var menuName = $(this).data('menu');
   var menu = $('.menu[data-menu="' + menuName + '"]');
@@ -476,23 +483,22 @@ $('.menu-toggle').each(function() {
   $(this).click(function(e) {
     e.preventDefault();
     $('.menu').not(menu).hide();
-    $(menu).toggle();
+    $(menu).tggle();
   });
 });
 
 
-
-
 $(document).mouseup(function(e) {
   if ( $('.menu').has(e.target).length === 0 && !$('.menu-toggle').is(e.target) && $('.menu-toggle').has(e.target).length === 0 ) {
-    $('.menu').show();
+    $('.menu').hide();
   }
 });
 
 
 // Resize event handler to maintain the max-height of the app launcher
 $(window).resize(function(){
-		$('.apps').css({maxHeight: $(window).height() - $('.apps').offset().top});
+    var topApps = $('.start-screen-scroll.apps').offset().top;
+		$('.start-screen-scroll.apps').css({maxHeight: $(window).height() - topApps});
 });
 function setFrameSource() {
   var frameSource = $("#address-bar").val();

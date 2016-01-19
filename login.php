@@ -42,7 +42,7 @@ $role = $_GET["roleDetect"];
 
  			{
 
- 			header("Location:".$_GET["redirect_uri"]);
+ 			header("Location: ".$_GET["redirect_uri"]);
 
 
 

@@ -10,7 +10,8 @@ ftp_login($conn,"root","");
 
 
   require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
-  require_once $_SERVER["DOCUMENT_ROOT"]."/includes/component-functions.php";
+  require_once $_SERVER["DOCUMENT_ROOT"]."/includes/ViewManager.php";
+  use ArcherSys\Viewer\ViewManager;
 
  // Connects to your Database
 @ini_set("max_execution_time", 300);
@@ -157,7 +158,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
         </button>
       </form>
     </div>
-    <div class="start-screen-scroll">
+    <div class="start-screen-scroll apps" >
     <div class="start-screen">
       <a class="start-screen__tile start-screen__tile--explorer masonry-item" href="#" data-window="explorer">
         <i class="fa fa-folder"></i>
@@ -591,7 +592,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 
 else {
   
-header("Location: http://localhost/login.php?redirect_uri=http://localhost".$_SERVER["PHP_SELF"]);
+header("Location: http://localhost/login.php?redirect_uri=".$_SERVER["PHP_SELF"]);
 
  }
 
