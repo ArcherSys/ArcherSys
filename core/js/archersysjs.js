@@ -1,70 +1,55 @@
-/*/*
- * This is the ArcherSys OS Object Model.
- 
-*
- This deals with selectors and events
-*/
 
+/** @namespace ArcherSysOS
+		 *  @author Weldon Henson
+		 *  @version 3.4.0
+		 *  @license MIT
+		 *  The Namespace for client side ArcherSys OS Operations
+		 */
+var ArcherSysOS =  {
+		/** @constructor Class
+		 * The Class Creator for ArcherSys OS.
+		 * @param constructor (Function) - The Constructor
+		 */
+		defineClass: function(constructor,methods,statics){
+			
+			if(methods){
+				for(var m in methods)
+					constructor.prototype[m] = methods[m];
+				
+				
+			}
+			if (statics){
+				for(var s in statics)
+					constructor[s] = statics[s];
+				
+			}
+			return constructor;
+		},
+		/**
+		 * Creates another version of an object with the given function bound to it
 
-var ArcherSys = new Object();
-ArcherSys.jQ = $.noConflict(); 
-ArcherSys.notifyOnline = function(e){
-     alert("You are online!");
+		 * @param f (Function) - The function to bind
+		 * @param o (Object) - The Object to bind to
+		 */
+		bind: function(f,o){
+			if (f.bind) return f.bind(o);
+			else return function(){
+				return f.apply(o, arguments);
+			};
+		
+		},
+         
+	
+		defineEnumeration: function(statics){
+		 var   constructor  = function(){};
+		 for (var s in statics){
+		     constructor[s] = Object.defineProperty(constructor,s,{
+		         value: statics[s],
+		         writable: false,
+		         
+		     });
+		 }
+		 return constructor;
+		}
+	
 };
-
-ArcherSys.liFi = localforage;
-ArcherSys.liFi.config({
-  name: "ArcherSys OS DB",
-  description: "ArcherSys LocalStorage",
-  version: "1.0"
-});
-
-ArcherSys.liFi.setDriver([localforage.WEBSQL,localforage.INDEXEDDB]);
-ArcherSys.BeximalJS = BeximalJS;
-ArcherSys.Menu = {
-
-      toggleSM: function(){
-        ArcherSys.jQ(".submenu").toggle();
-     }
-};
-ArcherSys.asyncFi = window.asyncStorage;
-ArcherSys.asyncFi._initStorage().then(function(){
-   alert("AsyncStorage");
-});
-ArcherSys.asyncFi.setItem("connected", (window.navigator.onLine) ? true : false);
-ArcherSys.workspace = ArcherSys.jQ("iframe.window");
-ArcherSys.toggleBIRD = function(){
-$("iframe").animate({
-             width: "900px"
-});
-       TogetherJS(this);
-  
-};
-
-
-ArcherSys.openMozVideo = function(){
-$(".window").prepend();
-$("<video height=\"180\" width=\"300\" id=\"PopCorn\" controls>"+
-      "<source src=\"http://videos.mozilla.org/serv/webmademovies/popcornplug.mp4\">"+
-     " <source src=\"http://videos.mozilla.org/serv/webmademovies/popcornplug.ogv\">" +
-      "<source src=\"http://videos.mozilla.org/serv/webmademovies/popcornplug.webm\">"+
-    "</video>").appendTo(".desktop");
-
-
-};
-ArcherSys.Notidar = Notidar;
-ArcherSys.OSAuth = {};
-ArcherSys.OSAuth.authenticate = function(){
-   
-       window.navigator.id.get();
-
-
-};
-ArcherSys.wifi = window.navigator.mozWifiManager || window.navigator.WifiManager;
-
-ArcherSys.wifi.onconnectionInfoUpdate = function (event) {
-  console.log('Update information for: ' + event.network.ssid);
-  console.log('IP: ' + event.ipAddress);
-  console.log('Speed: ' + event.linkSpeed.toFixed(2) + 'Mb/s');
-  ArcherSys.Notidar.Notidex.push(new Notification('Signal strength update: ',{body: event.signalStrength.toFixed(2) + 'dBm (' + event.relSignalStrength.toFixed(0) + '%)'}));
-}

@@ -299,6 +299,12 @@
                                  break;
                                  case "HOWS_GITHUB":
                                      Malaika.checkGithub();
+                                     break;
+                                case "SEARCH":
+                                    var term = prompt("What do you want to search?");
+                                    window.location.assign("https://www.google.com/search?q=" + term);
+                                    break;
+                                         
                              case "HOW-ARE-YOU":
                                  window.document.getElementById("malaikaspeech").innerHTML = "I'm fine, " + localStorage.getItem("Name") + "!";
                                  meSpeak.speakMultipart([{
@@ -787,7 +793,8 @@
          ["HOW-DO-I-MAKE-DOCUMENTS", "HH OW D UW AY M AE K D AA K Y UW M EH N T S"],
          ["METRO-ALERTS", "M EH T R OW AA L ER T S"],
          ["LOOKUP", "L UH K AH P"],
-         ["QUINARY", "K W AY N EH R Y"]
+         ["QUINARY", "K W AY N EH R Y"],
+             ["SEARCH", "S ER CH"]
      ];
      // This grammar recognizes digits
      var grammarDigits = {
@@ -911,7 +918,7 @@
              from: 0,
              to: 0,
              word: "CARS"
-         }, new Malaika.Transition(0, 0, "HAVE-YOU-ATTENDED-TECH"), new Malaika.Transition(0, 0, "WHATS-TECH-LIKE"), new Malaika.Transition(0, 0, "TERNARY"), new Malaika.Transition(0, 0, "QUARTERNARY"), new Malaika.Transition(0, 0, "HOW-DO-I-MAKE-DOCUMENTS"), new Malaika.Transition(0, 0, "METRO-ALERTS"), new Malaika.Transition(0, 0, "LOOKUP"), new Malaika.Transition(0, 0, "QUINARY"),new Malaika.Transition(0,0,"OPEN-APP"),new Malaika.Transition(0,0,"WHATS-THE-BEST-OS")]
+         }, new Malaika.Transition(0, 0, "HAVE-YOU-ATTENDED-TECH"), new Malaika.Transition(0, 0, "WHATS-TECH-LIKE"), new Malaika.Transition(0, 0, "TERNARY"), new Malaika.Transition(0, 0, "QUARTERNARY"), new Malaika.Transition(0, 0, "HOW-DO-I-MAKE-DOCUMENTS"), new Malaika.Transition(0, 0, "METRO-ALERTS"), new Malaika.Transition(0, 0, "LOOKUP"), new Malaika.Transition(0, 0, "QUINARY"),new Malaika.Transition(0,0,"OPEN-APP"),new Malaika.Transition(0,0,"WHATS-THE-BEST-OS"),new Malaika.Transition(0, 0, "SEARCH")]
      };
 
      var grammarApps = {

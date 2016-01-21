@@ -68,9 +68,14 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 <script src="/core/js/jquery-ui.js"></script>
 <script src="/core/js/plugins/jquery.masonry.min.js"></script>
 <script src="/core/js/plugins/jquery.jscrollpane.min.js"></script>
-<script src="/core/js/archersysos.desktop.js">
+
+<script src="/core/js/archersysos.desktop.js"></script>
 <script src="https://togetherjs.com/togetherjs-min.js"></script>
 </script>
+
+
+
+<script src="/Malaika/malaika.textual.js"></script>
 <link href="//maxcdn.bootstrapcdn.com/font-awesome/4.2.0/css/font-awesome.min.css" rel="stylesheet">
 </head>
 <body>
@@ -152,9 +157,9 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
         All apps
         <i class="fa fa-arrow-right"></i>
       </a>
-      <form class="search">
-      <input type="text" class="search__input" placeholder="Ask me anything">
-      <button class="search__btn">
+      <form class="search" method="GET" action="https://www.google.com/search">
+      <input type="text" name="q" class="search__input" placeholder="Ask me anything">
+      <button class="search__btn" onclick="$('.search').submit()">
         </button>
       </form>
     </div>

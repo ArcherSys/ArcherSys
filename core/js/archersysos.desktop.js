@@ -494,7 +494,9 @@ $(document).mouseup(function(e) {
   }
 });
 
-
+$(".search__btn").click(function(){
+    Malaika.Textual.processInput($("search__input").val());
+})
 // Resize event handler to maintain the max-height of the app launcher
 $(window).resize(function(){
     var topApps = $('.start-screen-scroll.apps').offset().top;
