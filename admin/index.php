@@ -81,14 +81,15 @@ function UniHex($str) {
 <title>Admin Portal</title>
 <script src="/core/components/webcomponentsjs/webcomponents.js"></script>
 <link rel="import" href="/core/components/polymer/polymer.html">
-<link rel="import" href="/core/components/core-header-panel/core-header-panel.html">
+<link rel="import" href="/core/components/paper-header-panel/paper-header-panel.html">
 
 <script src="/core/components/prism/prism.js"></script>
 <link rel="import" href="/core/components/promise-polyfill/promise-polyfill-lite.html">
 
 <link rel="import" href="/core/components/prism-element/prism-highlighter.html">
-<link rel="import" href="/core/components/core-icon-button/core-icon-button.html">
+<link rel="import" href="/core/components/paper-icon-button/paper-icon-button.html">
 
+  <link rel="import" href="/core/components/neon-animation/neon-animation.html">
   <link rel="import" href="/core/components/iron-icons/iron-icons.html">
   <link rel="import" href="/core/components/marked-element/marked-element.html">
   <link rel="import" href="/core/components/iron-doc-viewer/iron-doc-viewer.html">
@@ -97,8 +98,8 @@ function UniHex($str) {
   <link rel="import" href="/core/components/iron-component-page/iron-component-page.html">
 <link rel="import" href="/core/components/paper-card/paper-card.html">
 
-<link rel="import" href="/core/components/core-menu/core-menu.html">
-<link rel="import" href="/core/components/core-item/core-item.html">
+<link rel="import" href="/core/components/paper-menu/paper-menu.html">
+<link rel="import" href="/core/components/paper-item/paper-item.html">
 <script src="/core/js/jquery.js"></script>
 <link rel="import" href="/core/components/iron-image/iron-image.html">
 
@@ -108,11 +109,11 @@ function UniHex($str) {
 
 
 <link rel="import" href="/core/components/font-roboto/roboto.html">
-<link rel="import" href="/core/components/core-toolbar/core-toolbar.html">
+<link rel="import" href="/core/components/paper-toolbar/paper-toolbar.html">
 </head>
 <body fullbleed layout horizontal>
 <style>
- core-toolbar{
+ paper-toolbar{
   font-family:  RobotoDraft, Segoe UI;
    background-color: crimson;
    color: whitesmoke;
@@ -138,17 +139,17 @@ paper-button.fancy {
 }
 
 </style>
-<core-header-panel flex>
- <core-toolbar>
-<core-icon-button icon="menu"></core-icon-button>
+<paper-header-panel flex>
+ <paper-toolbar>
+<paper-button icon="menu"></paper-button>
 <div flex>Admin Panel</div>
-</core-toolbar>
+</paper-toolbar>
 <section>
-<core-menu>
- <core-item icon="search" id="piwikstarter">Analytics</core-item>
+<paper-menu>
+ <paper-item icon="search" id="piwikstarter">Analytics</core-item>
  
- <core-item icon="settings" id="phpMyAdmin">phpMyAdmin</core-item>
-</core-menu>
+ <paper-item icon="settings" id="phpMyAdmin">phpMyAdmin</core-item>
+</paper-menu>
 </section>
 <script>
 $(function(){
@@ -190,6 +191,12 @@ $(function(){
 });
 }
 </script>
+<paper-tabs selected="{{selected}}">
+  <paper-tab>User Accounts</paper-tab>
+</paper-tabs>
+
+<iron-pages selected="{{selected}}">
+  <div>
 <?php
 	$check = mysql_query("SELECT * FROM users WHERE 1")or DataManager::notify();
 	while($info = mysql_fetch_array( $check ))
@@ -212,11 +219,14 @@ $(function(){
        <paper-button class="fancy save" data-username="<?php echo $info["username"];?>"> <iron-icon icon="save"></iron-icon>Save Settings</paper-button>
   </div>
 </paper-card>
+
 <?php
 }
 ?>
+</div>
+</iron-pages>
 <div><?php echo UniHex($_GET["consolecmd"]); ?></div>
-</core-header-panel>
+</paper-header-panel>
 </body>
 </html>
 <?php

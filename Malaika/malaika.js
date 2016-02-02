@@ -110,7 +110,13 @@
      Malaika.updateUI = function () {
          if (Malaika.recorderReady && Malaika.recognizerReady) startBtn.disabled = stopBtn.disabled = false;
      };
-
+     Malaika.createMap = function(){
+         var map = new google.maps.Map(document.getElementById('map'), {
+    center: {lat: -34.397, lng: 150.644},
+    scrollwheel: false,
+    zoom: 8
+  });
+     }
      // This is just a logging window where we display the status
      Malaika.updateStatus = function (newStatus) {
          document.getElementById('current-status').innerHTML += "<br/>" + newStatus;
