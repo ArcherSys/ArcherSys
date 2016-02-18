@@ -1,3 +1,0 @@
-@echo off
-echo Starting ArcherSys OS Cashew IPy...
-python pyconsole.py

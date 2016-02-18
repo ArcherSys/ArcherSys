@@ -1,1 +1,0 @@
-<div class="object_options"><?php echo implode(' | ', $options) ?></div>

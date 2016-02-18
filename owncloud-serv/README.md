@@ -1,4 +1,0 @@
-ArcherSys-Cloud
-===============
-
-ArcherSys  OwnCloud
