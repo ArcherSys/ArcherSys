@@ -1,13 +1,13 @@
 
 <?php
   require_once "config.php";
-  require_once "includes/ViewManager.php";
-  require_once "includes/DataManager.php";
-require_once "includes/AuthenticatorBuilder.php";
+  require_once "includes\ViewManager.php";
+  require_once "includes\DataManager.php";
+require_once "includes\AuthenticatorBuilder.php";
   
-  require_once "includes/StyleSheetManager.php";
-  require_once "includes/DateManager.php";
-  require_once "includes/LogicManager.php";
+  require_once "includes\StyleSheetManager.php";
+  require_once "includes\DateManager.php";
+  require_once "includes\LogicManager.php";
   use ArcherSys\Viewer\ViewManager;
   use ArcherSys\Data\DataManager;
   use ArcherSys\Viewer\LogicManager;

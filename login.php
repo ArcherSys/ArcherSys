@@ -61,7 +61,7 @@ $role = $_GET["roleDetect"];
 
  // makes sure they filled it in
 
- 	if(!$_POST['username'] | !$_POST['pass']) {
+ 	if(!$_POST['username'] | !$_POST['password']) {
                 echo "<!DOCTYPE HTML>";
                 echo "<html>";
                 echo "<head>";
@@ -93,7 +93,7 @@ $role = $_GET["roleDetect"];
 
  if ($check2 == 0) {
 
- 		die('That user does not exist in our database. <a href=add.php>Click Here to Register</a>');
+ 		die('That user does not exist on this VM. <a href=register.php>Click Here to Register</a>');
 
  				}
 
@@ -101,11 +101,11 @@ $role = $_GET["roleDetect"];
 
  {
 
- $_POST['pass'] = stripslashes($_POST['pass']);
+ $_POST['password'] = stripslashes($_POST['password']);
 
  	$info['password'] = stripslashes($info['password']);
 
- 	$_POST['pass'] = md5($_POST['pass']);
+ 	$_POST['password'] = md5($_POST['password']);
 
 
 if ($info["Disabled"] == 1) {
@@ -121,15 +121,15 @@ if ($info["Disabled"] == 1) {
  	}
  //gives error if the password is wrong
 
- 	else if ($_POST['pass'] != $info['password']) {
+ 	else if ($_POST['password'] != $info['password']) {
                 echo "<!DOCTYPE HTML>";
                 echo "<html>";
                    echo "<head>";
                   echo "<title>Incorrect Password</title>";
-                 echo "<link rel=\"stylesheet\" type=\"text/css\" href=\"/core/css/err-rf.css\"/>";
+                 echo "<link rel=\"stylesheet\" type=\"text/css\" href='/core/css/err-rf.css'/>";
                  echo "</head>";
                  echo "<body>";
- 		die('<div class="asos-incorrect-pass"><p>Incorrect password.</p> <button class="asos-ipass-button" onclick="window.reload()">Please Try Again</button></div></body></html>');
+ 		die('<div class="asos-incorrect-pass"><p>Incorrect password.</p> <button class="asos-ipass-button" onclick="window.location.assign(\''.$_SERVER["PHP_SELF"].'\');">Please Try Again</button></div></body></html>');
              
  	}
  	else if($role != $info["role"]){
@@ -156,7 +156,7 @@ if ($info["Disabled"] == 1) {
 
  setcookie('ID_ARCHERVMCASHEW', $_POST['username'], $hour);
 
- setcookie('Key_ARCHERVMCASHEW', $_POST['pass'], $hour);
+ setcookie('Key_ARCHERVMCASHEW', $_POST['password'], $hour);
   setcookie('ScreenName_ARCHERVMCASHEW', $info["first_name"]." ".$info["last_name"], $hour);
 
  setcookie('Role_ARCHERVMCASHEW', $role, $hour);
@@ -200,12 +200,29 @@ setcookie('Nickname_ARCHERVMCASHEW',$info["first_name"],$hour);
 <meta name="msapplication-config" content="ieconfig.xml" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dropbox.js/0.10.2/dropbox.min.js">
 </script>
+
 <script src="/core/js/modernizr.js"></script>
 <script src="/core/js/jquery.js"></script>
 <script src="/core/js/archersysos.js">
     
 </script>
+
 <script src="/core/js/archersysos-geolocation.js"></script>
+<script>
+    ArcherSysOS.$(function() {
+  ArcherSysOS.$('<img/>').attr('src', 'http://lorempixel.com/1400/900/nature/3').load(function() {
+    ArcherSysOS.$('.bg-img').append(ArcherSysOS.$(this));
+    // simulate loading
+    setTimeout(function() {
+     ArcherSysOS.$('.container').addClass('loaded');
+    }, 1500)
+   //$(this).remove(); // prevent memory leaks as @benweet suggested
+  });
+  ArcherSysOS.$('.form-toggle').on('click', function() {
+    ArcherSysOS.$('.container').toggleClass('show-register')
+  })
+})
+</script>
  <link rel="stylesheet" type="text/css" href="core/css/login.css"/>
 
     <meta name="Content-Type" content="text/html;charset=utf-8">
@@ -234,13 +251,27 @@ localStorage.setItem("Name","Guest");
             
       </script>
   </head>
-  <body>
-    <div id="wrapper">
-    
- 
-<form id="login" class="front box" action="<?php echo $_SERVER['PHP_SELF']."?redirect_uri=".$_GET["redirect_uri"]."&roleDetect=".$_GET["roleDetect"]; ?>" method="post">
-  <div class="default"><i class="icon-briefcase"></i><h1>Login to ArcherSys OS Cashew</h1></div>
-<div id="fb-root"></div>
+  <body><div class="container">
+    <div class="bg-img"></div>
+    <div class="header">
+        <div class="loading">
+            <div class="block"></div>
+            <div class="block"></div>
+            <div class="block"></div>
+            <div class="block"></div>
+        </div>
+        <h1>Go!</h1>
+    </div>
+    <div class="main">
+        <div class="login">
+            <form id="login" class="front box" action="<?php echo $_SERVER['PHP_SELF']."?redirect_uri=".$_GET["redirect_uri"]."&roleDetect=".$_GET["roleDetect"]; ?>" method="post">
+                <input id="username" name="username" required="required" type="text" placeholder="Username" />
+                <input id="password" name="password" required="required" type="password" placeholder="Password" />
+                <button type="submit" name="submit" value="Login" />Login</button>
+                <span class="form-toggle"><a href="register.php" class="archersys-registration">Not Registered Yet?</a></span>
+            </form>
+        </div>
+        <div id="fb-root"></div>
 <script>(function(d, s, id) {
   var js, fjs = d.getElementsByTagName(s)[0];
   if (d.getElementById(id)) return;
@@ -249,40 +280,19 @@ localStorage.setItem("Name","Guest");
   fjs.parentNode.insertBefore(js, fjs);
 }(document, 'script', 'facebook-jssdk'));
 </script>
-<div class="fb-like" data-href="https://www.facebook.com/archersysos" data-layout="box_count" data-action="like" data-show-faces="true" data-share="true"></div>
-<div class="fb-like" data-href="https://www.facebook.com/archersysos" data-layout="box_count" data-action="recommend" data-show-faces="true" data-share="true"></div>
-<input type="text" placeholder="username" name="username"/>
-<input type="password" placeholder="password" name="pass"/>
-<input type="submit" name="submit"class="login"><i class="icon-ok"></i></button>
 
-<a href="register.php" class="archersys-registration">Create an ArcherSys Account</a>
-
-
-</form>
-
-
-<div class="back box">
-<img src="http://i.imgur.com/sdDkYt1.png"/>
-<ul>
-  <li><i class="icon-file"></i> New <span>32</span></li>
-  <li><i class="icon-flag"></i> Priority <span>12</span></li>
-  <li><i class="icon-user"></i> Assigned <span>5/17</span></li>
-  <li><i class="icon-trash"></i> Deleted <span>14</span></li>
-</ul>
-<button class="logout"><i class="icon-off"></i></button>
-</div>
     </div>
 
     
 
-
-    <div class="g-page" data-width="276" data-href="//plus.google.com/114657577319697970021" data-theme="dark" data-rel="publisher"></div>
-
     <?php
 ViewManager::addReCAPTCHA();
-LogicManager::addGPlus();
+
 ?>
    
+</div>
+
+    
 
  
   </body>

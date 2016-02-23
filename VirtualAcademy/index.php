@@ -1,0 +1,1 @@
+<iframe src="https://versal.com/c/77v6cu/learn?embed=true" height="527" width="100%" scrolling="no" allowfullscreen="true" mozallowfullscreen="true" webkitallowfullscreen="true" style="margin:0;padding:0;border:1px solid #f2f1ed;box-shadow: 0 0 3px 0 rgba(199,195,190,0.5);" ></iframe>
