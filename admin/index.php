@@ -136,6 +136,10 @@ background-color: blue;
 paper-button.fancy {
   background: green;
   color: yellow;
+  font-family: RobotoDraft, Segoe UI;
+  width: 150px;
+  border-radius: 4px;
+  margin: 10px 0px 10px 0px;
 }
 
 </style>
@@ -144,13 +148,7 @@ paper-button.fancy {
 <paper-button icon="menu"></paper-button>
 <div flex>Admin Panel</div>
 </paper-toolbar>
-<section>
-<paper-menu>
- <paper-item icon="search" id="piwikstarter">Analytics</core-item>
- 
- <paper-item icon="settings" id="phpMyAdmin">phpMyAdmin</core-item>
-</paper-menu>
-</section>
+
 <script>
 $(function(){
   $("#piwikstarter").click(function(){
@@ -191,6 +189,11 @@ $(function(){
 });
 }
 </script>
+
+ <paper-button class="fancy"  id="piwikstarter"><iron-icon icon="save"></iron-icon>Analytics</paper-button>
+ 
+ <paper-button class="fancy"  id="phpMyAdmin"><iron-icon icon="save"></iron-icon>phpMyAdmin</paper-button>
+
 <paper-tabs selected="{{selected}}">
   <paper-tab>User Accounts</paper-tab>
 </paper-tabs>
@@ -198,7 +201,7 @@ $(function(){
 <iron-pages selected="{{selected}}">
   <div>
 <?php
-	$check = mysql_query("SELECT * FROM users WHERE 1 ORDER BY Role")or DataManager::notify();
+	$check = mysql_query("SELECT * FROM users WHERE 1 ORDER BY id ")or DataManager::notify();
 	while($info = mysql_fetch_array( $check ))
 
  		{
