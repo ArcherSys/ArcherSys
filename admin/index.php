@@ -198,7 +198,7 @@ $(function(){
 <iron-pages selected="{{selected}}">
   <div>
 <?php
-	$check = mysql_query("SELECT * FROM users WHERE 1")or DataManager::notify();
+	$check = mysql_query("SELECT * FROM users WHERE 1 ORDER BY Role")or DataManager::notify();
 	while($info = mysql_fetch_array( $check ))
 
  		{

@@ -230,8 +230,8 @@ input[type="checkbox"]:checked:after {
   z-index: 200;
   -webkit-animation: appear .25s forwards;
           animation: appear .25s forwards;
-  -webkit-animation-delay: 8s;
-          animation-delay: 8s;
+  -webkit-animation-delay: 16s;
+          animation-delay: 16s;
   background: -webkit-repeating-linear-gradient(135deg, #c9ff00 0, #c9ff00 5em, #20c0ff 5em, #20c0ff 10em);
   background: repeating-linear-gradient(-45deg, #c9ff00 0, #c9ff00 5em, #20c0ff 5em, #20c0ff 10em);
 }
