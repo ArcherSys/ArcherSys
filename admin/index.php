@@ -107,7 +107,9 @@ function UniHex($str) {
 <link rel="import" href="/core/components/paper-material/paper-material.html">
 <link rel="import" href="/core/components/paper-styles/shadow.html">
 
+<link rel="import" href="/core/components/paper-tabs/paper-tabs.html">
 
+<link rel="import" href="/core/components/iron-pages/iron-pages.html">
 <link rel="import" href="/core/components/font-roboto/roboto.html">
 <link rel="import" href="/core/components/paper-toolbar/paper-toolbar.html">
 </head>
@@ -128,11 +130,7 @@ paper-card{
     font-family: Segoe UI;
     --paper-card-header-color: green;
 }
-core-menu{
-  font-family:  RobotoDraft, Segoe UI;
-color: whitesmoke;
-background-color: blue;
-}
+
 paper-button.fancy {
   background: green;
   color: yellow;
@@ -143,10 +141,20 @@ paper-button.fancy {
 }
 
 </style>
+<style is="custom-style">
+  .link {
+    @apply(--layout-horizontal);
+    @apply(--layout-center-center);
+  }
+</style>
 <paper-header-panel flex>
  <paper-toolbar>
 <paper-button icon="menu"></paper-button>
 <div flex>Admin Panel</div>
+<paper-tabs selected="0">
+  <paper-tab data-select="0" >User Accounts</paper-tab>
+   <paper-tab data-select="1" >Non-Guest Accounts</paper-tab>
+</paper-tabs>
 </paper-toolbar>
 
 <script>
@@ -169,6 +177,11 @@ $(function(){
   $(".fancy.save").click(function(){
       saveSettings($(this).data("username"),$("#role").val());
   });
+  $("paper-tab").click(function(){
+      
+      window.document.querySelector("iron-pages").select($(this).data("select"));
+      
+  });
 });
 
 </script>
@@ -188,17 +201,17 @@ $(function(){
         alert(data);
 });
 }
+
 </script>
 
+<div class="content fit">
  <paper-button class="fancy"  id="piwikstarter"><iron-icon icon="save"></iron-icon>Analytics</paper-button>
  
  <paper-button class="fancy"  id="phpMyAdmin"><iron-icon icon="save"></iron-icon>phpMyAdmin</paper-button>
 
-<paper-tabs selected="{{selected}}">
-  <paper-tab>User Accounts</paper-tab>
-</paper-tabs>
 
-<iron-pages selected="{{selected}}">
+
+<iron-pages selected="0">
   <div>
 <?php
 	$check = mysql_query("SELECT * FROM users WHERE 1 ORDER BY id ")or DataManager::notify();
@@ -207,7 +220,7 @@ $(function(){
  		{
  		    ?>
 
-<paper-card heading="User">
+<paper-card heading="User(All Types)">
  <div class="card-content"><h1><?php echo $info["username"];?></h1></div>
   <div class="card-actions">
     <paper-button class="fancy" onclick="window.alert('Delete')"> <iron-icon icon="delete"></iron-icon>Delete</paper-button>
@@ -227,8 +240,25 @@ $(function(){
 }
 ?>
 </div>
+<div class="nonguest">
+<paper-card heading="User(Non-Guest)">
+ <div class="card-content"><h1><?php echo $info["username"];?></h1></div>
+  <div class="card-actions">
+    <paper-button class="fancy" onclick="window.alert('Delete')"> <iron-icon icon="delete"></iron-icon>Delete</paper-button>
+    <paper-button class="fancy disable" data-username="<?php echo $info["username"];?>"> <iron-icon icon="delete"></iron-icon>Disable</paper-button>
+       <paper-button class="fancy enable" data-username="<?php echo $info["username"];?>"> <iron-icon icon="add"></iron-icon>Enable</paper-button>
+       <select data-username="<?php echo $info["username"];?>" name="role" id="role">
+           <option value="Guest">Guest</option>
+           <option value="Admin">Administrator</option>
+           <option value="User">User</option>
+       </select>
+       
+       <paper-button class="fancy save" data-username="<?php echo $info["username"];?>"> <iron-icon icon="save"></iron-icon>Save Settings</paper-button>
+  </div>
+</paper-card></div>
 </iron-pages>
-<div><?php echo UniHex($_GET["consolecmd"]); ?></div>
+
+</div>
 </paper-header-panel>
 </body>
 </html>
