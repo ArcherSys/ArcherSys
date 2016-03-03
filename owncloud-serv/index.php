@@ -28,54 +28,6 @@
  
 
 
-  require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
-  require_once $_SERVER["DOCUMENT_ROOT"]."/includes/component-functions.php";
-
- // Connects to your Database
-@ini_set("max_execution_time", 300);
- mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or die(mysql_error());
-
- mysql_select_db("acoserver_acoserver") or die(mysql_error());
-
- 
- //checks cookies to make sure they are logged in
-
-
-
- 
-if(isset($_COOKIE['ID_my_site']))
-
- {
-
- 	$username = $_COOKIE['ID_my_site'];
-
- 	$pass = $_COOKIE['Key_my_site'];
-
- 	 	$check = mysql_query("SELECT * FROM users WHERE username = '$username'")or die(mysql_error());
-
- 	while($info = mysql_fetch_array( $check ))
-
- 		{
-
- 
-
- //if the cookie has the wrong password, they are taken to the login page
-
- 		if ($pass != $info['password'])
-
- 			{ 			header("Location: login.php");
-
- 			}
-
- 
-
- //otherwise they are shown the admin area
-
- 	else
-
- 			{
-
-
   
 try {
 	
@@ -100,16 +52,4 @@ try {
 
 
   
- 			}
-
- 		}
-
- 		}
-
-else {
-  
-header("Location: http://localhost/login.php?redirect_uri=http://localhost".$_SERVER["PHP_SELF"]);
-
- }
-
-  
+ 	
