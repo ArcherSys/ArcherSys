@@ -1,0 +1,1 @@
+app.controller("Main", function($scope, $timeout, $interval) {});

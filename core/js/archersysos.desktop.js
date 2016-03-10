@@ -30,7 +30,7 @@
   $('.start-menu').hide().css('opacity', 1);
 });
 
-$(function() {
+$(document).ready(function() {
   //$('.start-screen-scroll').jScrollPane();
 });
 
@@ -56,8 +56,13 @@ $(function() {
 
   var fullHeight = $(window).height() - 48,
       fullWidth  = $(window).width();
- 
-  
+     $.post( "wallpaper.php", {id: 1},function( data ) {
+     
+         $(".window__titlebar:after").css({
+             backgroundImage: 'url(data)'
+         });
+     
+     });
   $(window).resize(function() {
     fullHeight = $(window).height() - 48;
     fullWidth = $(window).width();
@@ -478,12 +483,12 @@ $('.menu-toggle').each(function() {
    
   }
   
-  $(menu).hide();
+
   
   $(this).click(function(e) {
     e.preventDefault();
     $('.menu').not(menu).hide();
-    $(menu).tggle();
+    $(menu).toggle();
   });
 });
 
