@@ -51,6 +51,33 @@ var ArcherSysOS =  {
 		 }
 		 return constructor;
 		},
-		$: $.noConflict()
+		$: $.noConflict(),
+		doBinarySearch: function(array, targetValue) {
+	var min = 0;
+	var max = array.length - 1;
+    var guess;
+     var nGuesses=0;
+    while (max >= min ){
+            nGuesses++;
+        guess = Math.floor(((min + max)/2));
+        println(array.indexOf(guess));
+        if(array[guess] === targetValue){
+             println("tries to find "+nGuesses+ " guesses");
+          
+            return guess;
+           
+            
+        }else if (array[guess] < targetValue){
+            min =  guess + 1;
+        }
+        else{
+            max = guess - 1;
+                
+        }
+           
+    }
+    
+	return -1;
+}
 	
 };
