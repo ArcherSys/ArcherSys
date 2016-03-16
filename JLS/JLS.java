@@ -1,4 +1,4 @@
-package jawalibrary;
+
 import archersysos.jawa.net.*;
 import java.io.IOException;
 class JLSProgram{
