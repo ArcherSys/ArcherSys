@@ -89,7 +89,7 @@ h6 {
     <div class="modal-content">
       <div class="modal-header">
         <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
-        <h4 class="modal-title" id="myModalLabel">Welcome to Incremental RPG!</h4>
+        <h4 class="modal-title" id="myModalLabel">Welcome to the Manor Village Farm!</h4>
       </div>
       <div class="modal-body">
         <p>This game was developed to teach myself Javascript. I will continue to build this game until I feel that it is finished. For now, have fun!</p>
@@ -113,7 +113,7 @@ h6 {
 </div>
 <div class="row">
   <div class="col-md-12">
-    <h2><span id="townName"></span></h2>
+    <h2><span id="townName">{{names.town}}</span></h2>
     <h3><small>Our Beloved Mayor: </small><span id="mayorName">{{names.mayor}}</span></h3>
   </div>
 </div>
@@ -191,7 +191,7 @@ h6 {
 				<div class="col-xs-6">
           <div class="btn-group btn-group-justified">
             <span class="btn btn-default disabled">Population</span>
-					  <span id="workerAmount" class="btn btn-default disabled">0</span>
+					  <span id="workerAmount" class="btn btn-default disabled">{{worker.amount}}</span>
           </div>
 				</div>
         <div class="col-xs-6">
@@ -290,15 +290,15 @@ h6 {
           <button type="button" id="houseAmount" class="btn btn-default btn-block disabled">{{house.amount}}</button>
         </div>
         <div class="col-xs-4">
-          <h6>-<span id="houseCostWood">0</span> Wood | -<span id="houseCostStone">{{house.cost.stone}}</span> Stone</h6>
-          <h6>+<span id="houseResidents">0</span> Population</h6>
+          <h6>-<span id="houseCostWood">{{house.cost.wood}}</span> Wood | -<span id="houseCostStone">{{house.cost.stone}}</span> Stone</h6>
+          <h6>+<span id="houseResidents">{{house.residents}}</span> Population</h6>
         </div>
       </div><!--.row-->
       
       <div class="row">
         
         <div class="col-xs-4">
-          <button id="researchHostel" class="btn btn-danger btn-block">Consider Building Hostels</button>
+          <button id="researchHostel" ng-click="researchHostel()" class="btn btn-danger btn-block">Consider Building Hostels</button>
           <div class="progress-wrap-hostel progress hidden" data-progress-percent-hostel="100">
             <span class="researchingComment">Thinking About It</span>
             <div class="progress-bar-hostel progress"></div>
@@ -311,7 +311,7 @@ h6 {
         </div>
         <div class="col-xs-4">
           <h6 class="hostelInfo hidden">-<span id="hostelCostWood">0</span> Wood | -<span id="hostelCostStone">0</span> Stone</h6>
-          <h6 class="hostelResearchInfo">-400 Wood | -150 Stone</h6>
+          <h6 class="hostelResearchInfo">-{{hostel.cost.wood}} Wood | -{{hostel.cost.stone}} Stone</h6>
           <h6>+<span id="hostelResidents">0</span> Population</h6>
         </div>
       </div><!--.row-->
@@ -663,7 +663,33 @@ $scope.clickIncrement = 1;
 $scope.tick = function(){
   $scope.gatherWood();
   $scope.gatherStone();
- // gatherFood();
+   $scope.gatherFood();
+};
+$scope.researchHostel = function() {
+      $scope.getPercent = ($('.progress-wrap-hostel').data('progress-percent-hostel') / 100);
+    $scope.getProgressWrapWidth = $('.progress-wrap-hostel').width();
+    $scope.progressTotal = getPercent * getProgressWrapWidth;
+  if ($scope.wood.amount >= 400 && $scope.stone.amount >= 150){
+    $scope.wood.amount = $scope.wood.amount - 400;
+    $scope.stone.amount = $scope.stone.amount - 150;
+    
+    $('#researchHostel').addClass('hidden');
+    $('.progress-wrap-hostel').removeClass('hidden');
+
+ 
+    $scope.animationLength = 25000;
+
+    $('.progress-bar-hostel').stop().animate({
+         left: $scope.progressTotal
+      },
+      $scope.animationLength,
+      function(){
+        $('#buildHostel').removeClass('hidden');
+        $('.progress-wrap-hostel').addClass('hidden');
+        $('.hostelInfo').removeClass('hidden');
+        $('.hostelResearchInfo').addClass('hidden');
+      });
+  } else {$("#info").prepend($('<p>You need more building materials.</p>').fadeIn('slow'));}
 };
 $scope.buildHouse = function(){
 if ($scope.wood.amount >= $scope.house.cost.wood && $scope.stone.amount >= $scope.house.cost.stone) {
@@ -725,36 +751,10 @@ $('#createLightwarrior').click(function(){
 // Build a tent
 
 // Build a house
-$('#buildHouse').click(function(){
-  
-});
+
 
 // Research Hostel
-$('#researchHostel').click(function() {
-  if (wood.amount >= 400 && stone.amount >= 150){
-    wood.amount = wood.amount - 400;
-    stone.amount = stone.amount - 150;
-    
-    $('#researchHostel').addClass('hidden');
-    $('.progress-wrap-hostel').removeClass('hidden');
 
-    var getPercent = ($('.progress-wrap-hostel').data('progress-percent-hostel') / 100);
-    var getProgressWrapWidth = $('.progress-wrap-hostel').width();
-    var progressTotal = getPercent * getProgressWrapWidth;
-    var animationLength = 25000;
-
-    $('.progress-bar-hostel').stop().animate({
-         left: progressTotal
-      },
-      animationLength,
-      function(){
-        $('#buildHostel').removeClass('hidden');
-        $('.progress-wrap-hostel').addClass('hidden');
-        $('.hostelInfo').removeClass('hidden');
-        $('.hostelResearchInfo').addClass('hidden');
-      });
-  } else {$("#info").prepend($('<p>You need more building materials.</p>').fadeIn('slow'));}
-});
 
 // Build a hostel
 $('#buildHostel').click(function(){
