@@ -8,21 +8,18 @@ interface Browsable{
 }
 class NGView implements Browsable{
 	public $title;
-	function __construct($title,$appName,$location,$controller,callable $onDefine,callable $onCreate){
+	function __construct($title,$appName,$controller,callable $onDefine,callable $onCreate){
 		echo "<!DOCTYPE HTML>";
-		if($location == "html"){
-			echo "<html ng-app='${appName}'>";
-		}elseif($location == "body"){
+	
 			echo "<html>";
-		}
+	
 		
 	    $this->head($onDefine,$title);
-	    if($location == "html"){
-	    $this->body($controller,$location,null,$onCreate);
-	    }elseif($location == "body"){
+	   
+	    
 	    	$this->body($controller,$location,$appName,$onCreate);
 	    	
-	    }
+	    
 	    echo "</html>";
 	}
 	
@@ -33,15 +30,14 @@ class NGView implements Browsable{
 		echo "</head>";
 	}
 	
-	 function body($controller,$location,$appName,callable $onCreate){
-	 	if($location == "html"){
-	 				echo "<body ng-controller='${controller}'>";
-	 	}elseif($location == "body"){
+	 function body($controller,$appName,callable $onCreate){
+	
 	 				echo "<body ng-app='${appName}'>";
-	 	}
+	 echo "<div ng-controller='${controller}'>";
 	 	
 
 		$onCreate();
+	 echo "</div>";
 		echo "</body>";
 	}
 	
