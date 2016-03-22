@@ -86,7 +86,7 @@ or die(mysql_error());
 
  	$insert = "INSERT INTO users (username, password, role)
 
- 			VALUES ('".$_POST['username']."', '".$_POST['pass']."','User')";
+ 			VALUES ('".$_POST['username']."', '".$_POST['pass']."',2)";
 
  	$add_member = mysql_query($insert);
 

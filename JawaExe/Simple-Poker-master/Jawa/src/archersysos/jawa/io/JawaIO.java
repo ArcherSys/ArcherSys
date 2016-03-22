@@ -1,4 +1,4 @@
-package archersysos.jawa.io;
+package Jawa.src.archersysos.jawa.io;
 
 import java.io.BufferedReader;
 import java.io.IOException;
