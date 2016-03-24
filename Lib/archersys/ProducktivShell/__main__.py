@@ -1,6 +1,6 @@
-import Lib.archersys.ProducktivShell.core as core
+import corerun
 
    
-contacts = core.ProducktivShellRolodex()
+contacts = corerun.ProducktivShellRolodex()
 contacts.cmdloop()
          
