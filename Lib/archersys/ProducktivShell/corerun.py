@@ -1,5 +1,5 @@
 import string, sys, sqlite3, cmd, dropbox, webbrowser
-from core.disks.basicdisk import Disk
+from core.disks import Disk
 from core.security.crypt.cipher import Cipher
 
 class ShiftCipher(Cipher):
