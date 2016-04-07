@@ -1,12 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-#!C:\xampp\htdocs\Scripts\python.exe
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+#!c:\xampp\htdocs\scripts\python.exe
 #
 # The Python Imaging Library.
 # $Id$
@@ -20,17 +12,20 @@
 #
 
 from __future__ import print_function
-import getopt, os, sys
+import getopt
+import os
+import sys
 
 VERSION = "pilprint 0.3/2003-05-05"
 
 from PIL import Image
 from PIL import PSDraw
 
-letter = ( 1.0*72, 1.0*72, 7.5*72, 10.0*72 )
+letter = (1.0*72, 1.0*72, 7.5*72, 10.0*72)
 
-def description(file, image):
-    title = os.path.splitext(os.path.split(file)[1])[0]
+
+def description(filepath, image):
+    title = os.path.splitext(os.path.split(filepath)[1])[0]
     format = " (%dx%d "
     if image.format:
         format = " (" + image.format + " %dx%d "
@@ -51,8 +46,8 @@ except getopt.error as v:
     print(v)
     sys.exit(1)
 
-printer = None # print to stdout
-monochrome = 1 # reduce file size for most common case
+printer = None  # print to stdout
+monochrome = 1  # reduce file size for most common case
 
 for o, a in opt:
     if o == "-d":
@@ -70,12 +65,12 @@ for o, a in opt:
         # printer channel
         printer = "lpr -P%s" % a
 
-for file in argv:
+for filepath in argv:
     try:
 
-        im = Image.open(file)
+        im = Image.open(filepath)
 
-        title = description(file, im)
+        title = description(filepath, im)
 
         if monochrome and im.mode not in ["1", "L"]:
             im.draft("L", im.size)

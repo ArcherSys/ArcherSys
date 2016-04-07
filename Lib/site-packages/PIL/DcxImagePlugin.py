@@ -33,7 +33,7 @@ i32 = _binary.i32le
 
 
 def _accept(prefix):
-    return i32(prefix) == MAGIC
+    return len(prefix) >= 4 and i32(prefix) == MAGIC
 
 
 ##
@@ -61,6 +61,14 @@ class DcxImageFile(PcxImageFile):
 
         self.__fp = self.fp
         self.seek(0)
+
+    @property
+    def n_frames(self):
+        return len(self._offset)
+
+    @property
+    def is_animated(self):
+        return len(self._offset) > 1
 
     def seek(self, frame):
         if frame >= len(self._offset):

@@ -15,15 +15,13 @@
 # See the README file for information on usage and redistribution.
 #
 
-from __future__ import print_function
-
 from PIL import EpsImagePlugin
 
 
 ##
 # Simple Postscript graphics interface.
 
-class PSDraw:
+class PSDraw(object):
     """
     Sets up printing to the given file. If **file** is omitted,
     :py:attr:`sys.stdout` is assumed.

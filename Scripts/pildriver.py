@@ -1,12 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-#!C:\xampp\htdocs\Scripts\python.exe
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+#!c:\xampp\htdocs\scripts\python.exe
 """PILdriver, an image-processing calculator using PIL.
 
 An instance of class PILDriver is essentially a software stack machine
@@ -60,7 +52,8 @@ from __future__ import print_function
 
 from PIL import Image
 
-class PILDriver:
+
+class PILDriver(object):
 
     verbose = 0
 
@@ -505,10 +498,6 @@ class PILDriver:
 
 if __name__ == '__main__':
     import sys
-    try:
-        import readline
-    except ImportError:
-        pass # not available on all platforms
 
     # If we see command-line arguments, interpret them as a stack state
     # and execute.  Otherwise go interactive.

@@ -1,12 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-#!C:\xampp\htdocs\Scripts\python.exe
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+#!c:\xampp\htdocs\scripts\python.exe
 #
 # The Python Imaging Library.
 # $Id$
@@ -23,9 +15,12 @@
 
 from __future__ import print_function
 
-import getopt, string, sys
+import getopt
+import string
+import sys
 
 from PIL import Image
+
 
 def usage():
     print("PIL Convert 0.5/1998-12-30 -- convert image files")
@@ -54,10 +49,10 @@ except getopt.error as v:
     print(v)
     sys.exit(1)
 
-format = None
+output_format = None
 convert = None
 
-options = { }
+options = {}
 
 for o, a in opt:
 
@@ -73,7 +68,7 @@ for o, a in opt:
         sys.exit(1)
 
     elif o == "-c":
-        format = a
+        output_format = a
 
     if o == "-g":
         convert = "L"
@@ -95,8 +90,8 @@ try:
     if convert and im.mode != convert:
         im.draft(convert, im.size)
         im = im.convert(convert)
-    if format:
-        im.save(argv[1], format, **options)
+    if output_format:
+        im.save(argv[1], output_format, **options)
     else:
         im.save(argv[1], **options)
 except:

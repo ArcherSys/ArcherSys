@@ -24,7 +24,7 @@
 # See the README file for information on usage and redistribution.
 #
 
-from PIL import Image, ImageFile, ImagePalette, _binary
+from PIL import Image, ImageFile, ImagePalette, ImageChops, ImageSequence, _binary
 
 __version__ = "0.9"
 
@@ -87,9 +87,51 @@ class GifImageFile(ImageFile.ImageFile):
 
         self.__fp = self.fp  # FIXME: hack
         self.__rewind = self.fp.tell()
-        self.seek(0)  # get ready to read first frame
+        self._n_frames = None
+        self._is_animated = None
+        self._seek(0)  # get ready to read first frame
+
+    @property
+    def n_frames(self):
+        if self._n_frames is None:
+            current = self.tell()
+            try:
+                while True:
+                    self.seek(self.tell() + 1)
+            except EOFError:
+                self._n_frames = self.tell() + 1
+            self.seek(current)
+        return self._n_frames
+
+    @property
+    def is_animated(self):
+        if self._is_animated is None:
+            current = self.tell()
+
+            try:
+                self.seek(1)
+                self._is_animated = True
+            except EOFError:
+                self._is_animated = False
+
+            self.seek(current)
+        return self._is_animated
 
     def seek(self, frame):
+        if frame == self.__frame:
+            return
+        if frame < self.__frame:
+            self._seek(0)
+
+        last_frame = self.__frame
+        for f in range(self.__frame + 1, frame + 1):
+            try:
+                self._seek(f)
+            except EOFError:
+                self.seek(last_frame)
+                raise EOFError("no more images in GIF file")
+
+    def _seek(self, frame):
 
         if frame == 0:
             # rewind
@@ -220,7 +262,7 @@ class GifImageFile(ImageFile.ImageFile):
 
         if not self.tile:
             # self.__fp = None
-            raise EOFError("no more images in GIF file")
+            raise EOFError
 
         self.mode = "L"
         if self.palette:
@@ -258,7 +300,22 @@ RAWMODE = {
 }
 
 
-def _save(im, fp, filename):
+def _convert_mode(im):
+    # convert on the fly (EXPERIMENTAL -- I'm not sure PIL
+    # should automatically convert images on save...)
+    if Image.getmodebase(im.mode) == "RGB":
+        palette_size = 256
+        if im.palette:
+            palette_size = len(im.palette.getdata()[1]) // 3
+        return im.convert("P", palette=1, colors=palette_size)
+    return im.convert("L")
+
+
+def _save_all(im, fp, filename):
+    _save(im, fp, filename, save_all=True)
+
+
+def _save(im, fp, filename, save_all=False):
 
     if _imaging_gif:
         # call external driver
@@ -269,17 +326,9 @@ def _save(im, fp, filename):
             pass  # write uncompressed file
 
     if im.mode in RAWMODE:
-        im_out = im
+        im_out = im.copy()
     else:
-        # convert on the fly (EXPERIMENTAL -- I'm not sure PIL
-        # should automatically convert images on save...)
-        if Image.getmodebase(im.mode) == "RGB":
-            palette_size = 256
-            if im.palette:
-                palette_size = len(im.palette.getdata()[1]) // 3
-            im_out = im.convert("P", palette=1, colors=palette_size)
-        else:
-            im_out = im.convert("L")
+        im_out = _convert_mode(im)
 
     # header
     try:
@@ -288,12 +337,59 @@ def _save(im, fp, filename):
         palette = None
         im.encoderinfo["optimize"] = im.encoderinfo.get("optimize", True)
 
-    header, used_palette_colors = getheader(im_out, palette, im.encoderinfo)
-    for s in header:
-        fp.write(s)
+    if save_all:
+        previous = None
 
-    flags = 0
+        for im_frame in ImageSequence.Iterator(im):
+            im_frame = _convert_mode(im_frame)
 
+            # To specify duration, add the time in milliseconds to getdata(),
+            # e.g. getdata(im_frame, duration=1000)
+            if not previous:
+                # global header
+                for s in getheader(im_frame, palette, im.encoderinfo)[0] + getdata(im_frame):
+                    fp.write(s)
+            else:
+                # delta frame
+                delta = ImageChops.subtract_modulo(im_frame, previous)
+                bbox = delta.getbbox()
+
+                if bbox:
+                    # compress difference
+                    for s in getdata(im_frame.crop(bbox), offset=bbox[:2]):
+                        fp.write(s)
+                else:
+                    # FIXME: what should we do in this case?
+                    pass
+            previous = im_frame.copy()
+    else:
+        header = getheader(im_out, palette, im.encoderinfo)[0]
+        for s in header:
+            fp.write(s)
+
+        flags = 0
+
+        if get_interlace(im):
+            flags = flags | 64
+
+        # local image header
+        _get_local_header(fp, im, (0, 0), flags)
+
+        im_out.encoderconfig = (8, get_interlace(im))
+        ImageFile._save(im_out, fp, [("gif", (0, 0)+im.size, 0,
+                                      RAWMODE[im_out.mode])])
+
+        fp.write(b"\0")  # end of image data
+
+    fp.write(b";")  # end of file
+
+    try:
+        fp.flush()
+    except:
+        pass
+
+
+def get_interlace(im):
     try:
         interlace = im.encoderinfo["interlace"]
     except KeyError:
@@ -303,9 +399,11 @@ def _save(im, fp, filename):
     if min(im.size) < 16:
         interlace = 0
 
-    if interlace:
-        flags = flags | 64
+    return interlace
 
+
+def _get_local_header(fp, im, offset, flags):
+    transparent_color_exists = False
     try:
         transparency = im.encoderinfo["transparency"]
     except KeyError:
@@ -314,46 +412,54 @@ def _save(im, fp, filename):
         transparency = int(transparency)
         # optimize the block away if transparent color is not used
         transparent_color_exists = True
-        # adjust the transparency index after optimize
-        if used_palette_colors is not None and len(used_palette_colors) < 256:
-            for i in range(len(used_palette_colors)):
-                if used_palette_colors[i] == transparency:
-                    transparency = i
-                    transparent_color_exists = True
-                    break
-                else:
-                    transparent_color_exists = False
 
-        # transparency extension block
-        if transparent_color_exists:
-            fp.write(b"!" +
-                     o8(249) +              # extension intro
-                     o8(4) +                # length
-                     o8(1) +                # transparency info present
-                     o16(0) +               # duration
-                     o8(transparency) +     # transparency index
-                     o8(0))
+        if _get_optimize(im, im.encoderinfo):
+            used_palette_colors = _get_used_palette_colors(im)
 
-    # local image header
+            # adjust the transparency index after optimize
+            if len(used_palette_colors) < 256:
+                for i in range(len(used_palette_colors)):
+                    if used_palette_colors[i] == transparency:
+                        transparency = i
+                        transparent_color_exists = True
+                        break
+                    else:
+                        transparent_color_exists = False
+
+    if "duration" in im.encoderinfo:
+        duration = int(im.encoderinfo["duration"] / 10)
+    else:
+        duration = 0
+    if transparent_color_exists or duration != 0:
+        transparency_flag = 1 if transparent_color_exists else 0
+        if not transparent_color_exists:
+            transparency = 0
+
+        fp.write(b"!" +
+                 o8(249) +                # extension intro
+                 o8(4) +                  # length
+                 o8(transparency_flag) +  # transparency info present
+                 o16(duration) +          # duration
+                 o8(transparency) +       # transparency index
+                 o8(0))
+
+    if "loop" in im.encoderinfo:
+        number_of_loops = im.encoderinfo["loop"]
+        fp.write(b"!" +
+                 o8(255) +                # extension intro
+                 o8(11) +
+                 b"NETSCAPE2.0" +
+                 o8(3) +
+                 o8(1) +
+                 o16(number_of_loops) +   # number of loops
+                 o8(0))
     fp.write(b"," +
-             o16(0) + o16(0) +          # bounding box
-             o16(im.size[0]) +          # size
+             o16(offset[0]) +             # offset
+             o16(offset[1]) +
+             o16(im.size[0]) +            # size
              o16(im.size[1]) +
-             o8(flags) +                # flags
-             o8(8))                     # bits
-
-    im_out.encoderconfig = (8, interlace)
-    ImageFile._save(im_out, fp, [("gif", (0, 0)+im.size, 0,
-                                  RAWMODE[im_out.mode])])
-
-    fp.write(b"\0")  # end of image data
-
-    fp.write(b";")  # end of file
-
-    try:
-        fp.flush()
-    except:
-        pass
+             o8(flags) +                  # flags
+             o8(8))                       # bits
 
 
 def _save_netpbm(im, fp, filename):
@@ -405,10 +511,25 @@ def _save_netpbm(im, fp, filename):
 # --------------------------------------------------------------------
 # GIF utilities
 
+def _get_optimize(im, info):
+    return im.mode in ("P", "L") and info and info.get("optimize", 0)
+
+
+def _get_used_palette_colors(im):
+    used_palette_colors = []
+
+    # check which colors are used
+    i = 0
+    for count in im.histogram():
+        if count:
+            used_palette_colors.append(i)
+        i += 1
+
+    return used_palette_colors
+
+
 def getheader(im, palette=None, info=None):
     """Return a list of strings representing a GIF header"""
-
-    optimize = info and info.get("optimize", 0)
 
     # Header Block
     # http://www.matthewflickinger.com/lab/whatsinagif/bits_and_bytes.asp
@@ -431,15 +552,8 @@ def getheader(im, palette=None, info=None):
 
     used_palette_colors = palette_bytes = None
 
-    if im.mode in ("P", "L") and optimize:
-        used_palette_colors = []
-
-        # check which colors are used
-        i = 0
-        for count in im.histogram():
-            if count:
-                used_palette_colors.append(i)
-            i += 1
+    if _get_optimize(im, info):
+        used_palette_colors = _get_used_palette_colors(im)
 
         # create the new palette if not every color is used
         if len(used_palette_colors) < 256:
@@ -477,7 +591,8 @@ def getheader(im, palette=None, info=None):
     # size of global color table + global color table flag
     header.append(o8(color_table_size + 128))
     # background + reserved/aspect
-    header.append(o8(0) + o8(0))
+    background = im.info["background"] if "background" in im.info else 0
+    header.append(o8(background) + o8(0))
     # end of Logical Screen Descriptor
 
     # add the missing amount of bytes
@@ -496,7 +611,7 @@ def getdata(im, offset=(0, 0), **params):
        The first string is a local image header, the rest contains
        encoded image data."""
 
-    class Collector:
+    class Collector(object):
         data = []
 
         def write(self, data):
@@ -510,13 +625,7 @@ def getdata(im, offset=(0, 0), **params):
         im.encoderinfo = params
 
         # local image header
-        fp.write(b"," +
-                 o16(offset[0]) +       # offset
-                 o16(offset[1]) +
-                 o16(im.size[0]) +      # size
-                 o16(im.size[1]) +
-                 o8(0) +                # flags
-                 o8(8))                 # bits
+        _get_local_header(fp, im, offset, 0)
 
         ImageFile._save(im, fp, [("gif", (0, 0)+im.size, 0, RAWMODE[im.mode])])
 
@@ -533,6 +642,7 @@ def getdata(im, offset=(0, 0), **params):
 
 Image.register_open(GifImageFile.format, GifImageFile, _accept)
 Image.register_save(GifImageFile.format, _save)
+Image.register_save_all(GifImageFile.format, _save_all)
 Image.register_extension(GifImageFile.format, ".gif")
 Image.register_mime(GifImageFile.format, "image/gif")
 

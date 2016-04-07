@@ -1,12 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-#!C:\xampp\htdocs\Scripts\python.exe
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+#!c:\xampp\htdocs\scripts\python.exe
 #
 # The Python Imaging Library
 # $Id$
@@ -22,7 +14,8 @@ from __future__ import print_function
 
 VERSION = "0.4"
 
-import glob, sys
+import glob
+import sys
 
 # drivers
 from PIL import BdfFontFile

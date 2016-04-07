@@ -62,6 +62,14 @@ class MpoImageFile(JpegImagePlugin.JpegImageFile):
     def load_seek(self, pos):
         self.__fp.seek(pos)
 
+    @property
+    def n_frames(self):
+        return self.__framecount
+
+    @property
+    def is_animated(self):
+        return self.__framecount > 1
+
     def seek(self, frame):
         if frame < 0 or frame >= self.__framecount:
             raise EOFError("no more images in MPO file")

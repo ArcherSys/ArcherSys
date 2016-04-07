@@ -1,12 +1,4 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
-#!C:\xampp\htdocs\Scripts\python.exe
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-#!C:\xampp\htdocs\Scripts\python.exe
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+#!c:\xampp\htdocs\scripts\python.exe
 #
 # The Python Imaging Library.
 # $Id$
@@ -27,8 +19,9 @@
 
 from __future__ import print_function
 
-import site
-import getopt, glob, sys
+import getopt
+import glob
+import sys
 
 from PIL import Image
 
@@ -66,6 +59,7 @@ for o, a in opt:
         verify = 1
     elif o == "-D":
         Image.DEBUG += 1
+
 
 def globfix(files):
     # expand wildcards where necessary

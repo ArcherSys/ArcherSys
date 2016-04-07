@@ -132,6 +132,14 @@ class PsdImageFile(ImageFile.ImageFile):
         self._fp = self.fp
         self.frame = 0
 
+    @property
+    def n_frames(self):
+        return len(self.layers)
+
+    @property
+    def is_animated(self):
+        return len(self.layers) > 1
+
     def seek(self, layer):
         # seek to given layer (1..max)
         if layer == self.frame:

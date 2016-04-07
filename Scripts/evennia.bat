@@ -1,0 +1,1 @@
+@"c:\xampp\htdocs\scripts\python.exe" "c:\xampp\htdocs\Scripts\evennia_launcher.py" %*
