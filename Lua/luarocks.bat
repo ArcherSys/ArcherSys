@@ -1,4 +1,4 @@
 @ECHO OFF
 SETLOCAL
-"%LUA_DEV%\lua" "%LUA_DEV%\luarocks.lua" %*
+"C:\xampp\htdocs\Lua\lua" "C:\xampp\htdocs\Lua\luarocks.lua"
 ENDLOCAL
