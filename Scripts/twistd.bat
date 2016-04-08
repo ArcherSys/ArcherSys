@@ -1,0 +1,1 @@
+@"c:\xampp\htdocs\scripts\python.exe" "c:\xampp\htdocs\Lib\site-packages\twisted\script\twistd.py %*
