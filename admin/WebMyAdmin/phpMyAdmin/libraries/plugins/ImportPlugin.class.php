@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 <?php
 /* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
@@ -11,16 +9,13 @@ if (! defined('PHPMYADMIN')) {
     exit;
 }
 
-/* This class extends the PluginObserver class */
-require_once 'PluginObserver.class.php';
-
 /**
  * Provides a common interface that will have to be implemented by all of the
  * import plugins.
  *
  * @package PhpMyAdmin
  */
-abstract class ImportPlugin extends PluginObserver
+abstract class ImportPlugin
 {
     /**
      * ImportPluginProperties object containing the import plugin properties
@@ -43,7 +38,7 @@ abstract class ImportPlugin extends PluginObserver
     /**
      * Gets the import specific format plugin properties
      *
-     * @return array
+     * @return ImportPluginProperties
      */
     public function getProperties()
     {
@@ -57,125 +52,25 @@ abstract class ImportPlugin extends PluginObserver
      * @return void
      */
     abstract protected function setProperties();
-}
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * Abstract class for the import plugins
- *
- * @package PhpMyAdmin
- */
-if (! defined('PHPMYADMIN')) {
-    exit;
-}
-
-/* This class extends the PluginObserver class */
-require_once 'PluginObserver.class.php';
-
-/**
- * Provides a common interface that will have to be implemented by all of the
- * import plugins.
- *
- * @package PhpMyAdmin
- */
-abstract class ImportPlugin extends PluginObserver
-{
-    /**
-     * ImportPluginProperties object containing the import plugin properties
-     *
-     * @var ImportPluginProperties
-     */
-    protected $properties;
 
     /**
-     * Handles the whole import logic
+     * Define DB name and options
      *
-     * @return void
-     */
-    abstract public function doImport();
-
-
-    /* ~~~~~~~~~~~~~~~~~~~~ Getters and Setters ~~~~~~~~~~~~~~~~~~~~ */
-
-
-    /**
-     * Gets the import specific format plugin properties
+     * @param string $currentDb DB
+     * @param string $defaultDb Default DB name
      *
-     * @return array
+     * @return array DB name and options (an associative array of options)
      */
-    public function getProperties()
+    protected function getDbnameAndOptions($currentDb, $defaultDb)
     {
-        return $this->properties;
+        if (/*overload*/mb_strlen($currentDb)) {
+            $db_name = $currentDb;
+            $options = array('create_db' => false);
+        } else {
+            $db_name = $defaultDb;
+            $options = null;
+        }
+
+        return array($db_name, $options);
     }
-
-    /**
-     * Sets the export plugins properties and is implemented by each import
-     * plugin
-     *
-     * @return void
-     */
-    abstract protected function setProperties();
 }
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * Abstract class for the import plugins
- *
- * @package PhpMyAdmin
- */
-if (! defined('PHPMYADMIN')) {
-    exit;
-}
-
-/* This class extends the PluginObserver class */
-require_once 'PluginObserver.class.php';
-
-/**
- * Provides a common interface that will have to be implemented by all of the
- * import plugins.
- *
- * @package PhpMyAdmin
- */
-abstract class ImportPlugin extends PluginObserver
-{
-    /**
-     * ImportPluginProperties object containing the import plugin properties
-     *
-     * @var ImportPluginProperties
-     */
-    protected $properties;
-
-    /**
-     * Handles the whole import logic
-     *
-     * @return void
-     */
-    abstract public function doImport();
-
-
-    /* ~~~~~~~~~~~~~~~~~~~~ Getters and Setters ~~~~~~~~~~~~~~~~~~~~ */
-
-
-    /**
-     * Gets the import specific format plugin properties
-     *
-     * @return array
-     */
-    public function getProperties()
-    {
-        return $this->properties;
-    }
-
-    /**
-     * Sets the export plugins properties and is implemented by each import
-     * plugin
-     *
-     * @return void
-     */
-    abstract protected function setProperties();
-}
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-?>

@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 <?php
 /* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
@@ -17,30 +15,12 @@ require_once 'libraries/server_status.lib.php';
  * Replication library
  */
 if (PMA_DRIZZLE) {
-    $server_master_status = false;
-    $server_slave_status = false;
+    $GLOBALS['replication_info'] = array();
+    $GLOBALS['replication_info']['master']['status'] = false;
+    $GLOBALS['replication_info']['slave']['status'] = false;
 } else {
     include_once 'libraries/replication.inc.php';
     include_once 'libraries/replication_gui.lib.php';
-}
-
-$ServerStatusData = new PMA_ServerStatusData();
-
-/**
- * Kills a selected process
- */
-if (! empty($_REQUEST['kill'])) {
-    if ($GLOBALS['dbi']->tryQuery('KILL ' . $_REQUEST['kill'] . ';')) {
-        $message = PMA_Message::success(__('Thread %s was successfully killed.'));
-    } else {
-        $message = PMA_Message::error(
-            __(
-                'phpMyAdmin was unable to kill thread %s.'
-                . ' It probably has already been closed.'
-            )
-        );
-    }
-    $message->addParam($_REQUEST['kill']);
 }
 
 /**
@@ -48,121 +28,17 @@ if (! empty($_REQUEST['kill'])) {
  */
 $response = PMA_Response::getInstance();
 $response->addHTML('<div>');
-$response->addHTML($ServerStatusData->getMenuHtml());
-$response->addHTML(PMA_getHtmlForServerStatus($ServerStatusData));
-$response->addHTML('</div>');
 
-exit;
-?>
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * object the server status page: processes, connections and traffic
- *
- * @package PhpMyAdmin
- */
-
-require_once 'libraries/common.inc.php';
-require_once 'libraries/server_common.inc.php';
-require_once 'libraries/ServerStatusData.class.php';
-require_once 'libraries/server_status.lib.php';
-
-/**
- * Replication library
- */
-if (PMA_DRIZZLE) {
-    $server_master_status = false;
-    $server_slave_status = false;
+$serverStatusData = new PMA_ServerStatusData();
+$response->addHTML($serverStatusData->getMenuHtml());
+if ($serverStatusData->dataLoaded) {
+    $response->addHTML(PMA_getHtmlForServerStatus($serverStatusData));
 } else {
-    include_once 'libraries/replication.inc.php';
-    include_once 'libraries/replication_gui.lib.php';
+    $response->addHTML(
+        PMA_Message::error(
+            __('Not enough privilege to view server status.')
+        )->getDisplay()
+    );
 }
-
-$ServerStatusData = new PMA_ServerStatusData();
-
-/**
- * Kills a selected process
- */
-if (! empty($_REQUEST['kill'])) {
-    if ($GLOBALS['dbi']->tryQuery('KILL ' . $_REQUEST['kill'] . ';')) {
-        $message = PMA_Message::success(__('Thread %s was successfully killed.'));
-    } else {
-        $message = PMA_Message::error(
-            __(
-                'phpMyAdmin was unable to kill thread %s.'
-                . ' It probably has already been closed.'
-            )
-        );
-    }
-    $message->addParam($_REQUEST['kill']);
-}
-
-/**
- * start output
- */
-$response = PMA_Response::getInstance();
-$response->addHTML('<div>');
-$response->addHTML($ServerStatusData->getMenuHtml());
-$response->addHTML(PMA_getHtmlForServerStatus($ServerStatusData));
 $response->addHTML('</div>');
-
 exit;
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * object the server status page: processes, connections and traffic
- *
- * @package PhpMyAdmin
- */
-
-require_once 'libraries/common.inc.php';
-require_once 'libraries/server_common.inc.php';
-require_once 'libraries/ServerStatusData.class.php';
-require_once 'libraries/server_status.lib.php';
-
-/**
- * Replication library
- */
-if (PMA_DRIZZLE) {
-    $server_master_status = false;
-    $server_slave_status = false;
-} else {
-    include_once 'libraries/replication.inc.php';
-    include_once 'libraries/replication_gui.lib.php';
-}
-
-$ServerStatusData = new PMA_ServerStatusData();
-
-/**
- * Kills a selected process
- */
-if (! empty($_REQUEST['kill'])) {
-    if ($GLOBALS['dbi']->tryQuery('KILL ' . $_REQUEST['kill'] . ';')) {
-        $message = PMA_Message::success(__('Thread %s was successfully killed.'));
-    } else {
-        $message = PMA_Message::error(
-            __(
-                'phpMyAdmin was unable to kill thread %s.'
-                . ' It probably has already been closed.'
-            )
-        );
-    }
-    $message->addParam($_REQUEST['kill']);
-}
-
-/**
- * start output
- */
-$response = PMA_Response::getInstance();
-$response->addHTML('<div>');
-$response->addHTML($ServerStatusData->getMenuHtml());
-$response->addHTML(PMA_getHtmlForServerStatus($ServerStatusData));
-$response->addHTML('</div>');
-
-exit;
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

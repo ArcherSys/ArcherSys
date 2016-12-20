@@ -15,7 +15,8 @@ require_once "includes\AuthenticatorBuilder.php";
   use ArcherSys\Styles\StyleSheetManager;
   use ArcherSys\Nav\AuthenticatorBuilder;
   use ArcherSys\Timex\DateManager;
-
+  use CarnosOS\Config\ConfigData;
+    $config = ConfigData::getConfig();
  // Connects to your Database
 @ini_set("max_execution_time", 300);
    mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or DataManager::notify();
@@ -404,7 +405,7 @@ try{
 
 else {
   
-header("Location: localhost/login.php?redirect_uri=".$_SERVER["PHP_SELF"]."&roleDetect=Admin");
+header("Location: localhost/login.php?redirect_uri=".$_SERVER["PHP_SELF"]."&roleDetect=\"Admin\"");
 
  }
 

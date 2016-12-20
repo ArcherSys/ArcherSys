@@ -1,10 +1,8 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 /**
  * Unbind all event handlers before tearing down a page
  */
 AJAX.registerTeardown('server_user_groups.js', function () {
-    $("a.deleteUserGroup.ajax").die('click');
+    $(document).off('click', "a.deleteUserGroup.ajax");
 });
 
 /**
@@ -15,7 +13,7 @@ AJAX.registerOnload('server_user_groups.js', function () {
     // update the checkall checkbox on Edit user group page
     $(checkboxes_sel).trigger("change");
 
-    $("a.deleteUserGroup.ajax").live('click', function (event) {
+    $(document).on('click', "a.deleteUserGroup.ajax", function (event) {
         event.preventDefault();
         var $link = $(this);
         var groupName = $link.parents('tr').find('td:first').text();
@@ -29,7 +27,7 @@ AJAX.registerOnload('server_user_groups.js', function () {
         };
         $('<div/>')
             .attr('id', 'confirmUserGroupDeleteDialog')
-            .append($.sprintf(PMA_messages.strDropUserGroupWarning, escapeHtml(groupName)))
+            .append(PMA_sprintf(PMA_messages.strDropUserGroupWarning, escapeHtml(groupName)))
             .dialog({
                 width: 300,
                 minWidth: 200,
@@ -42,91 +40,3 @@ AJAX.registerOnload('server_user_groups.js', function () {
             });
     });
 });
-=======
-/**
- * Unbind all event handlers before tearing down a page
- */
-AJAX.registerTeardown('server_user_groups.js', function () {
-    $("a.deleteUserGroup.ajax").die('click');
-});
-
-/**
- * Bind event handlers
- */
-AJAX.registerOnload('server_user_groups.js', function () {
-
-    // update the checkall checkbox on Edit user group page
-    $(checkboxes_sel).trigger("change");
-
-    $("a.deleteUserGroup.ajax").live('click', function (event) {
-        event.preventDefault();
-        var $link = $(this);
-        var groupName = $link.parents('tr').find('td:first').text();
-        var buttonOptions = {};
-        buttonOptions[PMA_messages.strGo] = function () {
-            $(this).dialog("close");
-            $link.removeClass('ajax').trigger('click');
-        };
-        buttonOptions[PMA_messages.strClose] = function () {
-            $(this).dialog("close");
-        };
-        $('<div/>')
-            .attr('id', 'confirmUserGroupDeleteDialog')
-            .append($.sprintf(PMA_messages.strDropUserGroupWarning, escapeHtml(groupName)))
-            .dialog({
-                width: 300,
-                minWidth: 200,
-                modal: true,
-                buttons: buttonOptions,
-                title: PMA_messages.strConfirm,
-                close: function () {
-                    $(this).remove();
-                }
-            });
-    });
-});
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-/**
- * Unbind all event handlers before tearing down a page
- */
-AJAX.registerTeardown('server_user_groups.js', function () {
-    $("a.deleteUserGroup.ajax").die('click');
-});
-
-/**
- * Bind event handlers
- */
-AJAX.registerOnload('server_user_groups.js', function () {
-
-    // update the checkall checkbox on Edit user group page
-    $(checkboxes_sel).trigger("change");
-
-    $("a.deleteUserGroup.ajax").live('click', function (event) {
-        event.preventDefault();
-        var $link = $(this);
-        var groupName = $link.parents('tr').find('td:first').text();
-        var buttonOptions = {};
-        buttonOptions[PMA_messages.strGo] = function () {
-            $(this).dialog("close");
-            $link.removeClass('ajax').trigger('click');
-        };
-        buttonOptions[PMA_messages.strClose] = function () {
-            $(this).dialog("close");
-        };
-        $('<div/>')
-            .attr('id', 'confirmUserGroupDeleteDialog')
-            .append($.sprintf(PMA_messages.strDropUserGroupWarning, escapeHtml(groupName)))
-            .dialog({
-                width: 300,
-                minWidth: 200,
-                modal: true,
-                buttons: buttonOptions,
-                title: PMA_messages.strConfirm,
-                close: function () {
-                    $(this).remove();
-                }
-            });
-    });
-});
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

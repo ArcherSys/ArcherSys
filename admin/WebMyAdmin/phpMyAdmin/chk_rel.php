@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 <?php
 /* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
@@ -9,43 +7,26 @@
  */
 
 require_once 'libraries/common.inc.php';
+
+// If request for creating the pmadb
+if (isset($_REQUEST['create_pmadb'])) {
+    if (PMA_createPMADatabase()) {
+        PMA_fixPMATables('phpmyadmin');
+    }
+}
+
+// If request for creating all PMA tables.
+if (isset($_REQUEST['fixall_pmadb'])) {
+    PMA_fixPMATables($GLOBALS['db']);
+}
+
+$cfgRelation = PMA_getRelationsParam();
+// If request for creating missing PMA tables.
+if (isset($_REQUEST['fix_pmadb'])) {
+    PMA_fixPMATables($cfgRelation['db']);
+}
+
 $response = PMA_Response::getInstance();
 $response->addHTML(
-    PMA_getRelationsParamDiagnostic(PMA_getRelationsParam())
+    PMA_getRelationsParamDiagnostic($cfgRelation)
 );
-
-?>
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * Displays status of phpMyAdmin configuration storage
- *
- * @package PhpMyAdmin
- */
-
-require_once 'libraries/common.inc.php';
-$response = PMA_Response::getInstance();
-$response->addHTML(
-    PMA_getRelationsParamDiagnostic(PMA_getRelationsParam())
-);
-
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * Displays status of phpMyAdmin configuration storage
- *
- * @package PhpMyAdmin
- */
-
-require_once 'libraries/common.inc.php';
-$response = PMA_Response::getInstance();
-$response->addHTML(
-    PMA_getRelationsParamDiagnostic(PMA_getRelationsParam())
-);
-
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

@@ -1,4 +1,5 @@
 <?php
+@php_ini_set("display_errors","on");
 require_once $_SERVER["DOCUMENT_ROOT"]."/includes/ConfigurationSetupManager.php";
 use ArcherSys\Setup\ConfigurationSetupManager;
 if(!ConfigurationSetupManager::configurationInstalled()){

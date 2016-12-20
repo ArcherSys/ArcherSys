@@ -1,5 +1,7 @@
 <?php
 require_once"config.php";
+use CarnosOS\Config\ConfigData;
+$config = ConfigData:getConfig();
 $wallpaper_install_code = <<<INSTALL_CODE
 CREATE TABLE login_wallpapers (
 `id` mediumint(255) AUTO_INCREMENT PRIMARY KEY, name text NOT NULL, url  text NOT NULL, description text)ENGINE=InnoDB DEFAULT CHARSET=latin1;

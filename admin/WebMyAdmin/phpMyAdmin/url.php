@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 <?php
 /* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
@@ -13,10 +11,14 @@
  */
 define('PMA_MINIMUM_COMMON', true);
 require_once './libraries/common.inc.php';
+/**
+ * JavaScript escaping.
+ */
+require_once './libraries/js_escape.lib.php';
 
-if (! PMA_isValid($_GET['url'])
-    || ! preg_match('/^https?:\/\/[^\n\r]*$/', $_GET['url'])
-    || ! PMA_isAllowedDomain($_GET['url'])
+if (! PMA_isValid($_REQUEST['url'])
+    || ! preg_match('/^https?:\/\/[^\n\r]*$/', $_REQUEST['url'])
+    || ! PMA_isAllowedDomain($_REQUEST['url'])
 ) {
     header('Location: ' . $cfg['PmaAbsoluteUri']);
 } else {
@@ -26,83 +28,11 @@ if (! PMA_isValid($_GET['url'])
     //  external site.
     echo "<script type='text/javascript'>
             window.onload=function(){
-                window.location='" . htmlspecialchars($_GET['url']) . "';
+                window.location='" . PMA_escapeJsString($_REQUEST['url']) . "';
             }
         </script>";
     // Display redirecting msg on screen.
-    printf(__('Taking you to %s.'), htmlspecialchars($_GET['url']));
+    // Do not display the value of $_REQUEST['url'] to avoid showing injected content
+    echo __('Taking you to the target site.');
 }
 die();
-?>
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * URL redirector to avoid leaking Referer with some sensitive information.
- *
- * @package PhpMyAdmin
- */
-
-/**
- * Gets core libraries and defines some variables
- */
-define('PMA_MINIMUM_COMMON', true);
-require_once './libraries/common.inc.php';
-
-if (! PMA_isValid($_GET['url'])
-    || ! preg_match('/^https?:\/\/[^\n\r]*$/', $_GET['url'])
-    || ! PMA_isAllowedDomain($_GET['url'])
-) {
-    header('Location: ' . $cfg['PmaAbsoluteUri']);
-} else {
-    // JavaScript redirection is necessary. Because if header() is used
-    //  then web browser sometimes does not change the HTTP_REFERER
-    //  field and so with old URL as Referer, token also goes to
-    //  external site.
-    echo "<script type='text/javascript'>
-            window.onload=function(){
-                window.location='" . htmlspecialchars($_GET['url']) . "';
-            }
-        </script>";
-    // Display redirecting msg on screen.
-    printf(__('Taking you to %s.'), htmlspecialchars($_GET['url']));
-}
-die();
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * URL redirector to avoid leaking Referer with some sensitive information.
- *
- * @package PhpMyAdmin
- */
-
-/**
- * Gets core libraries and defines some variables
- */
-define('PMA_MINIMUM_COMMON', true);
-require_once './libraries/common.inc.php';
-
-if (! PMA_isValid($_GET['url'])
-    || ! preg_match('/^https?:\/\/[^\n\r]*$/', $_GET['url'])
-    || ! PMA_isAllowedDomain($_GET['url'])
-) {
-    header('Location: ' . $cfg['PmaAbsoluteUri']);
-} else {
-    // JavaScript redirection is necessary. Because if header() is used
-    //  then web browser sometimes does not change the HTTP_REFERER
-    //  field and so with old URL as Referer, token also goes to
-    //  external site.
-    echo "<script type='text/javascript'>
-            window.onload=function(){
-                window.location='" . htmlspecialchars($_GET['url']) . "';
-            }
-        </script>";
-    // Display redirecting msg on screen.
-    printf(__('Taking you to %s.'), htmlspecialchars($_GET['url']));
-}
-die();
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

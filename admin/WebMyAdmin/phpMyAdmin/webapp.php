@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 <?php
 /* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
@@ -33,7 +31,7 @@ $parameters = array(
     'icon'      => 'phpMyAdmin',
 );
 
-// dom sript file
+// dom script file
 // none need yet
 
 // icon
@@ -54,118 +52,3 @@ $zip->setDoWrite();
 $zip->addFile($ini_file, 'webapp.ini');
 $zip->addFile(file_get_contents($icon), 'phpMyAdmin.ico');
 $zip->file();
-?>
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * generate an WebApp file for Prism / WebRunner
- *
- * @package PhpMyAdmin
- * @see     http://wiki.mozilla.org/Prism
- */
-
-/**
- * @ignore
- */
-define('PMA_MINIMUM_COMMON', true);
-/**
- * Gets core libraries and defines some variables
- */
-require './libraries/common.inc.php';
-/**
- * ZIP file handler.
- */
-require './libraries/zip.lib.php';
-
-// ini file
-$parameters = array(
-    'id'        => 'phpMyAdmin@' . $_SERVER['HTTP_HOST'],
-    'uri'       => $GLOBALS['PMA_Config']->get('PmaAbsoluteUri'),
-    'status'    => 'yes',
-    'location'  => 'no',
-    'sidebar'   => 'no',
-    'navigation' => 'no',
-    'icon'      => 'phpMyAdmin',
-);
-
-// dom sript file
-// none need yet
-
-// icon
-$icon = 'favicon.ico';
-
-// name
-$name = 'phpMyAdmin.webapp';
-
-$ini_file = "[Parameters]\n";
-foreach ($parameters as $key => $value) {
-    $ini_file .= $key . '=' . $value . "\n";
-}
-
-PMA_downloadHeader($name, 'application/webapp', 0, false);
-
-$zip = new ZipFile;
-$zip->setDoWrite();
-$zip->addFile($ini_file, 'webapp.ini');
-$zip->addFile(file_get_contents($icon), 'phpMyAdmin.ico');
-$zip->file();
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * generate an WebApp file for Prism / WebRunner
- *
- * @package PhpMyAdmin
- * @see     http://wiki.mozilla.org/Prism
- */
-
-/**
- * @ignore
- */
-define('PMA_MINIMUM_COMMON', true);
-/**
- * Gets core libraries and defines some variables
- */
-require './libraries/common.inc.php';
-/**
- * ZIP file handler.
- */
-require './libraries/zip.lib.php';
-
-// ini file
-$parameters = array(
-    'id'        => 'phpMyAdmin@' . $_SERVER['HTTP_HOST'],
-    'uri'       => $GLOBALS['PMA_Config']->get('PmaAbsoluteUri'),
-    'status'    => 'yes',
-    'location'  => 'no',
-    'sidebar'   => 'no',
-    'navigation' => 'no',
-    'icon'      => 'phpMyAdmin',
-);
-
-// dom sript file
-// none need yet
-
-// icon
-$icon = 'favicon.ico';
-
-// name
-$name = 'phpMyAdmin.webapp';
-
-$ini_file = "[Parameters]\n";
-foreach ($parameters as $key => $value) {
-    $ini_file .= $key . '=' . $value . "\n";
-}
-
-PMA_downloadHeader($name, 'application/webapp', 0, false);
-
-$zip = new ZipFile;
-$zip->setDoWrite();
-$zip->addFile($ini_file, 'webapp.ini');
-$zip->addFile(file_get_contents($icon), 'phpMyAdmin.ico');
-$zip->file();
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453

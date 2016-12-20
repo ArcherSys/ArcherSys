@@ -24,10 +24,10 @@ echo "</div>";
 }
 
     static function addMSAppConfig(){
-        include "/includes/viewssi/msappconfig.php";
+        include "includes/viewssi/msappconfig.php";
     }
     static function addAppleAppConfig(){
-      include "/includes/viewssi/appleappconfig.php";
+      include "includes/viewssi/appleappconfig.php";
     }
     static function addGame($link,$name){
       echo " <div class=\"module red single img birds\">
@@ -35,7 +35,7 @@ echo "</div>";
 					</div>";
     }
     static function setupFavicons(){
-      include "/includes/viewssi/faviconconfig.php";
+      include "includes/viewssi/faviconconfig.php";
     }
     static function addNg(){
       echo "<script src='/core/js/angularjs/angular.min.js'></script>";

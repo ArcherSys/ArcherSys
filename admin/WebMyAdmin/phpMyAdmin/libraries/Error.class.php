@@ -1,4 +1,3 @@
-
 <?php
 /* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
@@ -29,6 +28,7 @@ class PMA_Error extends PMA_Message
      * @var array
      */
     static public $errortype = array (
+        0                    => 'Internal error',
         E_ERROR              => 'Error',
         E_WARNING            => 'Warning',
         E_PARSE              => 'Parsing Error',
@@ -51,6 +51,7 @@ class PMA_Error extends PMA_Message
      * @var array
      */
     static public $errorlevel = array (
+        0                    => 'error',
         E_ERROR              => 'error',
         E_WARNING            => 'error',
         E_PARSE              => 'error',
@@ -187,12 +188,19 @@ class PMA_Error extends PMA_Message
     }
 
     /**
-     * returns PMA_Error::$_backtrace
+     * returns PMA_Error::$_backtrace for first $count frames
+     * pass $count = -1 to get full backtrace.
+     * The same can be done by not passing $count at all.
+     *
+     * @param integer $count Number of stack frames.
      *
      * @return array PMA_Error::$_backtrace
      */
-    public function getBacktrace()
+    public function getBacktrace($count = -1)
     {
+        if ($count != -1) {
+            return array_slice($this->backtrace, 0, $count);
+        }
         return $this->backtrace;
     }
 
@@ -243,7 +251,9 @@ class PMA_Error extends PMA_Message
      */
     public function getHtmlTitle()
     {
-        return htmlspecialchars(substr($this->getTitle(), 0, 100));
+        return htmlspecialchars(
+            /*overload*/mb_substr($this->getTitle(), 0, 100)
+        );
     }
 
     /**
@@ -263,9 +273,27 @@ class PMA_Error extends PMA_Message
      */
     public function getBacktraceDisplay()
     {
+        return PMA_Error::formatBacktrace(
+            $this->getBacktrace(),
+            "<br />\n",
+            "<br />\n"
+        );
+    }
+
+    /**
+     * return formatted backtrace field
+     *
+     * @param array  $backtrace Backtrace data
+     * @param string $separator Arguments separator to use
+     * @param string $lines     Lines separator to use
+     *
+     * @return string formatted backtrace
+     */
+    public static function formatBacktrace($backtrace, $separator, $lines)
+    {
         $retval = '';
 
-        foreach ($this->getBacktrace() as $step) {
+        foreach ($backtrace as $step) {
             if (isset($step['file']) && isset($step['line'])) {
                 $retval .= PMA_Error::relPath($step['file'])
                     . '#' . $step['line'] . ': ';
@@ -273,22 +301,39 @@ class PMA_Error extends PMA_Message
             if (isset($step['class'])) {
                 $retval .= $step['class'] . $step['type'];
             }
-            $retval .= $step['function'] . '(';
-            if (isset($step['args']) && (count($step['args']) > 1)) {
-                $retval .= "<br />\n";
-                foreach ($step['args'] as $arg) {
-                    $retval .= "\t";
-                    $retval .= $this->getArg($arg, $step['function']);
-                    $retval .= ',' . "<br />\n";
-                }
-            } elseif (isset($step['args']) && (count($step['args']) > 0)) {
-                foreach ($step['args'] as $arg) {
-                    $retval .= $this->getArg($arg, $step['function']);
-                }
-            }
-            $retval .= ')' . "<br />\n";
+            $retval .= PMA_Error::getFunctionCall($step, $separator);
+            $retval .= $lines;
         }
 
+        return $retval;
+    }
+
+    /**
+     * Formats function call in a backtrace
+     *
+     * @param array  $step      backtrace step
+     * @param string $separator Arguments separator to use
+     *
+     * @return string
+     */
+    public static function getFunctionCall($step, $separator)
+    {
+        $retval = $step['function'] . '(';
+        if (isset($step['args'])) {
+            if (count($step['args']) > 1) {
+                $retval .= $separator;
+                foreach ($step['args'] as $arg) {
+                    $retval .= "\t";
+                    $retval .= PMA_Error::getArg($arg, $step['function']);
+                    $retval .= ',' . $separator;
+                }
+            } elseif (count($step['args']) > 0) {
+                foreach ($step['args'] as $arg) {
+                    $retval .= PMA_Error::getArg($arg, $step['function']);
+                }
+            }
+        }
+        $retval .= ')';
         return $retval;
     }
 
@@ -303,7 +348,7 @@ class PMA_Error extends PMA_Message
      *
      * @return string
      */
-    protected function getArg($arg, $function)
+    public static function getArg($arg, $function)
     {
         $retval = '';
         $include_functions = array(
@@ -383,9 +428,8 @@ class PMA_Error extends PMA_Message
      * @param string $dest path to be shorten
      *
      * @return string shortened path
-     * @static
      */
-    static function relPath($dest)
+    public static function relPath($dest)
     {
         $dest = realpath($dest);
 
@@ -419,4 +463,3 @@ class PMA_Error extends PMA_Message
         );
     }
 }
-?>

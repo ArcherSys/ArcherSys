@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-<<<<<<< HEAD
 <?php
 /* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
@@ -8,143 +6,48 @@
  * @package PhpMyAdmin
  */
 
-/**
- * Gets some core libraries
- */
+namespace PMA;
+
+use PMA_Index;
+use PMA_Response;
+
 require_once 'libraries/common.inc.php';
+require_once 'libraries/di/Container.class.php';
+require_once 'libraries/controllers/TableIndexesController.class.php';
+require_once 'libraries/Response.class.php';
 require_once 'libraries/Index.class.php';
-require_once 'libraries/tbl_common.inc.php';
-require_once 'libraries/tbl_indexes.lib.php';
 
+$container = DI\Container::getDefaultContainer();
+$container->factory('PMA\Controllers\Table\TableIndexesController');
+$container->alias(
+    'TableIndexesController', 'PMA\Controllers\Table\TableIndexesController'
+);
+$container->set('PMA_Response', PMA_Response::getInstance());
+$container->alias('response', 'PMA_Response');
 
-$index = PMA_prepareFormValues($db, $table);
-/**
- * Process the data from the edit/create index form,
- * run the query to build the new index
- * and moves back to "tbl_sql.php"
- */
-if (isset($_REQUEST['do_save_data'])) {
-    PMA_handleCreateOrEditIndex($db, $table, $index);
-} // end builds the new index
+/* Define dependencies for the concerned controller */
+$db = $container->get('db');
+$table = $container->get('table');
+$dbi = $container->get('dbi');
 
+if (!isset($_REQUEST['create_edit_table'])) {
+    include_once 'libraries/tbl_common.inc.php';
+}
+if (isset($_REQUEST['index'])) {
+    if (is_array($_REQUEST['index'])) {
+        // coming already from form
+        $index = new PMA_Index($_REQUEST['index']);
+    } else {
+        $index = $dbi->getTable($db, $table)->getIndex($_REQUEST['index']);
+    }
+} else {
+    $index = new PMA_Index;
+}
 
-/**
- * Display the form to edit/create an index
- */
-require_once 'libraries/tbl_info.inc.php';
+$dependency_definitions = array(
+    "index" => $index
+);
 
-$add_fields = PMA_getNumberOfFieldsForForm($index);
-
-$form_params = PMA_getFormParameters($db, $table);
-
-// Get fields and stores their name/type
-$fields = PMA_getNameAndTypeOfTheColumns($db, $table);
-
-$html = PMA_getHtmlForIndexForm($fields, $index, $form_params, $add_fields);
-
-$response = PMA_Response::getInstance();
-$response->addHTML($html);
-$header   = $response->getHeader();
-$scripts  = $header->getScripts();
-$scripts->addFile('indexes.js');
-?>
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * Displays index edit/creation form and handles it
- *
- * @package PhpMyAdmin
- */
-
-/**
- * Gets some core libraries
- */
-require_once 'libraries/common.inc.php';
-require_once 'libraries/Index.class.php';
-require_once 'libraries/tbl_common.inc.php';
-require_once 'libraries/tbl_indexes.lib.php';
-
-
-$index = PMA_prepareFormValues($db, $table);
-/**
- * Process the data from the edit/create index form,
- * run the query to build the new index
- * and moves back to "tbl_sql.php"
- */
-if (isset($_REQUEST['do_save_data'])) {
-    PMA_handleCreateOrEditIndex($db, $table, $index);
-} // end builds the new index
-
-
-/**
- * Display the form to edit/create an index
- */
-require_once 'libraries/tbl_info.inc.php';
-
-$add_fields = PMA_getNumberOfFieldsForForm($index);
-
-$form_params = PMA_getFormParameters($db, $table);
-
-// Get fields and stores their name/type
-$fields = PMA_getNameAndTypeOfTheColumns($db, $table);
-
-$html = PMA_getHtmlForIndexForm($fields, $index, $form_params, $add_fields);
-
-$response = PMA_Response::getInstance();
-$response->addHTML($html);
-$header   = $response->getHeader();
-$scripts  = $header->getScripts();
-$scripts->addFile('indexes.js');
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
-=======
-<?php
-/* vim: set expandtab sw=4 ts=4 sts=4: */
-/**
- * Displays index edit/creation form and handles it
- *
- * @package PhpMyAdmin
- */
-
-/**
- * Gets some core libraries
- */
-require_once 'libraries/common.inc.php';
-require_once 'libraries/Index.class.php';
-require_once 'libraries/tbl_common.inc.php';
-require_once 'libraries/tbl_indexes.lib.php';
-
-
-$index = PMA_prepareFormValues($db, $table);
-/**
- * Process the data from the edit/create index form,
- * run the query to build the new index
- * and moves back to "tbl_sql.php"
- */
-if (isset($_REQUEST['do_save_data'])) {
-    PMA_handleCreateOrEditIndex($db, $table, $index);
-} // end builds the new index
-
-
-/**
- * Display the form to edit/create an index
- */
-require_once 'libraries/tbl_info.inc.php';
-
-$add_fields = PMA_getNumberOfFieldsForForm($index);
-
-$form_params = PMA_getFormParameters($db, $table);
-
-// Get fields and stores their name/type
-$fields = PMA_getNameAndTypeOfTheColumns($db, $table);
-
-$html = PMA_getHtmlForIndexForm($fields, $index, $form_params, $add_fields);
-
-$response = PMA_Response::getInstance();
-$response->addHTML($html);
-$header   = $response->getHeader();
-$scripts  = $header->getScripts();
-$scripts->addFile('indexes.js');
-?>
->>>>>>> b875702c9c06ab5012e52ff4337439b03918f453
+/** @var Controllers\Table\TableIndexesController $controller */
+$controller = $container->get('TableIndexesController', $dependency_definitions);
+$controller->indexAction();

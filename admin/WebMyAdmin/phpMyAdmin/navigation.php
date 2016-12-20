@@ -1,4 +1,3 @@
-
 <?php
 /* vim: set expandtab sw=4 ts=4 sts=4: */
 /**
@@ -22,6 +21,11 @@ if (! $response->isAjax()) {
         )
     );
     exit;
+}
+
+if (isset($_REQUEST['getNaviSettings']) && $_REQUEST['getNaviSettings']) {
+    $response->addJSON('message', PMA_PageSettings::getNaviSettings());
+    exit();
 }
 
 $cfgRelation = PMA_getRelationsParam();
@@ -69,4 +73,3 @@ if ($cfgRelation['navwork']) {
 
 // Do the magic
 $response->addJSON('message', $navigation->getDisplay());
-?>
