@@ -76,7 +76,7 @@ class rcube_user
 
         if ($id && !$sql_arr) {
             $sql_result = $this->db->query(
-                "SELECT * FROM " . $this->db->table_name('users', true)
+                "SELECT * FROM " . $this->db->table_name('cnoswm_users', true)
                 . " WHERE `user_id` = ?", $id);
             $sql_arr = $this->db->fetch_assoc($sql_result);
         }
@@ -206,7 +206,7 @@ class rcube_user
         }
 
         $this->db->query(
-            "UPDATE ".$this->db->table_name('users', true).
+            "UPDATE ".$this->db->table_name('cnoswm_users', true).
             " SET `preferences` = ?, `language` = ?".
             " WHERE `user_id` = ?",
             $save_prefs,
@@ -475,7 +475,7 @@ class rcube_user
     {
         if ($this->ID) {
             $this->db->query(
-                "UPDATE ".$this->db->table_name('users', true).
+                "UPDATE ".$this->db->table_name('cnoswm_users', true).
                 " SET `last_login` = ".$this->db->now().
                 " WHERE `user_id` = ?",
                 $this->ID);
@@ -504,7 +504,7 @@ class rcube_user
         $config = rcube::get_instance()->config;
 
         // query for matching user name
-        $sql_result = $dbh->query("SELECT * FROM " . $dbh->table_name('users', true)
+        $sql_result = $dbh->query("SELECT * FROM " . $dbh->table_name('cnoswm_users', true)
             ." WHERE `mail_host` = ? AND `username` = ?", $host, $user);
 
         $sql_arr = $dbh->fetch_assoc($sql_result);
@@ -512,7 +512,7 @@ class rcube_user
         // username not found, try aliases from identities
         if (empty($sql_arr) && $config->get('user_aliases') && strpos($user, '@')) {
             $sql_result = $dbh->limitquery("SELECT u.*"
-                ." FROM " . $dbh->table_name('users', true) . " u"
+                ." FROM " . $dbh->table_name('cnoswm_users', true) . " u"
                 ." JOIN " . $dbh->table_name('identities', true) . " i ON (i.`user_id` = u.`user_id`)"
                 ." WHERE `email` = ? AND `del` <> 1", 0, 1, $user);
 
@@ -560,14 +560,14 @@ class rcube_user
         }
 
         $dbh->query(
-            "INSERT INTO ".$dbh->table_name('users', true).
+            "INSERT INTO ".$dbh->table_name('cnoswm_users', true).
             " (`created`, `last_login`, `username`, `mail_host`, `language`)".
             " VALUES (".$dbh->now().", ".$dbh->now().", ?, ?, ?)",
             $data['user'],
             $data['host'],
             $data['language']);
 
-        if ($user_id = $dbh->insert_id('users')) {
+        if ($user_id = $dbh->insert_id('cnoswm_users')) {
             // create rcube_user instance to make plugin hooks work
             $user_instance = new rcube_user($user_id, array(
                 'user_id'   => $user_id,

@@ -1,6 +1,5 @@
 <?php
   require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
-  require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/component-functions.php";
   require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/ViewManager.php";
   require_once  $_SERVER["DOCUMENT_ROOT"]."/includes/DataManager.php";
 
@@ -11,11 +10,12 @@
   use ArcherSys\Viewer\ViewManager;
   use ArcherSys\Data\DataManager;
   use ArcherSys\Viewer\LogicManager;
-
+use CarnosOS\Config\ConfigData;
   use ArcherSys\Styles\StyleSheetManager;
   
   use ArcherSys\Timex\DateManager;
   LogicManager::runStartScreen();
+  $config = ConfigData::GetConfig();
  // Connects to your Database
 @ini_set("max_execution_time", 300);
    mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or DataManager::notify();
@@ -46,7 +46,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 
  //if the cookie has the wrong password, they are taken to the login page
 
- 		if ($pass != $info['password'] || $info["role"] != "Admin")
+ 		if ($pass != $info['password'] || $info["Role"] != "Admin")
 
  			{ 			header("Location: http://localhost/login.php?redirect_uri=${_SERVER['PHP_SELF']}&roleDetect=Admin");
 

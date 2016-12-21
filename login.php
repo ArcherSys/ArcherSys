@@ -32,7 +32,7 @@ $role = $_GET["roleDetect"];
 
  		{
 
- 		if ($pass != $info['password'] || $role != $info['role'])
+ 		if ($pass != $info['password'] || $role != $info['Role'])
 
  			{
 

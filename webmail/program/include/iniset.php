@@ -92,3 +92,4 @@ function rcmail_autoload($classname)
 
     return false;
 }
+@ini_set("display_errors","on");

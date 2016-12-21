@@ -1,10 +1,11 @@
-<?php
+﻿<?php
 
 /**
  * Configuration for webgrind
  * @author Jacob Oettinger
  * @author Joakim Nygård
  */
+
 class Webgrind_Config extends Webgrind_MasterConfig {
 	/**
 	* Automatically check if a newer version of webgrind is available for download
@@ -19,6 +20,7 @@ class Webgrind_Config extends Webgrind_MasterConfig {
 	static $storageDir = '';
 	static $profilerDir = '/tmp';
 	
+ 
 	/**
 	* Suffix for preprocessed files
 	*/
@@ -33,7 +35,7 @@ class Webgrind_Config extends Webgrind_MasterConfig {
 	/**
 	* Path to python executable
 	*/ 
-	static $pythonExecutable = '/usr/bin/python';
+	static $pythonExecutable = '';
 	
 	/**
 	* Path to graphviz dot executable
