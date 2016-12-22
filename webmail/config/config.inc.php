@@ -71,6 +71,7 @@ $config['des_key'] = 'rcmail-!24ByteDESkey*Str';
 $config['plugins'] = array(
     'archive',
     'zipdownload',
+    'emoticons'
 );
 // skin name: folder from skins/
 $config['skin'] = 'larry';

@@ -15,6 +15,7 @@ class ConfigData{
   $config["imapport"] = 993;
   $config["ftphost"] = "localhost";
   $config["pythonexec"] = $_SERVER["DOCUMENT_ROOT"].'/Scripts/python.exe';
+  $config["GNUPath"] = "C:\\xampp\\htdocs\\GNU\\bin";
   return $config;
     }
 }

@@ -1,20 +1,24 @@
 
      <?php
+       require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
+
 require_once "includes\ViewManager.php";
 require_once "includes\LogicManager.php";
 
  use ArcherSys\Viewer\ViewManager;
  use ArcherSys\Viewer\LogicManager;
-
+use CarnosOS\Config\ConfigData;
  // Connects to your Database
-
- mysql_connect("localhost", "root", "aco1234") or die(mysql_error());
+$config = ConfigData::getConfig();
+ mysql_connect($config["dbhost"], $config["dbuser"], $config["dbpass"]) or die(mysql_error());
 
  mysql_select_db("acoserver_acoserver") or die(mysql_error());
 
 
  //Checks if there is a login cookie
 $role = $_GET["roleDetect"];
+
+
  if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]))
 
 
@@ -32,13 +36,13 @@ $role = $_GET["roleDetect"];
 
  		{
 
- 		if ($pass != $info['password'] || $role != $info['Role'])
+ 		if ($pass != $info['password'] || $role != $info['Role'] )
 
  			{
 
  			 			}
 
- 		else
+ 		else if($pass == $info['password'] && ($role != $info['Role'] || $role == "All"))
 
  			{
 
@@ -132,7 +136,7 @@ if ($info["Disabled"] == 1) {
  		die('<div class="asos-incorrect-pass"><p>Incorrect password.</p> <button class="asos-ipass-button" onclick="window.location.assign(\''.$_SERVER["PHP_SELF"].'\');">Please Try Again</button></div></body></html>');
              
  	}
- 	else if($role != $info["role"]){
+ 	else if($role != $info["Role"] && $role != "All"){
  	    echo "<!DOCTYPE HTML>";
                 echo "<html>";
                    echo "<head>";

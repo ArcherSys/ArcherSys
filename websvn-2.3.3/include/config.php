@@ -32,18 +32,23 @@
 
 // Configure these lines if your commands aren't on your path.
 //
-$config->setSVNCommandPath('C:\\xampp\\htdocs\\SVN\\bin'); //  e.g. c:\\program files\\subversion\\bin
+
+  require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
+  require_once $_SERVER["DOCUMENT_ROOT"]."/includes/ViewManager.php";
+  use CarnosOS\Config\ConfigData;
+  $config2 = ConfigData::getConfig();
+$config->setSVNCommandPath($config2["GNUPath"]); //  e.g. c:\\program files\\subversion\\bin
 // $config->setDiffPath('Path/to/diff/command/');
 
 // For syntax colouring, if option enabled...
-$config->setEnscriptPath('C:\\xampp\\htdocs\\ENSCRIPT\\bin');
+$config->setEnscriptPath($config2["GNUPath"]);
 // $config->setSedPath('Path/to/sed/command/');
 
 // For delivered tarballs, if option enabled...
- $config->setTarPath('C:\\xampp\\htdocs\\TAR\\bin');
+ $config->setTarPath($config2["GNUPath"]);
 
 // For delivered GZIP'd files and tarballs, if option enabled...
- $config->setGZipPath('C:\\xampp\\htdocs\\GZIP\\bin');
+ $config->setGZipPath($config2["GNUPath"]);
 
 // download folder/file zipped ...
 // $config->setZipPath('Path/to/zip/command/');
@@ -79,12 +84,11 @@ $config->setEnscriptPath('C:\\xampp\\htdocs\\ENSCRIPT\\bin');
 
 // Local repositories (without and with optional group):
 //
-$config->addRepository('NameToDisplay', 'file:///C:/xampp/htdocs/grillo/');
 // $config->addRepository('NameToDisplay', 'URL to repository (e.g. file:///c:/svn/proj)', 'group');
 //
 // Remote repositories (without and with optional group):
 //
-// $config->addRepository('NameToDisplay', 'URL (e.g. http://path/to/rep)', null, 'username', 'password');
+$config->addRepository('NameToDisplay', 'http://localhost/files/REPO');
 // $config->addRepository('NameToDisplay', 'URL (e.g. http://path/to/rep)', 'group', 'username', 'password');
 //
 // Display Part of a repository as if it was a repository.
