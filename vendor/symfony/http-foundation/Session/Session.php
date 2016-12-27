@@ -23,8 +23,6 @@ use Symfony\Component\HttpFoundation\Session\Storage\NativeSessionStorage;
  *
  * @author Fabien Potencier <fabien@symfony.com>
  * @author Drak <drak@zikula.org>
- *
- * @api
  */
 class Session implements SessionInterface, \IteratorAggregate, \Countable
 {
@@ -48,7 +46,7 @@ class Session implements SessionInterface, \IteratorAggregate, \Countable
     /**
      * Constructor.
      *
-     * @param SessionStorageInterface $storage    A SessionStorageInterface instance.
+     * @param SessionStorageInterface $storage    A SessionStorageInterface instance
      * @param AttributeBagInterface   $attributes An AttributeBagInterface instance, (defaults null for default AttributeBag)
      * @param FlashBagInterface       $flashes    A FlashBagInterface instance (defaults null for default FlashBag)
      */

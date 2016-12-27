@@ -7,7 +7,7 @@ use Sabre\DAV;
 /**
  * Directory class
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -140,10 +140,10 @@ class Directory extends Node implements DAV\ICollection, DAV\IQuota {
      * @return array
      */
     function getQuotaInfo() {
-
+        $absolute = realpath($this->path);
         return [
-            disk_total_space($this->path) - disk_free_space($this->path),
-            disk_free_space($this->path)
+            disk_total_space($absolute) - disk_free_space($absolute),
+            disk_free_space($absolute)
         ];
 
     }

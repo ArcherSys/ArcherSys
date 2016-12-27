@@ -34,9 +34,10 @@ class XmlReferenceDumperTest extends \PHPUnit_Framework_TestCase
 
     private function getConfigurationAsString()
     {
-        return <<<EOL
+        return str_replace("\n", PHP_EOL, <<<'EOL'
 <!-- Namespace: http://example.org/schema/dic/acme_root -->
 <!-- scalar-required: Required -->
+<!-- enum-with-default: One of "this"; "that" -->
 <!-- enum: One of "this"; "that" -->
 <config
     boolean="true"
@@ -48,6 +49,8 @@ class XmlReferenceDumperTest extends \PHPUnit_Framework_TestCase
     scalar-array-empty=""
     scalar-array-defaults="elem1,elem2"
     scalar-required=""
+    node-with-a-looong-name=""
+    enum-with-default="this"
     enum=""
 >
 
@@ -65,6 +68,9 @@ class XmlReferenceDumperTest extends \PHPUnit_Framework_TestCase
     />
 
     <!-- prototype -->
+    <scalar-prototyped>scalar value</scalar-prototyped>
+
+    <!-- prototype: Parameter name -->
     <parameter name="parameter name">scalar value</parameter>
 
     <!-- prototype -->
@@ -73,8 +79,31 @@ class XmlReferenceDumperTest extends \PHPUnit_Framework_TestCase
         pass=""
     />
 
+    <!-- prototype -->
+    <cms-page page="cms page page">
+
+        <!-- prototype -->
+        <!-- title: Required -->
+        <!-- path: Required -->
+        <page
+            locale="page locale"
+            title=""
+            path=""
+        />
+
+    </cms-page>
+
+    <!-- prototype -->
+    <pipou name="pipou name">
+
+        <!-- prototype -->
+        <name didou="" />
+
+    </pipou>
+
 </config>
 
-EOL;
+EOL
+        );
     }
 }

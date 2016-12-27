@@ -1,5 +1,5 @@
 <?php
-namespace ArcherSys\Viewer;
+namespace CarnosOS\Viewer;
 class ViewManager{
 
 static  function displayLoginInfo($info){

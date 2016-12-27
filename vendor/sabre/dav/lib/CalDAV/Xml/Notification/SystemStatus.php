@@ -2,8 +2,8 @@
 
 namespace Sabre\CalDAV\Xml\Notification;
 
-use Sabre\Xml\Writer;
 use Sabre\CalDAV\Plugin;
+use Sabre\Xml\Writer;
 
 /**
  * SystemStatus notification
@@ -11,7 +11,7 @@ use Sabre\CalDAV\Plugin;
  * This notification can be used to indicate to the user that the system is
  * down.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */

@@ -5,7 +5,7 @@ namespace Sabre\DAV;
 /**
  * The INode interface is the base interface, and the parent class of both ICollection and IFile
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -36,9 +36,10 @@ interface INode {
     function setName($name);
 
     /**
-     * Returns the last modification time, as a unix timestamp
+     * Returns the last modification time, as a unix timestamp. Return null
+     * if the information is not available.
      *
-     * @return int
+     * @return int|null
      */
     function getLastModified();
 

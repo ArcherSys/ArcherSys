@@ -26,16 +26,20 @@ class JsonResponse extends Response
 {
     protected $data;
     protected $callback;
-    protected $encodingOptions;
+
+    // Encode <, >, ', &, and " characters in the JSON, making it also safe to be embedded into HTML.
+    // 15 === JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT
+    const DEFAULT_ENCODING_OPTIONS = 15;
+
+    protected $encodingOptions = self::DEFAULT_ENCODING_OPTIONS;
 
     /**
-     * Constructor.
-     *
      * @param mixed $data    The response data
      * @param int   $status  The response status code
      * @param array $headers An array of response headers
+     * @param bool  $json    If the data is already a JSON string
      */
-    public function __construct($data = null, $status = 200, $headers = array())
+    public function __construct($data = null, $status = 200, $headers = array(), $json = false)
     {
         parent::__construct('', $status, $headers);
 
@@ -43,18 +47,34 @@ class JsonResponse extends Response
             $data = new \ArrayObject();
         }
 
-        // Encode <, >, ', &, and " for RFC4627-compliant JSON, which may also be embedded into HTML.
-        $this->encodingOptions = JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT;
-
-        $this->setData($data);
+        $json ? $this->setJson($data) : $this->setData($data);
     }
 
     /**
-     * {@inheritdoc}
+     * Factory method for chainability.
+     *
+     * Example:
+     *
+     *     return JsonResponse::create($data, 200)
+     *         ->setSharedMaxAge(300);
+     *
+     * @param mixed $data    The json response data
+     * @param int   $status  The response status code
+     * @param array $headers An array of response headers
+     *
+     * @return JsonResponse
      */
     public static function create($data = null, $status = 200, $headers = array())
     {
         return new static($data, $status, $headers);
+    }
+
+    /**
+     * Make easier the creation of JsonResponse from raw json.
+     */
+    public static function fromJsonString($data = null, $status = 200, $headers = array())
+    {
+        return new static($data, $status, $headers, true);
     }
 
     /**
@@ -69,17 +89,41 @@ class JsonResponse extends Response
     public function setCallback($callback = null)
     {
         if (null !== $callback) {
-            // taken from http://www.geekality.net/2011/08/03/valid-javascript-identifier/
-            $pattern = '/^[$_\p{L}][$_\p{L}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\x{200C}\x{200D}]*+$/u';
+            // partially taken from http://www.geekality.net/2011/08/03/valid-javascript-identifier/
+            // partially taken from https://github.com/willdurand/JsonpCallbackValidator
+            //      JsonpCallbackValidator is released under the MIT License. See https://github.com/willdurand/JsonpCallbackValidator/blob/v1.1.0/LICENSE for details.
+            //      (c) William Durand <william.durand1@gmail.com>
+            $pattern = '/^[$_\p{L}][$_\p{L}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\x{200C}\x{200D}]*(?:\[(?:"(?:\\\.|[^"\\\])*"|\'(?:\\\.|[^\'\\\])*\'|\d+)\])*?$/u';
+            $reserved = array(
+                'break', 'do', 'instanceof', 'typeof', 'case', 'else', 'new', 'var', 'catch', 'finally', 'return', 'void', 'continue', 'for', 'switch', 'while',
+                'debugger', 'function', 'this', 'with', 'default', 'if', 'throw', 'delete', 'in', 'try', 'class', 'enum', 'extends', 'super',  'const', 'export',
+                'import', 'implements', 'let', 'private', 'public', 'yield', 'interface', 'package', 'protected', 'static', 'null', 'true', 'false',
+            );
             $parts = explode('.', $callback);
             foreach ($parts as $part) {
-                if (!preg_match($pattern, $part)) {
+                if (!preg_match($pattern, $part) || in_array($part, $reserved, true)) {
                     throw new \InvalidArgumentException('The callback name is not valid.');
                 }
             }
         }
 
         $this->callback = $callback;
+
+        return $this->update();
+    }
+
+    /**
+     * Sets a raw string containing a JSON document to be sent.
+     *
+     * @param string $json
+     *
+     * @return JsonResponse
+     *
+     * @throws \InvalidArgumentException
+     */
+    public function setJson($json)
+    {
+        $this->data = $json;
 
         return $this->update();
     }
@@ -95,35 +139,30 @@ class JsonResponse extends Response
      */
     public function setData($data = array())
     {
-        $errorHandler = null;
-        $errorHandler = set_error_handler(function () use (&$errorHandler) {
-            if (JSON_ERROR_NONE !== json_last_error()) {
-                return;
+        if (defined('HHVM_VERSION')) {
+            // HHVM does not trigger any warnings and let exceptions
+            // thrown from a JsonSerializable object pass through.
+            // If only PHP did the same...
+            $data = json_encode($data, $this->encodingOptions);
+        } else {
+            try {
+                // PHP 5.4 and up wrap exceptions thrown by JsonSerializable
+                // objects in a new exception that needs to be removed.
+                // Fortunately, PHP 5.5 and up do not trigger any warning anymore.
+                $data = json_encode($data, $this->encodingOptions);
+            } catch (\Exception $e) {
+                if ('Exception' === get_class($e) && 0 === strpos($e->getMessage(), 'Failed calling ')) {
+                    throw $e->getPrevious() ?: $e;
+                }
+                throw $e;
             }
-
-            if ($errorHandler) {
-                call_user_func_array($errorHandler, func_get_args());
-            }
-        });
-
-        try {
-            // Clear json_last_error()
-            json_encode(null);
-
-            $this->data = json_encode($data, $this->encodingOptions);
-
-            restore_error_handler();
-        } catch (\Exception $exception) {
-            restore_error_handler();
-
-            throw $exception;
         }
 
         if (JSON_ERROR_NONE !== json_last_error()) {
-            throw new \InvalidArgumentException($this->transformJsonError());
+            throw new \InvalidArgumentException(json_last_error_msg());
         }
 
-        return $this->update();
+        return $this->setJson($data);
     }
 
     /**
@@ -171,32 +210,5 @@ class JsonResponse extends Response
         }
 
         return $this->setContent($this->data);
-    }
-
-    private function transformJsonError()
-    {
-        if (function_exists('json_last_error_msg')) {
-            return json_last_error_msg();
-        }
-
-        switch (json_last_error()) {
-            case JSON_ERROR_DEPTH:
-                return 'Maximum stack depth exceeded.';
-
-            case JSON_ERROR_STATE_MISMATCH:
-                return 'Underflow or the modes mismatch.';
-
-            case JSON_ERROR_CTRL_CHAR:
-                return 'Unexpected control character found.';
-
-            case JSON_ERROR_SYNTAX:
-                return 'Syntax error, malformed JSON.';
-
-            case JSON_ERROR_UTF8:
-                return 'Malformed UTF-8 characters, possibly incorrectly encoded.';
-
-            default:
-                return 'Unknown error.';
-        }
     }
 }

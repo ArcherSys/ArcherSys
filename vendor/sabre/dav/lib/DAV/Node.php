@@ -7,7 +7,7 @@ namespace Sabre\DAV;
  *
  * This is a helper class, that should aid in getting nodes setup.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -29,7 +29,7 @@ abstract class Node implements INode {
     /**
      * Deletes the current node
      *
-     * @throws Sabre\DAV\Exception\Forbidden
+     * @throws Exception\Forbidden
      * @return void
      */
     function delete() {
@@ -41,8 +41,8 @@ abstract class Node implements INode {
     /**
      * Renames the node
      *
-     * @throws Sabre\DAV\Exception\Forbidden
      * @param string $name The new name
+     * @throws Exception\Forbidden
      * @return void
      */
     function setName($name) {

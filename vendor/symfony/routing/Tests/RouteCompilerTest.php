@@ -12,6 +12,7 @@
 namespace Symfony\Component\Routing\Tests;
 
 use Symfony\Component\Routing\Route;
+use Symfony\Component\Routing\RouteCompiler;
 
 class RouteCompilerTest extends \PHPUnit_Framework_TestCase
 {
@@ -38,7 +39,8 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
                 array('/foo'),
                 '/foo', '#^/foo$#s', array(), array(
                     array('text', '/foo'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with a variable',
@@ -46,7 +48,8 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
                 '/foo', '#^/foo/(?P<bar>[^/]++)$#s', array('bar'), array(
                     array('variable', '/', '[^/]++', 'bar'),
                     array('text', '/foo'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with a variable that has a default value',
@@ -54,7 +57,8 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
                 '/foo', '#^/foo(?:/(?P<bar>[^/]++))?$#s', array('bar'), array(
                     array('variable', '/', '[^/]++', 'bar'),
                     array('text', '/foo'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with several variables',
@@ -63,7 +67,8 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
                     array('variable', '/', '[^/]++', 'foobar'),
                     array('variable', '/', '[^/]++', 'bar'),
                     array('text', '/foo'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with several variables that have default values',
@@ -72,7 +77,8 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
                     array('variable', '/', '[^/]++', 'foobar'),
                     array('variable', '/', '[^/]++', 'bar'),
                     array('text', '/foo'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with several variables but some of them have no default values',
@@ -81,28 +87,32 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
                     array('variable', '/', '[^/]++', 'foobar'),
                     array('variable', '/', '[^/]++', 'bar'),
                     array('text', '/foo'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with an optional variable as the first segment',
                 array('/{bar}', array('bar' => 'bar')),
                 '', '#^/(?P<bar>[^/]++)?$#s', array('bar'), array(
                     array('variable', '/', '[^/]++', 'bar'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with a requirement of 0',
                 array('/{bar}', array('bar' => null), array('bar' => '0')),
                 '', '#^/(?P<bar>0)?$#s', array('bar'), array(
                     array('variable', '/', '0', 'bar'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with an optional variable as the first segment with requirements',
                 array('/{bar}', array('bar' => 'bar'), array('bar' => '(foo|bar)')),
                 '', '#^/(?P<bar>(foo|bar))?$#s', array('bar'), array(
                     array('variable', '/', '(foo|bar)', 'bar'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with only optional variables',
@@ -110,44 +120,125 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
                 '', '#^/(?P<foo>[^/]++)?(?:/(?P<bar>[^/]++))?$#s', array('foo', 'bar'), array(
                     array('variable', '/', '[^/]++', 'bar'),
                     array('variable', '/', '[^/]++', 'foo'),
-                ),),
+                ),
+            ),
 
             array(
                 'Route with a variable in last position',
                 array('/foo-{bar}'),
                 '/foo', '#^/foo\-(?P<bar>[^/]++)$#s', array('bar'), array(
-                array('variable', '-', '[^/]++', 'bar'),
-                array('text', '/foo'),
-            ),),
+                    array('variable', '-', '[^/]++', 'bar'),
+                    array('text', '/foo'),
+                ),
+            ),
 
             array(
                 'Route with nested placeholders',
                 array('/{static{var}static}'),
                 '/{static', '#^/\{static(?P<var>[^/]+)static\}$#s', array('var'), array(
-                array('text', 'static}'),
-                array('variable', '', '[^/]+', 'var'),
-                array('text', '/{static'),
-            ),),
+                    array('text', 'static}'),
+                    array('variable', '', '[^/]+', 'var'),
+                    array('text', '/{static'),
+                ),
+            ),
 
             array(
                 'Route without separator between variables',
                 array('/{w}{x}{y}{z}.{_format}', array('z' => 'default-z', '_format' => 'html'), array('y' => '(y|Y)')),
                 '', '#^/(?P<w>[^/\.]+)(?P<x>[^/\.]+)(?P<y>(y|Y))(?:(?P<z>[^/\.]++)(?:\.(?P<_format>[^/]++))?)?$#s', array('w', 'x', 'y', 'z', '_format'), array(
-                array('variable', '.', '[^/]++', '_format'),
-                array('variable', '', '[^/\.]++', 'z'),
-                array('variable', '', '(y|Y)', 'y'),
-                array('variable', '', '[^/\.]+', 'x'),
-                array('variable', '/', '[^/\.]+', 'w'),
-            ),),
+                    array('variable', '.', '[^/]++', '_format'),
+                    array('variable', '', '[^/\.]++', 'z'),
+                    array('variable', '', '(y|Y)', 'y'),
+                    array('variable', '', '[^/\.]+', 'x'),
+                    array('variable', '/', '[^/\.]+', 'w'),
+                ),
+            ),
 
             array(
                 'Route with a format',
                 array('/foo/{bar}.{_format}'),
                 '/foo', '#^/foo/(?P<bar>[^/\.]++)\.(?P<_format>[^/]++)$#s', array('bar', '_format'), array(
-                array('variable', '.', '[^/]++', '_format'),
-                array('variable', '/', '[^/\.]++', 'bar'),
-                array('text', '/foo'),
-            ),),
+                    array('variable', '.', '[^/]++', '_format'),
+                    array('variable', '/', '[^/\.]++', 'bar'),
+                    array('text', '/foo'),
+                ),
+            ),
+
+            array(
+                'Static non UTF-8 route',
+                array("/fo\xE9"),
+                "/fo\xE9", "#^/fo\xE9$#s", array(), array(
+                    array('text', "/fo\xE9"),
+                ),
+            ),
+
+            array(
+                'Route with an explicit UTF-8 requirement',
+                array('/{bar}', array('bar' => null), array('bar' => '.'), array('utf8' => true)),
+                '', '#^/(?P<bar>.)?$#su', array('bar'), array(
+                    array('variable', '/', '.', 'bar', true),
+                ),
+            ),
+        );
+    }
+
+    /**
+     * @group legacy
+     * @dataProvider provideCompileImplicitUtf8Data
+     * @expectedDeprecation Using UTF-8 route %s without setting the "utf8" option is deprecated %s.
+     */
+    public function testCompileImplicitUtf8Data($name, $arguments, $prefix, $regex, $variables, $tokens, $deprecationType)
+    {
+        $r = new \ReflectionClass('Symfony\\Component\\Routing\\Route');
+        $route = $r->newInstanceArgs($arguments);
+
+        $compiled = $route->compile();
+        $this->assertEquals($prefix, $compiled->getStaticPrefix(), $name.' (static prefix)');
+        $this->assertEquals($regex, $compiled->getRegex(), $name.' (regex)');
+        $this->assertEquals($variables, $compiled->getVariables(), $name.' (variables)');
+        $this->assertEquals($tokens, $compiled->getTokens(), $name.' (tokens)');
+    }
+
+    public function provideCompileImplicitUtf8Data()
+    {
+        return array(
+            array(
+                'Static UTF-8 route',
+                array('/foé'),
+                '/foé', '#^/foé$#su', array(), array(
+                    array('text', '/foé'),
+                ),
+                'patterns',
+            ),
+
+            array(
+                'Route with an implicit UTF-8 requirement',
+                array('/{bar}', array('bar' => null), array('bar' => 'é')),
+                '', '#^/(?P<bar>é)?$#su', array('bar'), array(
+                    array('variable', '/', 'é', 'bar', true),
+                ),
+                'requirements',
+            ),
+
+            array(
+                'Route with a UTF-8 class requirement',
+                array('/{bar}', array('bar' => null), array('bar' => '\pM')),
+                '', '#^/(?P<bar>\pM)?$#su', array('bar'), array(
+                    array('variable', '/', '\pM', 'bar', true),
+                ),
+                'requirements',
+            ),
+
+            array(
+                'Route with a UTF-8 separator',
+                array('/foo/{bar}§{_format}', array(), array(), array('compiler_class' => Utf8RouteCompiler::class)),
+                '/foo', '#^/foo/(?P<bar>[^/§]++)§(?P<_format>[^/]++)$#su', array('bar', '_format'), array(
+                    array('variable', '§', '[^/]++', '_format', true),
+                    array('variable', '/', '[^/§]++', 'bar', true),
+                    array('text', '/foo'),
+                ),
+                'patterns',
+            ),
         );
     }
 
@@ -162,16 +253,46 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
     }
 
     /**
-     * @dataProvider getNumericVariableNames
+     * @expectedException \LogicException
+     */
+    public function testRouteCharsetMismatch()
+    {
+        $route = new Route("/\xE9/{bar}", array(), array('bar' => '.'), array('utf8' => true));
+
+        $compiled = $route->compile();
+    }
+
+    /**
+     * @expectedException \LogicException
+     */
+    public function testRequirementCharsetMismatch()
+    {
+        $route = new Route('/foo/{bar}', array(), array('bar' => "\xE9"), array('utf8' => true));
+
+        $compiled = $route->compile();
+    }
+
+    /**
+     * @expectedException \InvalidArgumentException
+     */
+    public function testRouteWithFragmentAsPathParameter()
+    {
+        $route = new Route('/{_fragment}');
+
+        $compiled = $route->compile();
+    }
+
+    /**
+     * @dataProvider getVariableNamesStartingWithADigit
      * @expectedException \DomainException
      */
-    public function testRouteWithNumericVariableName($name)
+    public function testRouteWithVariableNameStartingWithADigit($name)
     {
         $route = new Route('/{'.$name.'}');
         $route->compile();
     }
 
-    public function getNumericVariableNames()
+    public function getVariableNamesStartingWithADigit()
     {
         return array(
            array('09'),
@@ -250,4 +371,18 @@ class RouteCompilerTest extends \PHPUnit_Framework_TestCase
             ),
         );
     }
+
+    /**
+     * @expectedException \DomainException
+     */
+    public function testRouteWithTooLongVariableName()
+    {
+        $route = new Route(sprintf('/{%s}', str_repeat('a', RouteCompiler::VARIABLE_MAXIMUM_LENGTH + 1)));
+        $route->compile();
+    }
+}
+
+class Utf8RouteCompiler extends RouteCompiler
+{
+    const SEPARATORS = '/§';
 }

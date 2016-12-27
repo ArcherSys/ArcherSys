@@ -3,11 +3,11 @@
 
 echo "SabreDAV migrate script for version 2.1\n";
 
-if ($argc<2) {
+if ($argc < 2) {
 
     echo <<<HELLO
 
-This script help you migrate from a pre-2.1 database to 2.1 and later
+This script help you migrate from a pre-2.1 database to 2.1.
 
 Changes:
   The 'calendarobjects' table will be upgraded.
@@ -47,7 +47,7 @@ $paths = [
     __DIR__ . '/../../../autoload.php',
 ];
 
-foreach($paths as $path) {
+foreach ($paths as $path) {
     if (file_exists($path)) {
         include $path;
         break;
@@ -55,8 +55,8 @@ foreach($paths as $path) {
 }
 
 $dsn = $argv[1];
-$user = isset($argv[2])?$argv[2]:null;
-$pass = isset($argv[3])?$argv[3]:null;
+$user = isset($argv[2]) ? $argv[2] : null;
+$pass = isset($argv[3]) ? $argv[3] : null;
 
 echo "Connecting to database: " . $dsn . "\n";
 
@@ -66,7 +66,7 @@ $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
 $driver = $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);
 
-switch($driver) {
+switch ($driver) {
 
     case 'mysql' :
         echo "Detected MySQL.\n";
@@ -103,7 +103,7 @@ try {
 
 if ($addUid) {
 
-    switch($driver) {
+    switch ($driver) {
         case 'mysql' :
             $pdo->exec('ALTER TABLE calendarobjects ADD uid VARCHAR(200)');
             break;
@@ -116,21 +116,19 @@ if ($addUid) {
     $stmt = $pdo->prepare('UPDATE calendarobjects SET uid = ? WHERE id = ?');
     $counter = 0;
 
-    while($row = $result->fetch(\PDO::FETCH_ASSOC)) {
-
-        yoyo:
+    while ($row = $result->fetch(\PDO::FETCH_ASSOC)) {
 
         try {
             $vobj = \Sabre\VObject\Reader::read($row['calendardata']);
         } catch (\Exception $e) {
             echo "Warning! Item with id $row[id] could not be parsed!\n";
-            goto yoyo;
+            continue;
         }
         $uid = null;
         $item = $vobj->getBaseComponent();
         if (!isset($item->UID)) {
             echo "Warning! Item with id $item[id] does NOT have a UID property and this is required.\n";
-            goto yoyo;
+            continue;
         }
         $uid = (string)$item->UID;
         $stmt->execute([$uid, $row['id']]);
@@ -142,7 +140,7 @@ if ($addUid) {
 
 echo "Creating 'schedulingobjects'\n";
 
-switch($driver) {
+switch ($driver) {
 
     case 'mysql' :
         $pdo->exec('CREATE TABLE IF NOT EXISTS schedulingobjects
@@ -170,10 +168,6 @@ switch($driver) {
     size integer
 )
 ');
-        break;
-        $pdo->exec('
-            CREATE INDEX principaluri_uri ON calendarsubscriptions (principaluri, uri);
-        ');
         break;
 }
 

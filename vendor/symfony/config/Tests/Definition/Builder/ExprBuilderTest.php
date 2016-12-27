@@ -75,6 +75,21 @@ class ExprBuilderTest extends \PHPUnit_Framework_TestCase
         $this->assertFinalizedValueIs('value', $test);
     }
 
+    public function testIfEmptyExpression()
+    {
+        $test = $this->getTestBuilder()
+            ->ifEmpty()
+            ->then($this->returnClosure('new_value'))
+        ->end();
+        $this->assertFinalizedValueIs('new_value', $test, array('key' => array()));
+
+        $test = $this->getTestBuilder()
+            ->ifEmpty()
+            ->then($this->returnClosure('new_value'))
+        ->end();
+        $this->assertFinalizedValueIs('value', $test);
+    }
+
     public function testIfArrayExpression()
     {
         $test = $this->getTestBuilder()
@@ -148,6 +163,26 @@ class ExprBuilderTest extends \PHPUnit_Framework_TestCase
             ->thenUnset()
         ->end();
         $this->assertEquals(array(), $this->finalizeTestBuilder($test));
+    }
+
+    /**
+     * @expectedException \RuntimeException
+     * @expectedExceptionMessage You must specify an if part.
+     */
+    public function testEndIfPartNotSpecified()
+    {
+        $this->getTestBuilder()->end();
+    }
+
+    /**
+     * @expectedException \RuntimeException
+     * @expectedExceptionMessage You must specify a then part.
+     */
+    public function testEndThenPartNotSpecified()
+    {
+        $builder = $this->getTestBuilder();
+        $builder->ifPart = 'test';
+        $builder->end();
     }
 
     /**

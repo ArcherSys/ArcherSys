@@ -31,20 +31,6 @@ class HrefTest extends XmlTest {
 
     }
 
-    function testSerializeNoPrefix() {
-
-        $href = new Href('path', false);
-        $this->assertEquals('path', $href->getHref());
-
-        $xml = $this->write(['{DAV:}anything' => $href]);
-
-        $this->assertXmlStringEqualsXmlString(
-'<?xml version="1.0"?>
-<d:anything xmlns:d="DAV:"><d:href>path</d:href></d:anything>
-', $xml);
-
-    }
-
     function testUnserialize() {
 
         $xml = '<?xml version="1.0"?>

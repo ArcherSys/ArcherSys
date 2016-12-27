@@ -9,7 +9,7 @@ use Sabre\DAVACL;
  *
  * This object lists a collection of users, which can contain addressbooks.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -18,7 +18,7 @@ class AddressBookRoot extends DAVACL\AbstractPrincipalCollection {
     /**
      * Principal Backend
      *
-     * @var Sabre\DAVACL\PrincipalBackend\BackendInteface
+     * @var DAVACL\PrincipalBackend\BackendInterface
      */
     protected $principalBackend;
 

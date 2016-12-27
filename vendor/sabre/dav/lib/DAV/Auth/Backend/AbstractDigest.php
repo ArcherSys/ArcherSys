@@ -2,8 +2,8 @@
 
 namespace Sabre\DAV\Auth\Backend;
 
-use Sabre\HTTP;
 use Sabre\DAV;
+use Sabre\HTTP;
 use Sabre\HTTP\RequestInterface;
 use Sabre\HTTP\ResponseInterface;
 
@@ -14,7 +14,7 @@ use Sabre\HTTP\ResponseInterface;
  * Most of the digest logic is handled, implementors just need to worry about
  * the getDigestHash method
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -105,7 +105,7 @@ abstract class AbstractDigest implements BackendInterface {
 
         // No username was given
         if (!$username) {
-            return [false, "No 'Authorization: Digest' header found. Either the client didn't send one, or the server is mis-configured"];
+            return [false, "No 'Authorization: Digest' header found. Either the client didn't send one, or the server is misconfigured"];
         }
 
         $hash = $this->getDigestHash($this->realm, $username);
@@ -144,7 +144,7 @@ abstract class AbstractDigest implements BackendInterface {
      * existing one.
      *
      * @param RequestInterface $request
-     * @param ResponseInterface $request
+     * @param ResponseInterface $response
      * @return void
      */
     function challenge(RequestInterface $request, ResponseInterface $response) {
@@ -155,7 +155,13 @@ abstract class AbstractDigest implements BackendInterface {
             $response
         );
         $auth->init();
+
+        $oldStatus = $response->getStatus() ?: 200;
         $auth->requireLogin();
+
+        // Preventing the digest utility from modifying the http status code,
+        // this should be handled by the main plugin.
+        $response->setStatus($oldStatus);
 
     }
 

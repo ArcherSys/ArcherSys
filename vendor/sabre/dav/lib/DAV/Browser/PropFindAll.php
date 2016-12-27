@@ -8,7 +8,7 @@ use Sabre\DAV\PropFind;
  * This class is used by the browser plugin to trick the system in returning
  * every defined property.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -28,7 +28,7 @@ class PropFindAll extends PropFind {
     /**
      * Handles a specific property.
      *
-     * This method checks wether the specified property was requested in this
+     * This method checks whether the specified property was requested in this
      * PROPFIND request, and if so, it will call the callback and use the
      * return value for it's value.
      *

@@ -2,10 +2,10 @@
 
 namespace Sabre\CardDAV\Xml\Request;
 
+use Sabre\CardDAV\Plugin;
+use Sabre\DAV\Exception\BadRequest;
 use Sabre\Xml\Reader;
 use Sabre\Xml\XmlDeserializable;
-use Sabre\DAV\Exception\BadRequest;
-use Sabre\CardDAV\Plugin;
 
 /**
  * AddressBookQueryReport request parser.
@@ -15,7 +15,7 @@ use Sabre\CardDAV\Plugin;
  *
  * http://tools.ietf.org/html/rfc6352#section-8.6
  *
- * @copyright Copyright (C) 2007-2013 Rooftop Solutions. All rights reserved.
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://www.rooftopsolutions.nl/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -27,6 +27,13 @@ class AddressBookQueryReport implements XmlDeserializable {
      * @var array
      */
     public $properties;
+
+    /**
+     * An array with requested vcard properties.
+     *
+     * @var array
+     */
+    public $addressDataProperties = [];
 
     /**
      * List of property/component filters.
@@ -92,7 +99,7 @@ class AddressBookQueryReport implements XmlDeserializable {
     /**
      * The deserialize method is called during xml parsing.
      *
-     * This method is called statictly, this is because in theory this method
+     * This method is called statically, this is because in theory this method
      * may be used as a type of constructor, or factory method.
      *
      * Often you want to return an instance of the current class, but you are

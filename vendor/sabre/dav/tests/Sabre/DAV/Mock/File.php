@@ -9,7 +9,7 @@ use Sabre\DAV;
  *
  * See the Collection in this directory for more details.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -18,19 +18,28 @@ class File extends DAV\File {
     protected $name;
     protected $contents;
     protected $parent;
+    protected $lastModified;
 
     /**
      * Creates the object
      *
      * @param string $name
-     * @param array $children
+     * @param resource $contents
+     * @param Collection $parent
+     * @param int $lastModified
      * @return void
      */
-    function __construct($name, $contents, Collection $parent = null) {
+    function __construct($name, $contents, Collection $parent = null, $lastModified = -1) {
 
         $this->name = $name;
         $this->put($contents);
         $this->parent = $parent;
+
+        if ($lastModified === -1) {
+            $lastModified = time();
+        }
+
+        $this->lastModified = $lastModified;
 
     }
 
@@ -48,11 +57,23 @@ class File extends DAV\File {
     }
 
     /**
+     * Changes the name of the node.
+     *
+     * @param string $name
+     * @return void
+     */
+    function setName($name) {
+
+        $this->name = $name;
+
+    }
+
+    /**
      * Updates the data
      *
      * The data argument is a readable stream resource.
      *
-     * After a succesful put operation, you may choose to return an ETag. The
+     * After a successful put operation, you may choose to return an ETag. The
      * etag must always be surrounded by double-quotes. These quotes must
      * appear in the actual string you're returning.
      *
@@ -91,19 +112,6 @@ class File extends DAV\File {
     }
 
     /**
-     * Changes the name of the node.
-     *
-     * @return void
-     */
-    function setName($newName) {
-
-        $this->parent->deleteChild($this->name);
-        $this->name = $newName;
-        $this->parent->createFile($newName, $this->contents);
-
-    }
-
-    /**
      * Returns the ETag for a file
      *
      * An ETag is a unique identifier representing the current version of the file. If the file changes, the ETag MUST change.
@@ -137,6 +145,18 @@ class File extends DAV\File {
     function delete() {
 
         $this->parent->deleteChild($this->name);
+
+    }
+
+    /**
+     * Returns the last modification time as a unix timestamp.
+     * If the information is not available, return null.
+     *
+     * @return int
+     */
+    function getLastModified() {
+
+        return $this->lastModified;
 
     }
 

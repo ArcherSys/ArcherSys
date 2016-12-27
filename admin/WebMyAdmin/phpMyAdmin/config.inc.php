@@ -1,4 +1,9 @@
 <?php
+
+require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
+use CarnosOS\Config\ConfigData;
+$config = ConfigData::getConfig();
+
 /*
  * This is needed for cookie based authentication to encrypt password in
  * cookie
@@ -17,8 +22,8 @@ $i++;
 
 /* Authentication type and info */
 $cfg['Servers'][$i]['auth_type'] = 'config';
-$cfg['Servers'][$i]['user'] = 'root';
-$cfg['Servers'][$i]['password'] = 'aco1234';
+$cfg['Servers'][$i]['user'] = $config["dbuser"];
+$cfg['Servers'][$i]['password'] = $config["dbpass"];
 $cfg['Servers'][$i]['extension'] = 'mysqli';
 $cfg['Servers'][$i]['AllowNoPassword'] = true;
 $cfg['Lang'] = '';

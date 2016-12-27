@@ -80,11 +80,9 @@ or die(mysql_error());
 
  			}
 
-
-
  // now we insert it into the database
 
- 	$insert = "INSERT INTO users (username, password, role)
+ 	$insert = "INSERT INTO users (username, password, Role)
 
  			VALUES ('".$_POST['username']."', '".$_POST['pass']."',2)";
 
@@ -114,7 +112,7 @@ echo " <p>Thank you, you have registered - you may now login</a>.</p> ";
               <input type="text" placeholder="Email" id="topText" required name="username"/>
               <input type="password" placeholder="Password" id="textBox" required name="pass"/>
               <input type="password" placeholder="Confirm password" id="botText" required name="pass2"/>
-            
+             <input type="file" name="profile"/>
               <input type="submit" name="submit"
 value="Register" id="loginButton">
             <a href="login.php" id="signUp">Already an account? <b>Login!</b></a>

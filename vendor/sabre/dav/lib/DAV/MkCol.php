@@ -16,7 +16,7 @@ namespace Sabre\DAV;
  * Property updates must always be atomic. This means that a property update
  * must either completely succeed, or completely fail.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -61,6 +61,7 @@ class MkCol extends PropPatch {
      * checked.
      *
      * @param string|string[] $resourceType
+     * @return bool
      */
     function hasResourceType($resourceType) {
 

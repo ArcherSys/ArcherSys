@@ -7,7 +7,7 @@ use Sabre\DAV;
 /**
  * Every CalDAV backend must at least implement this interface.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -70,7 +70,7 @@ interface SubscriptionSupport extends BackendInterface {
      * Calling the handle method is like telling the PropPatch object "I
      * promise I can handle updating this property".
      *
-     * Read the PropPatch documenation for more info and examples.
+     * Read the PropPatch documentation for more info and examples.
      *
      * @param mixed $subscriptionId
      * @param \Sabre\DAV\PropPatch $propPatch

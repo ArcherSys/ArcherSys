@@ -7,7 +7,7 @@ namespace Sabre\DAV;
  *
  * This interface should be implemented by each class that represents a collection
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -54,14 +54,14 @@ interface ICollection extends INode {
      * exist.
      *
      * @param string $name
-     * @return DAV\INode
+     * @return INode
      */
     function getChild($name);
 
     /**
      * Returns an array with all the child nodes
      *
-     * @return DAV\INode[]
+     * @return INode[]
      */
     function getChildren();
 

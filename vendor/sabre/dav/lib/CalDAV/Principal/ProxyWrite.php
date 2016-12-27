@@ -2,8 +2,8 @@
 
 namespace Sabre\CalDAV\Principal;
 
-use Sabre\DAVACL;
 use Sabre\DAV;
+use Sabre\DAVACL;
 
 /**
  * ProxyWrite principal
@@ -12,7 +12,7 @@ use Sabre\DAV;
  * This is needed to implement 'Calendar delegation' support. This class is
  * instantiated by User.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -84,8 +84,8 @@ class ProxyWrite implements IProxyWrite {
     /**
      * Renames the node
      *
-     * @throws DAV\Exception\Forbidden
      * @param string $name The new name
+     * @throws DAV\Exception\Forbidden
      * @return void
      */
     function setName($name) {

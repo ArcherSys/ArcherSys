@@ -45,7 +45,7 @@ if (isset($baseUri))
     $server->setBaseUri($baseUri);
 
 /* Server Plugins */
-$authPlugin = new Sabre\DAV\Auth\Plugin($authBackend, 'SabreDAV');
+$authPlugin = new Sabre\DAV\Auth\Plugin($authBackend);
 $server->addPlugin($authPlugin);
 
 $aclPlugin = new Sabre\DAVACL\Plugin();
@@ -67,6 +67,10 @@ $server->addPlugin(
 
 /* WebDAV-Sync plugin */
 $server->addPlugin(new Sabre\DAV\Sync\Plugin());
+
+/* CalDAV Sharing support */
+$server->addPlugin(new Sabre\DAV\Sharing\Plugin());
+$server->addPlugin(new Sabre\CalDAV\SharingPlugin());
 
 // Support for html frontend
 $browser = new Sabre\DAV\Browser\Plugin();

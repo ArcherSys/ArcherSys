@@ -14,7 +14,7 @@ use Sabre\Xml\Reader;
  *
  * https://tools.ietf.org/html/rfc4918#section-15.9
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -28,7 +28,7 @@ class ResourceType extends Element\Elements implements HtmlOutput {
      *
      * The resourcetype must be specified in clark-notation
      *
-     * @param array|string|null $resourceType
+     * @param array|string|null $resourceTypes
      */
     function __construct($resourceTypes = null) {
 
@@ -77,7 +77,7 @@ class ResourceType extends Element\Elements implements HtmlOutput {
     /**
      * The deserialize method is called during xml parsing.
      *
-     * This method is called statictly, this is because in theory this method
+     * This method is called statically, this is because in theory this method
      * may be used as a type of constructor, or factory method.
      *
      * Often you want to return an instance of the current class, but you are

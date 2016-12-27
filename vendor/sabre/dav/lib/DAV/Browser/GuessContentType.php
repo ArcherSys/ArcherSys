@@ -2,10 +2,10 @@
 
 namespace Sabre\DAV\Browser;
 
-use Sabre\HTTP\URLUtil;
 use Sabre\DAV;
-use Sabre\DAV\PropFind;
 use Sabre\DAV\Inode;
+use Sabre\DAV\PropFind;
+use Sabre\HTTP\URLUtil;
 
 /**
  * GuessContentType plugin
@@ -18,7 +18,7 @@ use Sabre\DAV\Inode;
  * so this extension does what the rest of the world does, and guesses it based
  * on the file extension.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */

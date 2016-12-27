@@ -7,13 +7,13 @@ namespace Sabre\DAV;
  * nodes may be moved into this collection".
  *
  * The benefit of this, is that sabre/dav will by default perform a move, by
- * tranfersing an entire directory tree, copying every collection, and deleting
+ * transferring an entire directory tree, copying every collection, and deleting
  * every item.
  *
  * If a backend supports a better optimized move operation, this can trigger
  * some huge speed gains.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */

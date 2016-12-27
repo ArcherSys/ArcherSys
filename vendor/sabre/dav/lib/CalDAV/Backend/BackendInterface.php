@@ -5,7 +5,7 @@ namespace Sabre\CalDAV\Backend;
 /**
  * Every CalDAV backend must at least implement this interface.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -44,10 +44,12 @@ interface BackendInterface {
      * If the creation was a success, an id must be returned that can be used to
      * reference this calendar in other methods, such as updateCalendar.
      *
+     * The id can be any type, including ints, strings, objects or array.
+     *
      * @param string $principalUri
      * @param string $calendarUri
      * @param array $properties
-     * @return void
+     * @return mixed
      */
     function createCalendar($principalUri, $calendarUri, array $properties);
 
@@ -63,7 +65,7 @@ interface BackendInterface {
      *
      * Read the PropPatch documentation for more info and examples.
      *
-     * @param string $path
+     * @param mixed $calendarId
      * @param \Sabre\DAV\PropPatch $propPatch
      * @return void
      */

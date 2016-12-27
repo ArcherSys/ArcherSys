@@ -16,7 +16,7 @@ use Sabre\HTTP\ResponseInterface;
  * $lockPlugin = new Sabre\DAV\Locks\Plugin($lockBackend);
  * $server->addPlugin($lockPlugin);
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -25,14 +25,14 @@ class Plugin extends DAV\ServerPlugin {
     /**
      * locksBackend
      *
-     * @var Backend\Backend\Interface
+     * @var Backend\BackendInterface
      */
     protected $locksBackend;
 
     /**
      * server
      *
-     * @var Sabre\DAV\Server
+     * @var DAV\Server
      */
     protected $server;
 
@@ -256,7 +256,7 @@ class Plugin extends DAV\ServerPlugin {
         $response->setStatus($newFile ? 201 : 200);
         $response->setBody($this->generateLockResponse($lockInfo));
 
-        // Returning false will interupt the event chain and mark this method
+        // Returning false will interrupt the event chain and mark this method
         // as 'handled'.
         return false;
 
@@ -409,6 +409,7 @@ class Plugin extends DAV\ServerPlugin {
      * must be present in the request, and reject requests without the proper
      * tokens.
      *
+     * @param RequestInterface $request
      * @param mixed $conditions
      * @return void
      */

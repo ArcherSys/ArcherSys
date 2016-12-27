@@ -67,7 +67,7 @@ class Section
     /**
      * Creates or re-opens a child section.
      *
-     * @param string|null $id null to create a new section, the identifier to re-open an existing one.
+     * @param string|null $id null to create a new section, the identifier to re-open an existing one
      *
      * @return Section A child section
      */
@@ -120,7 +120,7 @@ class Section
     }
 
     /**
-     * Checks if the event was started
+     * Checks if the event was started.
      *
      * @param string $name The event name
      *
@@ -164,7 +164,7 @@ class Section
     }
 
     /**
-     * Returns a specific event by name
+     * Returns a specific event by name.
      *
      * @param string $name The event name
      *

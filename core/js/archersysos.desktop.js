@@ -366,52 +366,7 @@ $(function() {
     toggleStart(e);
 
   });
-});
-$(document).mouseup(function(e) {
-    var start = $('.start-menu');
-    var startToggle = $('.taskbar__item--start');
-
-
-    if (start.is(':visible') && !startToggle.is(e.target) && startToggle.has(e.target).length === 0 && !start.is(e.target) && start.has(e.target).length === 0 ) {
-      toggleStart(e);
-      //alert('clicked outside start');
-    }
   
-  
-
-});
-
-
-
-
-// Current time
-$(function() {
-    $("#save-notes").click(function () {
-        $.post("includes/file.put.php", {
-            "contents": $(".full-textarea").val(),
-            "filename": prompt("File name:")
-        });
-
-        $.notify({
-            icon: 'favicon.ico',
-            title: 'ArcherSys OS Notepad',
-            message: 'Notes Saved.'
-        }, {
-            type: 'minimalist',
-            delay: 5000,
-            icon_type: 'image',
-            template: '<div data-notify="container" class="col-xs-11 col-sm-3 alert alert-{0}" role="alert">' +
-                '<img data-notify="icon" class="img-circle pull-left">' +
-                '<span data-notify="title">{1}</span>' +
-                '<span data-notify="message">{2}</span>' +
-                '</div>'
-        });
-
-        
-    });
-});
-
-$(function(){
         var d = new Date();
 
             var curr_hour = d.getHours();
@@ -468,7 +423,7 @@ $(function(){
 });
 $('.menu-toggle').each(function() {
   var menuName = $(this).data('menu');
-  var menu = $('.menu[data-menu="' + menuName + '"]');
+  var menu = $('.menu[data-menu=' + menuName + ']');
   var pos = $(this).position();
   var height = $(this).outerHeight();
   
@@ -483,7 +438,7 @@ $('.menu-toggle').each(function() {
    
   }
   
-
+  $(menu).hide();
   
   $(this).click(function(e) {
     e.preventDefault();
@@ -491,14 +446,61 @@ $('.menu-toggle').each(function() {
     $(menu).toggle();
   });
 });
-
-
 $(document).mouseup(function(e) {
-  if ( $('.menu').has(e.target).length === 0 && !$('.menu-toggle').is(e.target) && $('.menu-toggle').has(e.target).length === 0 ) {
-    $('.menu').hide();
-  }
+    var start = $('.start-menu');
+    var startToggle = $('.taskbar__item--start');
+
+
+    if (start.is(':visible') && !startToggle.is(e.target) && startToggle.has(e.target).length === 0 && !start.is(e.target) && start.has(e.target).length === 0 ) {
+      toggleStart(e);
+      //alert('clicked outside start');
+    }
+  
+  
+
 });
 
+
+
+
+// Current time
+$(function() {
+    $("#save-notes").click(function () {
+        $.post("includes/file.put.php", {
+            "contents": $(".full-textarea").val(),
+            "filename": prompt("File name:")
+        });
+
+        $.notify({
+            icon: 'favicon.ico',
+            title: 'ArcherSys OS Notepad',
+            message: 'Notes Saved.'
+        }, {
+            type: 'minimalist',
+            delay: 5000,
+            icon_type: 'image',
+            template: '<div data-notify="container" class="col-xs-11 col-sm-3 alert alert-{0}" role="alert">' +
+                '<img data-notify="icon" class="img-circle pull-left">' +
+                '<span data-notify="title">{1}</span>' +
+                '<span data-notify="message">{2}</span>' +
+                '</div>'
+        });
+
+        
+    });
+});
+
+$(function(){
+});
+
+
+
+
+/*$(document).mouseup(function(e) {
+ *  // $('.menu').hide();
+ * }
+*});
+*/
 $(".search__btn").click(function(){
     Malaika.Textual.processInput($("search__input").val());
 })

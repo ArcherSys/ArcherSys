@@ -2,8 +2,8 @@
 
 namespace Sabre\CalDAV;
 
-use Sabre\VObject;
 use DateTime;
+use Sabre\VObject;
 
 /**
  * CalendarQuery Validator
@@ -14,7 +14,7 @@ use DateTime;
  * This is used to determine which icalendar objects should be returned for a
  * calendar-query REPORT request.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -25,7 +25,7 @@ class CalendarQueryValidator {
      *
      * The list of filters must be formatted as parsed by \Sabre\CalDAV\CalendarQueryParser
      *
-     * @param VObject\Component $vObject
+     * @param VObject\Component\VCalendar $vObject
      * @param array $filters
      * @return bool
      */
@@ -59,7 +59,7 @@ class CalendarQueryValidator {
 
         foreach ($filters as $filter) {
 
-            $isDefined = isset($parent->$filter['name']);
+            $isDefined = isset($parent->{$filter['name']});
 
             if ($filter['is-not-defined']) {
 
@@ -75,7 +75,7 @@ class CalendarQueryValidator {
             }
 
             if ($filter['time-range']) {
-                foreach ($parent->$filter['name'] as $subComponent) {
+                foreach ($parent->{$filter['name']} as $subComponent) {
                     if ($this->validateTimeRange($subComponent, $filter['time-range']['start'], $filter['time-range']['end'])) {
                         continue 2;
                     }
@@ -89,7 +89,7 @@ class CalendarQueryValidator {
 
             // If there are sub-filters, we need to find at least one component
             // for which the subfilters hold true.
-            foreach ($parent->$filter['name'] as $subComponent) {
+            foreach ($parent->{$filter['name']} as $subComponent) {
 
                 if (
                     $this->validateCompFilters($subComponent, $filter['comp-filters']) &&
@@ -128,7 +128,7 @@ class CalendarQueryValidator {
 
         foreach ($filters as $filter) {
 
-            $isDefined = isset($parent->$filter['name']);
+            $isDefined = isset($parent->{$filter['name']});
 
             if ($filter['is-not-defined']) {
 
@@ -144,7 +144,7 @@ class CalendarQueryValidator {
             }
 
             if ($filter['time-range']) {
-                foreach ($parent->$filter['name'] as $subComponent) {
+                foreach ($parent->{$filter['name']} as $subComponent) {
                     if ($this->validateTimeRange($subComponent, $filter['time-range']['start'], $filter['time-range']['end'])) {
                         continue 2;
                     }
@@ -158,7 +158,7 @@ class CalendarQueryValidator {
 
             // If there are sub-filters, we need to find at least one property
             // for which the subfilters hold true.
-            foreach ($parent->$filter['name'] as $subComponent) {
+            foreach ($parent->{$filter['name']} as $subComponent) {
 
                 if (
                     $this->validateParamFilters($subComponent, $filter['param-filters']) &&

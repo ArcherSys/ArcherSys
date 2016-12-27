@@ -164,7 +164,7 @@ if ($info["Disabled"] == 1) {
   setcookie('ScreenName_ARCHERVMCASHEW', $info["first_name"]." ".$info["last_name"], $hour);
 
  setcookie('Role_ARCHERVMCASHEW', $role, $hour);
-setcookie('ProfilePicture_ARCHERVMCASHEW',$info["profile_image"],$hour);
+setcookie('ProfilePicture_ARCHERVMCASHEW',$info["ProfilePicture"],$hour);
 setcookie('Nickname_ARCHERVMCASHEW',$info["first_name"],$hour);
 
 

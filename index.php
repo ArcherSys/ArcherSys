@@ -8,7 +8,7 @@ require_once "includes\AuthenticatorBuilder.php";
   require_once "includes\StyleSheetManager.php";
   require_once "includes\DateManager.php";
   require_once "includes\LogicManager.php";
-  use ArcherSys\Viewer\ViewManager;
+  use CarnosOS\Viewer\ViewManager;
   use ArcherSys\Data\DataManager;
   use ArcherSys\Viewer\LogicManager;
 
@@ -200,17 +200,17 @@ try{
         ArcherSysOS.$(window).bind('online', function() {
             condition = "online";
             ArcherSysOS.Notidar.pushOnlineNotification();
-            console.info("[ArcherSysOS]: Internet Access Detected");
+            console.info("[CarnosOS]: Internet Access Detected");
         });
         ArcherSysOS.$(window).bind('offline', function() {
             
             ArcherSysOS.Notidar.pushOfflineNotification();
-            console.info("[ArcherSysOS]: Disconnected from the Internet.");
+            console.info("[CarnosOS]: Disconnected from the Internet.");
         });
         });
         
         }catch(e){
-         console.log("[ArcherSysOS]: Notifications Disabled");
+         console.log("[CarnosOS]: Notifications Disabled");
         }
 </script>
 
@@ -234,12 +234,9 @@ try{
   ?>
 					<div class="module purple double img w">
 						<h2 class="title">Home</h2>
-					<p class="subheading"> <a href="main.php">Welcome to the new ArcherSys UI !</a> </p>
+					<p class="subheading"> <a href="desktop.php">Welcome to the new CarnosOS UI !</a> </p>
 					</div>
-					<a href="https://www.flowdock.com/oauth/authorize?client_id=ce74f931ded75f964c9e98c3676ff5dfdfee64d5fb41178f801882029e4d2f00&redirect_uri=http%3A%2F%2Flocalhost%3A80&response_type=code"><div class="module purple double img w">
-						<h2 class="title">Sign in to Flowdock</h2>
-					<p class="subheading"> <a href="main.php">Log in to Flowdock!</a> </p>
-					</div></a>
+					
 <div class="module midblue double img twitter">
    <h2 class="title">Wordpress</h2>
  <p class="subheading"> <a href="archersocial">Access your social center</a></p>

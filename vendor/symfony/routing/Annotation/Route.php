@@ -34,7 +34,7 @@ class Route
     /**
      * Constructor.
      *
-     * @param array $data An array of key/value parameters.
+     * @param array $data An array of key/value parameters
      *
      * @throws \BadMethodCallException
      */
@@ -48,30 +48,10 @@ class Route
         foreach ($data as $key => $value) {
             $method = 'set'.str_replace('_', '', $key);
             if (!method_exists($this, $method)) {
-                throw new \BadMethodCallException(sprintf("Unknown property '%s' on annotation '%s'.", $key, get_class($this)));
+                throw new \BadMethodCallException(sprintf('Unknown property "%s" on annotation "%s".', $key, get_class($this)));
             }
             $this->$method($value);
         }
-    }
-
-    /**
-     * @deprecated since version 2.2, to be removed in 3.0. Use setPath instead.
-     */
-    public function setPattern($pattern)
-    {
-        trigger_error('The '.__METHOD__.' method is deprecated since version 2.2 and will be removed in 3.0. Use the setPath() method instead and use the "path" option instead of the "pattern" option in the route definition.', E_USER_DEPRECATED);
-
-        $this->path = $pattern;
-    }
-
-    /**
-     * @deprecated since version 2.2, to be removed in 3.0. Use getPath instead.
-     */
-    public function getPattern()
-    {
-        trigger_error('The '.__METHOD__.' method is deprecated since version 2.2 and will be removed in 3.0. Use the getPath() method instead and use the "path" option instead of the "pattern" option in the route definition.', E_USER_DEPRECATED);
-
-        return $this->path;
     }
 
     public function setPath($path)

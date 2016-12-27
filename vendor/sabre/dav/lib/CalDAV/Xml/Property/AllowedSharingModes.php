@@ -2,9 +2,9 @@
 
 namespace Sabre\CalDAV\Xml\Property;
 
-use Sabre\Xml\XmlSerializable;
-use Sabre\Xml\Writer;
 use Sabre\CalDAV\Plugin;
+use Sabre\Xml\Writer;
+use Sabre\Xml\XmlSerializable;
 
 /**
  * AllowedSharingModes
@@ -18,7 +18,7 @@ use Sabre\CalDAV\Plugin;
  * such as VEVENT, VTODO
  *
  * @see https://trac.calendarserver.org/browser/CalendarServer/trunk/doc/Extensions/caldav-sharing-02.txt
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://www.rooftopsolutions.nl/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -53,12 +53,12 @@ class AllowedSharingModes implements XmlSerializable {
     }
 
     /**
-     * The xmlSerialize metod is called during xml writing.
+     * The xmlSerialize method is called during xml writing.
      *
      * Use the $writer argument to write its own xml serialization.
      *
      * An important note: do _not_ create a parent element. Any element
-     * implementing XmlSerializble should only ever write what's considered
+     * implementing XmlSerializable should only ever write what's considered
      * its 'inner xml'.
      *
      * The parent of the current element is responsible for writing a

@@ -11,6 +11,8 @@
 
 namespace Symfony\Component\Config;
 
+use Symfony\Component\Config\Exception\FileLocatorFileNotFoundException;
+
 /**
  * FileLocator uses an array of pre-defined paths to find files.
  *
@@ -41,22 +43,23 @@ class FileLocator implements FileLocatorInterface
 
         if ($this->isAbsolutePath($name)) {
             if (!file_exists($name)) {
-                throw new \InvalidArgumentException(sprintf('The file "%s" does not exist.', $name));
+                throw new FileLocatorFileNotFoundException(sprintf('The file "%s" does not exist.', $name));
             }
 
             return $name;
         }
 
-        $filepaths = array();
-        if (null !== $currentPath && file_exists($file = $currentPath.DIRECTORY_SEPARATOR.$name)) {
-            if (true === $first) {
-                return $file;
-            }
-            $filepaths[] = $file;
+        $paths = $this->paths;
+
+        if (null !== $currentPath) {
+            array_unshift($paths, $currentPath);
         }
 
-        foreach ($this->paths as $path) {
-            if (file_exists($file = $path.DIRECTORY_SEPARATOR.$name)) {
+        $paths = array_unique($paths);
+        $filepaths = array();
+
+        foreach ($paths as $path) {
+            if (@file_exists($file = $path.DIRECTORY_SEPARATOR.$name)) {
                 if (true === $first) {
                     return $file;
                 }
@@ -65,10 +68,10 @@ class FileLocator implements FileLocatorInterface
         }
 
         if (!$filepaths) {
-            throw new \InvalidArgumentException(sprintf('The file "%s" does not exist (in: %s%s).', $name, null !== $currentPath ? $currentPath.', ' : '', implode(', ', $this->paths)));
+            throw new FileLocatorFileNotFoundException(sprintf('The file "%s" does not exist (in: %s).', $name, implode(', ', $paths)));
         }
 
-        return array_values(array_unique($filepaths));
+        return $filepaths;
     }
 
     /**

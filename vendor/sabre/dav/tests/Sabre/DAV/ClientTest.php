@@ -9,11 +9,19 @@ require_once 'Sabre/DAV/ClientMock.php';
 
 class ClientTest extends \PHPUnit_Framework_TestCase {
 
+    function setUp() {
+
+        if (!function_exists('curl_init')) {
+            $this->markTestSkipped('CURL must be installed to test the client');
+        }
+
+    }
+
     function testConstruct() {
 
-        $client = new ClientMock(array(
+        $client = new ClientMock([
             'baseUri' => '/',
-        ));
+        ]);
         $this->assertInstanceOf('Sabre\DAV\ClientMock', $client);
 
     }
@@ -23,14 +31,14 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
      */
     function testConstructNoBaseUri() {
 
-        $client = new ClientMock(array());
+        $client = new ClientMock([]);
 
     }
 
     function testAuth() {
 
         $client = new ClientMock([
-            'baseUri' => '/',
+            'baseUri'  => '/',
             'userName' => 'foo',
             'password' => 'bar',
         ]);
@@ -43,7 +51,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
     function testBasicAuth() {
 
         $client = new ClientMock([
-            'baseUri' => '/',
+            'baseUri'  => '/',
             'userName' => 'foo',
             'password' => 'bar',
             'authType' => Client::AUTH_BASIC
@@ -57,7 +65,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
     function testDigestAuth() {
 
         $client = new ClientMock([
-            'baseUri' => '/',
+            'baseUri'  => '/',
             'userName' => 'foo',
             'password' => 'bar',
             'authType' => Client::AUTH_DIGEST
@@ -68,12 +76,25 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
 
     }
 
+    function testNTLMAuth() {
+
+        $client = new ClientMock([
+            'baseUri'  => '/',
+            'userName' => 'foo',
+            'password' => 'bar',
+            'authType' => Client::AUTH_NTLM
+        ]);
+
+        $this->assertEquals("foo:bar", $client->curlSettings[CURLOPT_USERPWD]);
+        $this->assertEquals(CURLAUTH_NTLM, $client->curlSettings[CURLOPT_HTTPAUTH]);
+
+    }
 
     function testProxy() {
 
         $client = new ClientMock([
             'baseUri' => '/',
-            'proxy' => 'localhost:8888',
+            'proxy'   => 'localhost:8888',
         ]);
 
         $this->assertEquals("localhost:8888", $client->curlSettings[CURLOPT_PROXY]);
@@ -83,7 +104,7 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
     function testEncoding() {
 
         $client = new ClientMock([
-            'baseUri' => '/',
+            'baseUri'  => '/',
             'encoding' => Client::ENCODING_IDENTITY | Client::ENCODING_GZIP | Client::ENCODING_DEFLATE,
         ]);
 
@@ -100,20 +121,20 @@ class ClientTest extends \PHPUnit_Framework_TestCase {
         $responseBody = <<<XML
 <?xml version="1.0"?>
 <multistatus xmlns="DAV:">
-<response>
-  <href>/foo</href>
-  <propstat>
-    <prop>
-      <displayname>bar</displayname>
-    </prop>
-    <status>HTTP/1.1 200 OK</status>
-  </propstat>
-</response>
+  <response>
+    <href>/foo</href>
+    <propstat>
+      <prop>
+        <displayname>bar</displayname>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
 </multistatus>
 XML;
 
         $client->response = new Response(207, [], $responseBody);
-        $result = $client->propfind('foo', ['{DAV:}displayname', '{urn:zim}gir']);
+        $result = $client->propFind('foo', ['{DAV:}displayname', '{urn:zim}gir']);
 
         $this->assertEquals(['{DAV:}displayname' => 'bar'], $result);
 
@@ -121,14 +142,14 @@ XML;
         $this->assertEquals('PROPFIND', $request->getMethod());
         $this->assertEquals('/foo', $request->getUrl());
         $this->assertEquals([
-            'Depth' => ['0'],
+            'Depth'        => ['0'],
             'Content-Type' => ['application/xml'],
         ], $request->getHeaders());
 
     }
 
     /**
-     * @expectedException \Sabre\DAV\Exception
+     * @expectedException \Sabre\HTTP\ClientHttpException
      */
     function testPropFindError() {
 
@@ -137,7 +158,7 @@ XML;
         ]);
 
         $client->response = new Response(405, []);
-        $client->propfind('foo', ['{DAV:}displayname', '{urn:zim}gir']);
+        $client->propFind('foo', ['{DAV:}displayname', '{urn:zim}gir']);
 
     }
 
@@ -150,20 +171,20 @@ XML;
         $responseBody = <<<XML
 <?xml version="1.0"?>
 <multistatus xmlns="DAV:">
-<response>
-  <href>/foo</href>
-  <propstat>
-    <prop>
-      <displayname>bar</displayname>
-    </prop>
-    <status>HTTP/1.1 200 OK</status>
-  </propstat>
-</response>
+  <response>
+    <href>/foo</href>
+    <propstat>
+      <prop>
+        <displayname>bar</displayname>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
 </multistatus>
 XML;
 
         $client->response = new Response(207, [], $responseBody);
-        $result = $client->propfind('foo', ['{DAV:}displayname', '{urn:zim}gir'], 1);
+        $result = $client->propFind('foo', ['{DAV:}displayname', '{urn:zim}gir'], 1);
 
         $this->assertEquals([
             '/foo' => [
@@ -175,7 +196,7 @@ XML;
         $this->assertEquals('PROPFIND', $request->getMethod());
         $this->assertEquals('/foo', $request->getUrl());
         $this->assertEquals([
-            'Depth' => ['1'],
+            'Depth'        => ['1'],
             'Content-Type' => ['application/xml'],
         ], $request->getHeaders());
 
@@ -190,26 +211,72 @@ XML;
         $responseBody = <<<XML
 <?xml version="1.0"?>
 <multistatus xmlns="DAV:">
-<response>
-  <href>/foo</href>
-  <propstat>
-    <prop>
-      <displayname>bar</displayname>
-    </prop>
-    <status>HTTP/1.1 200 OK</status>
-  </propstat>
-</response>
+  <response>
+    <href>/foo</href>
+    <propstat>
+      <prop>
+        <displayname>bar</displayname>
+      </prop>
+      <status>HTTP/1.1 200 OK</status>
+    </propstat>
+  </response>
 </multistatus>
 XML;
 
         $client->response = new Response(207, [], $responseBody);
-        $result = $client->propPatch('foo', ['{DAV:}displayname' => 'hi', '{urn:zim}gir' => null], 1);
+        $result = $client->propPatch('foo', ['{DAV:}displayname' => 'hi', '{urn:zim}gir' => null]);
+        $this->assertTrue($result);
         $request = $client->request;
         $this->assertEquals('PROPPATCH', $request->getMethod());
         $this->assertEquals('/foo', $request->getUrl());
         $this->assertEquals([
             'Content-Type' => ['application/xml'],
         ], $request->getHeaders());
+
+    }
+
+    /**
+     * @depends testPropPatch
+     * @expectedException \Sabre\HTTP\ClientHttpException
+     */
+    function testPropPatchHTTPError() {
+
+        $client = new ClientMock([
+            'baseUri' => '/',
+        ]);
+
+        $client->response = new Response(403, [], '');
+        $client->propPatch('foo', ['{DAV:}displayname' => 'hi', '{urn:zim}gir' => null]);
+
+    }
+
+    /**
+     * @depends testPropPatch
+     * @expectedException Sabre\HTTP\ClientException
+     */
+    function testPropPatchMultiStatusError() {
+
+        $client = new ClientMock([
+            'baseUri' => '/',
+        ]);
+
+        $responseBody = <<<XML
+<?xml version="1.0"?>
+<multistatus xmlns="DAV:">
+<response>
+  <href>/foo</href>
+  <propstat>
+    <prop>
+      <displayname />
+    </prop>
+    <status>HTTP/1.1 403 Forbidden</status>
+  </propstat>
+</response>
+</multistatus>
+XML;
+
+        $client->response = new Response(207, [], $responseBody);
+        $client->propPatch('foo', ['{DAV:}displayname' => 'hi', '{urn:zim}gir' => null]);
 
     }
 

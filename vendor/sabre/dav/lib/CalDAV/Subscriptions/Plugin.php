@@ -4,8 +4,8 @@ namespace Sabre\CalDAV\Subscriptions;
 
 use Sabre\DAV\INode;
 use Sabre\DAV\PropFind;
-use Sabre\DAV\ServerPlugin;
 use Sabre\DAV\Server;
+use Sabre\DAV\ServerPlugin;
 
 /**
  * This plugin adds calendar-subscription support to your CalDAV server.
@@ -13,7 +13,7 @@ use Sabre\DAV\Server;
  * Some clients support 'managed subscriptions' server-side. This is basically
  * a list of subscription urls a user is using.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -59,6 +59,8 @@ class Plugin extends ServerPlugin {
     /**
      * Triggered after properties have been fetched.
      *
+     * @param PropFind $propFind
+     * @param INode $node
      * @return void
      */
     function propFind(PropFind $propFind, INode $node) {

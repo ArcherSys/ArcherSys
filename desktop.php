@@ -26,9 +26,6 @@ $config = ConfigData::getConfig();
  //checks cookies to make sure they are logged in
 
 
-$conn = ftp_connect($config["ftphost"]);
-ftp_login($conn,"root","aco1234");
-
  
 if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 
@@ -61,7 +58,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
  	else
 
  			{
- $desktopRes = mysql_query("SELECT * FROM currentdesktopapplications WHERE username = '$username'")or die(mysql_error());
+ $desktopRes = mysql_query("SELECT * FROM currentdesktopapplications WHERE `username` = '$username'")or die(mysql_error());
 
   
 ?>
@@ -85,14 +82,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
 </head>
 <body>
 <div class="desktop">
-    <ul>
-      <li class="desktop-icon"><span class="folder"></span><span class="folder-tab"></span><span class="folder-name">CodePen</span></li>
-      <li class="desktop-icon"><span class="folder"></span><span class="folder-tab"></span><span class="folder-name">Portfolio</span></li>
-      <li class="desktop-icon"><span class="folder"></span><span class="folder-tab"></span><span class="folder-name">Contact</span></li>
-      <li class="desktop-icon"><span class="folder"></span><span class="folder-tab"></span><span class="folder-name">MyJamz</span></li>
-      <li class="desktop-icon"><span class="folder"></span><span class="folder-tab"></span><span class="folder-name">Pics</span></li>
-      <li class="desktop-icon"><span class="folder"></span><span class="folder-tab"></span><span class="folder-name">Junk</span></li>
-    </ul>
+    
   <div class="start-menu-fade"></div>
   <div class="start-menu">
     <div class="start-menu__list">
@@ -100,17 +90,17 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
         <a class="user-info menu-toggle" href="#" data-menu="user">
           <img class="user-info__img media__img" src="http://i.imgur.com/KkCqvK9.png" alt="User image">
           <div class="user-info__name media__body">
-           <?php echo $_COOKIE["ScreenName_ARCHERVMCASHEW"]; ?>
+           <?php echo $_COOKIE["ScreenName_ARCHERVMCASHEW"] || "No Name"; ?>
           </div>
+
         </a>
-        <div class="menu" data-menu="user">
+        <div class="menu" data-menu=user>
           <a href="#">Change account picture</a>
           <a href="#">Lock</a>
           <a href="#">Sign out</a>
         </div>
-        <a class="user-info__power menu-toggle" href="#" data-menu="power">
+        <a class="user-info__power menu-toggle"  data-menu="power">
           <i class="fa fa-power-off"></i>
-
         </a>
       </div>
 
@@ -239,9 +229,8 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
  		{
 ?>
  
-  <div class="<?php echo "window window--".$desktopData["windowclass"]." window--minimized"; ?>" data-window="<?php echo $desktopData["window_name"]; ?>" style="width:670px;height:400px;top:5%;left:10%;">
+  <div class="<?php echo "window window--".$desktopData["windowclass"]; ?>" data-window="<?php echo $desktopData["window_name"]; ?>" style="width:670px;height:400px;top:5%;left:10%;">
       <div class="window__titlebar">
-          
       <div class="window__controls window__controls--left">
         <a class="window__icon" href="#"><i class="<?php echo "fa fa-".$desktopData["icon"]; ?>"></i></a>
         <a class="window__menutoggle" href="#"><i class="fa fa-bars"></i></a>
@@ -254,16 +243,43 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
         <a class="window__maximize" href="#"><i class="fa"></i></a>
         <a class="window__close" href="#"><i class="fa fa-close"></i></a>
       </div>
-      
-      
       </div>
       <ul class="window__menu">
-          <li>
-              
-          </li>
+          
       </ul>
       <div class="window__body">
-          <?php echo $desktopData["window_contents"]; ?>
+      <div class="window__main"><?php
+      if($desktopData["window_name"] == "explorer"){
+?>
+        <div class="folders">
+
+ <?php foreach(ftp_nlist($conn,".") as $item){
+                echo "<a href='${item}'>";
+                if(is_dir($item)){
+                    ?>
+                
+         
+            <i class="fa fa-folder"></i>
+           
+        
+         <?php
+                }else{
+                    
+                ?>
+            <i class="fa fa-file"></i>
+           
+         
+          <?php
+                }
+                ?>
+                 <span><?php echo $item; ?></span>
+                 </a>
+                 <?php
+            }
+                ?>
+                </div>
+<?php
+        }else{ echo $desktopData["window_contents"]; }?></div>
       </div>
   </div>
   <?php
@@ -273,6 +289,158 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
     
     
     
+    
+<div class="window window--cplive window--minimized" data-window="cplive" width:670px;height:400px;top:5%;left:10%;>
+      <div class="window__titlebar">
+          
+      <div class="window__controls window__controls--left">
+        <a class="window__icon" href="#"><i class="fa fa-gamepad"></i></a>
+        <a class="window__menutoggle" href="#"><i class="fa fa-bars"></i></a>
+      </div>
+      <span class="window__title">
+          Capital Pursuit Live
+      </span>
+      <div class="window__controls window__controls--right">
+        <a class="window__minimize" href="#"><i class="fa fa-minus"></i></a>
+        <a class="window__maximize" href="#"><i class="fa"></i></a>
+        <a class="window__close" href="#"><i class="fa fa-close"></i></a>
+      </div>
+      
+      
+      </div>
+      <ul class="window__menu">
+          <li>
+              <a href="#">
+                  <i class="menu_icon fa fa-gamepad"></i>
+                  Open Games
+              </a>
+          </li>
+      </ul>
+      <div class="window__body">
+          <div class="window__main">Welcome To CPLive</div>
+      </div>
+  </div>
+  
+    
+     <div class="window window--mail" data-window="mail" style="display:none;width:400px;height:300px;top:40%;left:40%;">
+    <div class="window__titlebar">
+      <div class="window__controls window__controls--left">
+        <a class="window__icon" href="#"><i class="fa fa-envelope"></i></a>
+        <a class="window__menutoggle" href="#"><i class="fa fa-bars"></i></a>
+      </div>
+      
+      
+      
+      <span class="window__title">
+        Mail
+      </span>
+      
+      <div class="window__controls window__controls--right">
+        <a class="window__minimize" href="#"><i class="fa fa-minus"></i></a>
+        <a class="window__maximize" href="#"><i class="fa"></i></a>
+        <a class="window__close" href="#"><i class="fa fa-close"></i></a>
+      </div>
+    </div>
+    
+    <ul class="window__menu">
+        <li>
+          <a href="#">
+            <i class="menu__icon fa fa-search"></i>
+            Search
+          </a>
+        </li>
+        <li>
+          <a href="#">
+            <i class="menu__icon fa fa-share-alt"></i>
+            Share
+          </a>
+        </li>
+        <li>
+          <a href="#">
+            <i class="menu__icon fa fa-plug"></i>
+            Devices
+          </a>
+        </li>
+        <li class="divided">
+          <a href="#">
+            <i class="menu__icon fa fa-cog"></i>
+            Settings
+          </a>
+        </li>
+      </ul>
+    
+    <div class="window__body">
+      <div class="window__side">
+        
+      </div>
+      <div class="window__main">
+        
+      </div>
+    </div>
+    
+  </div>
+    <div class="window window--pdfl" data-window="pdfl" style="display:none;width:600px;height:300px;top:10%;left:30%;">
+    <div class="window__titlebar">
+      <div class="window__controls window__controls--left">
+        <a class="window__icon" href="#"><i class="fa fa-pencil"></i></a>
+        <a class="window__menutoggle" href="#"><i class="fa fa-bars"></i></a>
+      </div>
+      
+      
+      
+      <span class="window__title">
+         PDFLint
+      </span>
+      
+      <div class="window__controls window__controls--right">
+        <a class="window__minimize" href="#"><i class="fa fa-minus"></i></a>
+        <a class="window__maximize" href="#"><i class="fa"></i></a>
+        <a class="window__close" href="#"><i class="fa fa-close"></i></a>
+      </div>
+    </div>
+    
+    <ul class="window__menu">
+        
+        <li>
+          <a href="#">
+            <i class="menu__icon fa fa-folder-open"></i>
+            Open
+          </a>
+        </li>
+        <li>
+          <a href="#">
+            <i class="menu__icon fa fa-print"></i>
+            Print
+          </a>
+        </li>
+      <li>
+          <a href="#">
+            <i class="menu__icon fa fa-share-alt"></i>
+            Share
+          </a>
+        </li>
+      
+        <li class="divided">
+          <a href="#">
+            <i class="menu__icon fa fa-file"></i>
+            Format
+          </a>
+      </li>
+      <li>
+          <a href="#">
+            <i class="menu__icon fa fa-cog"></i>
+            Settings
+        </a>
+      </li>
+   </ul>
+    
+    <div class="window__body">
+      <div class="window__main">
+        <iframe width="100%" height="800" src="/Producktiviti/PDFLint/"></iframe>
+      </div>
+    </div>
+    
+  </div>
     
  <div class="window window--notepad" data-window="notepad" style="display:none;width:600px;height:300px;top:10%;left:30%;">
     <div class="window__titlebar">
@@ -345,6 +513,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']))
     
     
 </div>
+
 
   
 

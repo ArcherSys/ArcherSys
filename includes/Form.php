@@ -1,31 +1,15 @@
 <?php
 namespace ArcherSys\UserInput;
 class Form{
-	public $fields;
-<<<<<<< HEAD
-}
-class TextInput{
-=======
-        function __construct($action,$submit,$method){
-  $this->action = $action;
- $this->fields = array();
-$this->submit = $submit;
-$this->method = $method;
- }
-function addField(Field $field){
+	public $fields = array();
+  public $action;
+  public $method = "POST";
+  public function __construct($action,$submit){
+    $this->action = $action;
+    $this->submit = $submit;
+  }
+  function addField(Field $field){
   array_push($this->fields,$field);
-
-}
-function __toString(){
-$formstr = "<form action='".$this->action."' method='".$this->method."' >";
-
-for($i = 0; $i < count($this->fields); $i++){
-$formstr .= $this->fields[$i];
-}
-if(isset($this->submit)){
-$formstr .= '<input type="submit" value="'.$this->submit.'"></form>';
-}
-return $formstr;
 
 }
 
@@ -57,7 +41,6 @@ class FileInput extends Field{
     }
 }
 class TextInput extends Field{
->>>>>>> 5e7b2c757565054acf1b6acdbff6480e574a8d68
 	function __construct($name,$placeholder,$maxlength){
 		$this->name = $name;
 		$this->placeholder = $placeholder;
@@ -65,14 +48,10 @@ class TextInput extends Field{
 	}
 	
 	function __toString(){
-<<<<<<< HEAD
 		return '<input type="text" placeholder="'.$this->placeholder.'" maxlength="'.$this->maxlength.'" autofocus>';
 	}
 }
-=======
-		return '<input type="text" name="'.$this->name.'" placeholder="'.$this->placeholder.'" maxlength="'.$this->maxlength.'" autofocus>';
-	}
-}
+
 class NumberInput extends Field{
  function __construct($name,$min,$max){
      $this->name = $name;
@@ -116,4 +95,3 @@ class OptionItem{
     }
 }
 
->>>>>>> 5e7b2c757565054acf1b6acdbff6480e574a8d68

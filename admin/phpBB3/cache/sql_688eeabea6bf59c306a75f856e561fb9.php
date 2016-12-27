@@ -1,0 +1,5 @@
+<?php exit; ?>
+1482850000
+SELECT m.*, u.user_colour, g.group_colour, g.group_type FROM (abb_moderator_cache m) LEFT JOIN abb_users u ON (m.user_id = u.user_id) LEFT JOIN abb_groups g ON (m.group_id = g.group_id) WHERE m.display_on_index = 1
+6
+a:0:{}

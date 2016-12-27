@@ -12,7 +12,7 @@ use Sabre\HTTP\ResponseInterface;
  *
  * This should allow easy debugging of PROPFIND
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -21,7 +21,7 @@ class MapGetToPropFind extends DAV\ServerPlugin {
     /**
      * reference to server class
      *
-     * @var Sabre\DAV\Server
+     * @var DAV\Server
      */
     protected $server;
 

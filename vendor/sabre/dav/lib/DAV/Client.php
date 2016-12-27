@@ -3,6 +3,7 @@
 namespace Sabre\DAV;
 
 use Sabre\HTTP;
+use Sabre\Uri;
 
 /**
  * SabreDAV DAV client
@@ -12,7 +13,7 @@ use Sabre\HTTP;
  *
  * NOTE: This class is experimental, it's api will likely change in the future.
  *
- * @copyright Copyright (C) 2007-2015 fruux GmbH (https://fruux.com/).
+ * @copyright Copyright (C) fruux GmbH (https://fruux.com/)
  * @author Evert Pot (http://evertpot.com/)
  * @license http://sabre.io/license/ Modified BSD License
  */
@@ -38,6 +39,13 @@ class Client extends HTTP\Client {
      */
     public $propertyMap = [];
 
+    /**
+     * Base URI
+     *
+     * This URI will be used to resolve relative urls.
+     *
+     * @var string
+     */
     protected $baseUri;
 
     /**
@@ -49,6 +57,11 @@ class Client extends HTTP\Client {
      * Digest authentication
      */
     const AUTH_DIGEST = 2;
+
+    /**
+     * NTLM authentication
+     */
+    const AUTH_NTLM = 4;
 
     /**
      * Identity encoding, which basically does not nothing.
@@ -90,8 +103,8 @@ class Client extends HTTP\Client {
      *   * authType (optional)
      *   * encoding (optional)
      *
-     *  authType must be a bitmap, using self::AUTH_BASIC and
-     *  self::AUTH_DIGEST. If you know which authentication method will be
+     *  authType must be a bitmap, using self::AUTH_BASIC, self::AUTH_DIGEST
+     *  and self::AUTH_NTLM. If you know which authentication method will be
      *  used, it's recommended to set it, as it will save a great deal of
      *  requests to 'discover' this information.
      *
@@ -125,6 +138,9 @@ class Client extends HTTP\Client {
                 if ($settings['authType'] & self::AUTH_DIGEST) {
                     $curlType |= CURLAUTH_DIGEST;
                 }
+                if ($settings['authType'] & self::AUTH_NTLM) {
+                    $curlType |= CURLAUTH_NTLM;
+                }
             } else {
                 $curlType = CURLAUTH_BASIC | CURLAUTH_DIGEST;
             }
@@ -149,6 +165,8 @@ class Client extends HTTP\Client {
             }
             $this->addCurlSetting(CURLOPT_ENCODING, implode(',', $encodings));
         }
+
+        $this->addCurlSetting(CURLOPT_USERAGENT, 'sabre-dav/' . Version::VERSION . ' (http://sabre.io/)');
 
         $this->xml = new Xml\Service();
         // BC
@@ -213,7 +231,7 @@ class Client extends HTTP\Client {
         $response = $this->send($request);
 
         if ((int)$response->getStatus() >= 400) {
-            throw new Exception('HTTP error: ' . $response->getStatus());
+            throw new HTTP\ClientHttpException($response);
         }
 
         $result = $this->parseMultiStatus($response->getBodyAsString());
@@ -245,7 +263,7 @@ class Client extends HTTP\Client {
      *
      * @param string $url
      * @param array $properties
-     * @return void
+     * @return bool
      */
     function propPatch($url, array $properties) {
 
@@ -260,7 +278,36 @@ class Client extends HTTP\Client {
         $request = new HTTP\Request('PROPPATCH', $url, [
             'Content-Type' => 'application/xml',
         ], $xml);
-        $this->send($request);
+        $response = $this->send($request);
+
+        if ($response->getStatus() >= 400) {
+            throw new HTTP\ClientHttpException($response);
+        }
+
+        if ($response->getStatus() === 207) {
+            // If it's a 207, the request could still have failed, but the
+            // information is hidden in the response body.
+            $result = $this->parseMultiStatus($response->getBodyAsString());
+
+            $errorProperties = [];
+            foreach ($result as $href => $statusList) {
+                foreach ($statusList as $status => $properties) {
+
+                    if ($status >= 400) {
+                        foreach ($properties as $propName => $propValue) {
+                            $errorProperties[] = $propName . ' (' . $status . ')';
+                        }
+                    }
+
+                }
+            }
+            if ($errorProperties) {
+
+                throw new HTTP\ClientException('PROPPATCH failed. The following properties errored: ' . implode(', ', $errorProperties));
+            }
+        }
+        return true;
+
     }
 
     /**
@@ -341,20 +388,10 @@ class Client extends HTTP\Client {
      */
     function getAbsoluteUrl($url) {
 
-        // If the url starts with http:// or https://, the url is already absolute.
-        if (preg_match('/^http(s?):\/\//', $url)) {
-            return $url;
-        }
-
-        // If the url starts with a slash, we must calculate the url based off
-        // the root of the base url.
-        if (strpos($url, '/') === 0) {
-            $parts = parse_url($this->baseUri);
-            return $parts['scheme'] . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '') . $url;
-        }
-
-        // Otherwise...
-        return $this->baseUri . $url;
+        return Uri\resolve(
+            $this->baseUri,
+            $url
+        );
 
     }
 
