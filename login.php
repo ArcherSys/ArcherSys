@@ -5,7 +5,7 @@
 require_once "includes\ViewManager.php";
 require_once "includes\LogicManager.php";
 
- use ArcherSys\Viewer\ViewManager;
+ use CarnosOS\Viewer\ViewManager;
  use ArcherSys\Viewer\LogicManager;
 use CarnosOS\Config\ConfigData;
  // Connects to your Database
@@ -227,7 +227,7 @@ setcookie('Nickname_ARCHERVMCASHEW',$info["first_name"],$hour);
   })
 })
 </script>
- <link rel="stylesheet" type="text/css" href="core/css/login.css"/>
+ <link rel="stylesheet" type="text/css" href="http://<?php echo $_SERVER["SERVER_ADDR"];?>/core/css/login.css"/>
 
     <meta name="Content-Type" content="text/html;charset=utf-8">
         <?php

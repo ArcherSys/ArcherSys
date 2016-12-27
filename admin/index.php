@@ -58,6 +58,8 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
   else
 
       {
+$req1 = mysql_query('select m1.id, m1.title,m1.from, m1.timestamp, count(m2.id) as reps, users.username,users.ProfilePicture from pm as m1, pm as m2,users where ((m1.from="'.$_COOKIE["ID_ARCHERVMCASHEW"].'" and m1.user1read="no" and users.username=m1.to) or (m1.to="'.$_COOKIE["ID_ARCHERVMCASHEW"].'" and m1.user2read="no" and users.username=m1.from)) and m2.id=m1.id group by m1.id order by m1.id desc');
+$req2 = mysql_query('select m1.id, m1.title,m1.from, m1.timestamp, count(m2.id) as reps,  users.username,users.ProfilePicture from pm as m1, pm as m2,users where ((m1.from="'.$_COOKIE["ID_ARCHERVMCASHEW"].'" and m1.user1read="yes" and users.username=m1.to) or (m1.to="'.$_COOKIE["ID_ARCHERVMCASHEW"].'" and m1.user2read="yes" and users.username=m1.from)) and m2.id=m1.id group by m1.id order by m1.id desc');
 
   
 ?>
@@ -77,13 +79,110 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
         apply the skin class to the body tag so the changes take effect.
   -->
   <link rel="stylesheet" href="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/AdminLTE-2.3.7/dist/css/skins/skin-blue.min.css">
+<link rel="stylesheet" type="text/css" media="screen" href="https://cdn.conversejs.org/css/converse.min.css">
+<script src="https://cdn.conversejs.org/dist/converse.min.js"></script>
 
+<script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/js/jquery.js"></script>
+<!-- Bootstrap 3.3.6 -->
+<script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/AdminLTE-2.3.7/bootstrap/js/bootstrap.min.js"></script>
+<!-- AdminLTE App -->
+<script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/AdminLTE-2.3.7/dist/js/app.min.js"></script>
   <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
   <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
   <!--[if lt IE 9]>
   <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
   <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
   <![endif]-->
+  <script>
+    function Chat () {
+    this.update = updateChat;
+    this.send = sendChat;
+    this.getState = getStateOfChat;
+}
+var instanse;
+var file= 'chat.txt';
+//gets the state of the chat
+function getStateOfChat() {
+	if(!instanse){
+		instanse = true;
+		$.ajax({
+			type: "POST",
+			url: "api/chat.php",
+			data: {'function': 'getState', 'file': file},
+			dataType: "json",
+			success: function(data) {state = data.state;instanse = false;}
+		});
+	}
+}
+
+//Updates the chat
+function updateChat() {
+	if(!instanse){
+		instanse = true;
+		$.ajax({
+			type: "POST",
+			url: "api/chat.php",
+			data: {'function': 'update','state': state,'file': file},
+			dataType: "json",
+			success: function(data) {
+				if(data.text){
+					for (var i = 0; i < data.text.length; i++) {
+						$('#chat-box').append($(data.text[i]));
+					}
+				}
+				$("img[src=undefined]").remove();
+				instanse = false;
+				state = data.state;
+			}
+		});
+	}
+	else {
+		setTimeout(updateChat, 1500);
+	}
+}
+
+//send the message
+function sendChat(message, nickname) {
+	updateChat();
+	$.ajax({
+		type: "POST",
+		url: "api/chat.php",
+		data: {'function': 'send','message': message,'nickname': nickname,'file': file,'pic':"<?php echo $_COOKIE["ProfilePicture_ARCHERVMCASHEW"];?>"},
+		dataType: "json",
+		success: function(data){
+			updateChat();
+		}
+	});
+}
+
+  </script>
+  <script>
+    $(function(){
+      var chat = new Chat();
+           chat.getState();
+
+      $("#sendPM").click(function(){
+        $.post("api/pm.new.php",$("#PMBox").serialize(),
+        function(data){
+          alert(data);
+        });
+      });
+      window.setInterval(function(){
+        chat.update();
+      },1000);
+      $("#sendChat").click(function(){
+                      var text = $("#messageChat").val();
+  var maxLength = $("#messageChat").attr("maxlength");
+             var length = $("#messageChat").val().length;
+      if (length <= maxLength + 1) {
+                chat.send(text, "<?php echo $_COOKIE["ID_ARCHERVMCASHEW"]; ?>");
+                $("#messageChat").val("");
+              } else {
+                $("#messageChat").val(text.substring(0, maxLength));
+              }
+      });
+    });
+  </script>
 </head>
 <body class="hold-transition skin-blue sidebar-mini">
 <div class="wrapper">
@@ -109,74 +208,34 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
           <li class="dropdown messages-menu">
             <a href="#" class="dropdown-toggle" data-toggle="dropdown">
               <i class="fa fa-envelope-o"></i>
-              <span class="label label-success">4</span>
+              <span class="label label-success"><?php echo intval(mysql_num_rows($req1)); ?></span>
             </a>
             <ul class="dropdown-menu">
-              <li class="header">You have 4 messages</li>
+              <li class="header">You have <?php echo intval(mysql_num_rows($req1)); ?> messages</li>
               <li>
                 <!-- inner menu: contains the actual data -->
                 <ul class="menu">
+                  <?php
+                  while($dn1 = mysql_fetch_array($req1))
+{
+  ?>
                   <li><!-- start message -->
-                    <a href="#">
+                    <a href="<?php echo "pm.read.php?id=".$dn1["id"]; ?>">
                       <div class="pull-left">
-                        <img src="<?php echo $_COOKIE["ProfilePicture_ARCHERVMCASHEW"]; ?>" class="img-circle" alt="User Image">
+                        <img src="<?php echo $dn1["ProfilePicture"] ?>" class="img-circle" alt="User Image">
                       </div>
                       <h4>
-                        Support Team
-                        <small><i class="fa fa-clock-o"></i> 5 mins</small>
+<?php echo htmlentities($dn1['from'], ENT_QUOTES, 'UTF-8'); ?>
+<small><i class="fa fa-clock-o"></i> <?php echo date('Y/m/d H:i:s' ,$dn1['timestamp']); ?></small>
                       </h4>
-                      <p>Why not buy a new awesome theme?</p>
+                      <p><?php echo htmlentities($dn1['title'], ENT_QUOTES, 'UTF-8'); ?></p>
                     </a>
                   </li>
+                  <?php
+}
+?>
                   <!-- end message -->
-                  <li>
-                    <a href="#">
-                      <div class="pull-left">
-                        <img src="dist/img/user3-128x128.jpg" class="img-circle" alt="User Image">
-                      </div>
-                      <h4>
-                        AdminLTE Design Team
-                        <small><i class="fa fa-clock-o"></i> 2 hours</small>
-                      </h4>
-                      <p>Why not buy a new awesome theme?</p>
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#">
-                      <div class="pull-left">
-                        <img src="dist/img/user4-128x128.jpg" class="img-circle" alt="User Image">
-                      </div>
-                      <h4>
-                        Developers
-                        <small><i class="fa fa-clock-o"></i> Today</small>
-                      </h4>
-                      <p>Why not buy a new awesome theme?</p>
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#">
-                      <div class="pull-left">
-                        <img src="dist/img/user3-128x128.jpg" class="img-circle" alt="User Image">
-                      </div>
-                      <h4>
-                        Sales Department
-                        <small><i class="fa fa-clock-o"></i> Yesterday</small>
-                      </h4>
-                      <p>Why not buy a new awesome theme?</p>
-                    </a>
-                  </li>
-                  <li>
-                    <a href="#">
-                      <div class="pull-left">
-                        <img src="dist/img/user4-128x128.jpg" class="img-circle" alt="User Image">
-                      </div>
-                      <h4>
-                        Reviewers
-                        <small><i class="fa fa-clock-o"></i> 2 days</small>
-                      </h4>
-                      <p>Why not buy a new awesome theme?</p>
-                    </a>
-                  </li>
+                  
                 </ul>
               </li>
               <li class="footer"><a href="#">See All Messages</a></li>
@@ -335,7 +394,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
                   <a href="#" class="btn btn-default btn-flat">Profile</a>
                 </div>
                 <div class="pull-right">
-                  <a href="#" class="btn btn-default btn-flat">Sign out</a>
+                  <a href="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/logout.php?redirect_uri=index.php&roleDetect=<?php echo $_COOKIE["Role_ARCHERVMCASHEW"];?>" class="btn btn-default btn-flat">Sign out</a>
                 </div>
               </li>
             </ul>
@@ -425,6 +484,20 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
             <li><a href="pages/charts/flot.html"><i class="fa fa-circle-o"></i> Flot</a></li>
             <li><a href="pages/charts/inline.html"><i class="fa fa-circle-o"></i> Inline charts</a></li>
           </ul>
+        </li>
+        <li class="treeview">
+          <a>
+            <i class="fa fa-dashboard"></i>
+          <span>Manage your VM</span>
+          <span class="pull-right-container">
+              <i class="fa fa-angle-left pull-right"></i>
+            </span>
+          </a>
+        <ul class="treeview-menu">
+          <li><a href="WebMyAdmin/phpMyAdmin">phpMyAdmin</a></li>
+          <li><a href="phpliteadmin.php">phpLiteAdmin</a></li>
+
+        </ul>
         </li>
         <li class="treeview">
           <a href="#">
@@ -665,71 +738,15 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
               </div>
             </div>
             <div class="box-body chat" id="chat-box">
-              <!-- chat item -->
-              <div class="item">
-                <img src="dist/img/user4-128x128.jpg" alt="user image" class="online">
-
-                <p class="message">
-                  <a href="#" class="name">
-                    <small class="text-muted pull-right"><i class="fa fa-clock-o"></i> 2:15</small>
-                    Mike Doe
-                  </a>
-                  I would like to meet you to discuss the latest news about
-                  the arrival of the new theme. They say it is going to be one the
-                  best themes on the market
-                </p>
-                <div class="attachment">
-                  <h4>Attachments:</h4>
-
-                  <p class="filename">
-                    Theme-thumbnail-image.jpg
-                  </p>
-
-                  <div class="pull-right">
-                    <button type="button" class="btn btn-primary btn-sm btn-flat">Open</button>
-                  </div>
-                </div>
-                <!-- /.attachment -->
-              </div>
-              <!-- /.item -->
-              <!-- chat item -->
-              <div class="item">
-                <img src="dist/img/user3-128x128.jpg" alt="user image" class="offline">
-
-                <p class="message">
-                  <a href="#" class="name">
-                    <small class="text-muted pull-right"><i class="fa fa-clock-o"></i> 5:15</small>
-                    Alexander Pierce
-                  </a>
-                  I would like to meet you to discuss the latest news about
-                  the arrival of the new theme. They say it is going to be one the
-                  best themes on the market
-                </p>
-              </div>
-              <!-- /.item -->
-              <!-- chat item -->
-              <div class="item">
-                <img src="dist/img/user2-160x160.jpg" alt="user image" class="offline">
-
-                <p class="message">
-                  <a href="#" class="name">
-                    <small class="text-muted pull-right"><i class="fa fa-clock-o"></i> 5:30</small>
-                    Susan Doe
-                  </a>
-                  I would like to meet you to discuss the latest news about
-                  the arrival of the new theme. They say it is going to be one the
-                  best themes on the market
-                </p>
-              </div>
-              <!-- /.item -->
+             
             </div>
             <!-- /.chat -->
             <div class="box-footer">
               <div class="input-group">
-                <input class="form-control" placeholder="Type message...">
+                <input class="form-control" id="messageChat" maxlength=255 placeholder="Type message...">
 
                 <div class="input-group-btn">
-                  <button type="button" class="btn btn-success"><i class="fa fa-plus"></i></button>
+                  <button type="button" id="sendChat" class="btn btn-success"><i class="fa fa-plus"></i></button>
                 </div>
               </div>
             </div>
@@ -877,6 +894,37 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
             </div>
             <div class="box-footer clearfix">
               <button type="button" class="pull-right btn btn-default" id="sendEmail">Send
+                <i class="fa fa-arrow-circle-right"></i></button>
+            </div>
+          </div>
+          
+          <div class="box box-info">
+            <div class="box-header">
+              <i class="fa fa-envelope"></i>
+
+              <h3 class="box-title">Quick PM</h3>
+              <!-- tools box -->
+              <div class="pull-right box-tools">
+                <button type="button" class="btn btn-info btn-sm" data-widget="remove" data-toggle="tooltip" title="Remove">
+                  <i class="fa fa-times"></i></button>
+              </div>
+              <!-- /. tools -->
+            </div>
+            <div class="box-body">
+              <form action="api/pm.new.php" id="PMBox" method="post">
+                <div class="form-group">
+                  <input type="email" class="form-control" name="recip" placeholder="PM to:">
+                </div>
+                <div class="form-group">
+                  <input type="text" class="form-control" name="title" placeholder="Subject">
+                </div>
+                <div>
+                  <textarea class="textarea" name="message" placeholder="Message" style="width: 100%; height: 125px; font-size: 14px; line-height: 18px; border: 1px solid #dddddd; padding: 10px;"></textarea>
+                </div>
+              </form>
+            </div>
+            <div class="box-footer clearfix">
+              <button type="button" class="pull-right btn btn-default" id="sendPM">Send
                 <i class="fa fa-arrow-circle-right"></i></button>
             </div>
           </div>
@@ -1265,12 +1313,18 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
   <div class="control-sidebar-bg"></div>
 </div>
 <!-- jQuery 2.2.3 -->
-<script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/js/jquery.js"></script>
-<!-- Bootstrap 3.3.6 -->
-<script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/AdminLTE-2.3.7/bootstrap/js/bootstrap.min.js"></script>
-<!-- AdminLTE App -->
-<script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/AdminLTE-2.3.7/dist/js/app.min.js"></script>
+
 </body>
+<script>
+require(['converse'], function (converse) {
+    converse.initialize({
+        bosh_service_url: 'https://bind.conversejs.org', // Please use this connection manager only for testing purposes
+        i18n: locales.en, // Refer to ./locale/locales.js to see which locales are supported
+        show_controlbox_by_default: true,
+        roster_groups: true
+    });
+});
+</script>
 </html>
 <?php
 
@@ -1282,7 +1336,7 @@ if(isset($_COOKIE['ID_ARCHERVMCASHEW']) || isset($_COOKIE["Role_ARCHERVMCASHEW"]
 
 else {
   
-header("Location: http://".$_SERVER["SERVER_ADDR"]."login.php?redirect_uri=${_SERVER['PHP_SELF']}&roleDetect=Admin");
+header("Location: http://".$_SERVER["SERVER_ADDR"]."/login.php?redirect_uri=${_SERVER['PHP_SELF']}&roleDetect=Admin");
 
  }
 

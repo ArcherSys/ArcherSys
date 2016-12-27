@@ -1,18 +1,15 @@
-<<<<<<< HEAD
-<?php include "base.php"; $_SESSION = array(); session_destroy(); ?>
-<meta http-equiv="refresh" content="0;index.php">
-=======
+
+
  <?php
 
  $past = time() - 100;
 
  //this makes the time in the past to destroy the cookie
 
- setcookie(ID_ARCHERVMCASHEW, gone, $past);
+ setcookie(ID_ARCHERVMCASHEW, null, $past);
 
- setcookie(Key_ARCHERVMCASHEW, gone, $past);
+ setcookie(Key_ARCHERVMCASHEW, null, $past);
 
- header("Location: login.php");
+ header("Location: login.php?redirect_uri=".$_GET["redirect_uri"]."&roleDetect=".$_GET["roleDetect"]);
 
  ?>
->>>>>>> 5e7b2c757565054acf1b6acdbff6480e574a8d68

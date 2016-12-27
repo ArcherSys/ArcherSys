@@ -10,7 +10,11 @@
  <?php
  // Connects to your Database
 
- mysql_connect("localhost", "root", "aco1234") or die(mysql_error());
+  require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
+  require_once $_SERVER["DOCUMENT_ROOT"]."/includes/ViewManager.php";
+  use CarnosOS\Config\ConfigData;
+  $config2 = ConfigData::getConfig();
+ mysql_connect($config2["dbhost"], "root", "aco1234") or die(mysql_error());
 
  mysql_select_db("acoserver_acoserver") or die(mysql_error());
 
@@ -82,7 +86,7 @@ or die(mysql_error());
 
  // now we insert it into the database
 
- 	$insert = "INSERT INTO users (username, password, Role)
+ 	$insert = "INSERT INTO `users` (username, password, Role)
 
  			VALUES ('".$_POST['username']."', '".$_POST['pass']."',2)";
 

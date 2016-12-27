@@ -1,8 +1,13 @@
 <?php
+
+  require_once $_SERVER["DOCUMENT_ROOT"]."/config.php";
+  use CarnosOS\Config\ConfigData;
+  $config = ConfigData::GetConfig();
+
 // phpBB 3.1.x auto-generated configuration file
 // Do not change anything in this file!
 $dbms = 'phpbb\\db\\driver\\mysqli';
-$dbhost = 'localhost';
+$dbhost = $config["dbhost"];
 $dbport = '3306';
 $dbname = 'acoserver_acoserver';
 $dbuser = 'root';

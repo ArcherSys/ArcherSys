@@ -17,7 +17,7 @@ echo "</br>Initializing Database...";
  mysql_query("CREATE DATABASE IF NOT EXISTS `".$config["dbname"]."`");
  mysql_select_db("acoserver_acoserver");
  echo("</br>Creating users login table...");
- mysql_query("CREATE TABLE IF NOT EXISTS `users` ( `ID` mediumint(9) NOT NULL, `username` varchar(60) DEFAULT NULL,`password` varchar(60) DEFAULT NULL,`Role` enum('Admin','Guest','User','') NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=latin1");
+ mysql_query("CREATE TABLE IF NOT EXISTS `users` ( `ID` mediumint(9) NOT NULL AUTO_INCREMENT, `username` varchar(60) DEFAULT NULL,`password` varchar(60) DEFAULT NULL,`Role` enum('Admin','Guest','User','') NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=latin1");
  echo("</br>Making changes to the roles table");
  mysql_query("ALTER TABLE `users` ADD `Disabled` BOOLEAN NOT NULL AFTER `Role`") or die(mysql_error());
  mysql_query("ALTER TABLE `users` ADD PRIMARY KEY (`ID`)");
@@ -93,6 +93,31 @@ if (substr(trim($line), -1, 1) == ';')
     $templine = '';
 }
 }
+
+echo "</br>Installing Admin PM System...";
+$filename = "installer/sql/pm.sql";
+$templine = '';
+// Read in entire file
+$lines = file($filename);
+// Loop through each line
+foreach ($lines as $line)
+{
+// Skip it if it's a comment
+if (substr($line, 0, 2) == '--' || $line == '')
+    continue;
+
+// Add this line to the current segment
+$templine .= $line;
+// If it has a semicolon at the end, it's the end of the query
+if (substr(trim($line), -1, 1) == ';')
+{
+    // Perform the query
+    mysql_query($templine) or print('Error performing query \'<strong>' . $templine . '\': ' . mysql_error() . '<br /><br />');
+    // Reset temp variable to empty
+    $templine = '';
+}
+}
+mysql_query("ALTER TABLE `pm` CHANGE `id` `id` BIGINT(20) NOT NULL AUTO_INCREMENT;");
 
 
 $install_Complete =  file_get_contents("install_ui.ui");

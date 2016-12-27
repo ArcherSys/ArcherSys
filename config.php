@@ -4,7 +4,7 @@ class ConfigData{
     static function getConfig(){
         
   $config = array();
-  $config["dbhost"] = "localhost";
+  $config["dbhost"] = $_SERVER["SERVER_ADDR"];
   $config["dbuser"] = "root";
   $config["dbpass"] =  "aco1234";
   $config["dbname"] = "acoserver_acoserver";
