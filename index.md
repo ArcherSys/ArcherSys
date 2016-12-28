@@ -1,4 +1,4 @@
-CarnoOS
+CarnosOS
 =========
 [![Gitter](https://badges.gitter.im/Join%20Chat.svg)](https://gitter.im/ArcherSys/ArcherSys?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)[![PHP version](https://badge.fury.io/ph/acosf%2Farchersys.svg)](http://badge.fury.io/ph/acosf%2Farchersys)
 ========
