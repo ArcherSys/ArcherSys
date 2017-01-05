@@ -79,14 +79,38 @@ $req2 = mysql_query('select m1.id, m1.title,m1.from, m1.timestamp, count(m2.id) 
         apply the skin class to the body tag so the changes take effect.
   -->
   <link rel="stylesheet" href="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/AdminLTE-2.3.7/dist/css/skins/skin-blue.min.css">
-<link rel="stylesheet" type="text/css" media="screen" href="https://cdn.conversejs.org/css/converse.min.css">
-<script src="https://cdn.conversejs.org/dist/converse.min.js"></script>
+
 
 <script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/js/jquery.js"></script>
 <!-- Bootstrap 3.3.6 -->
 <script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/AdminLTE-2.3.7/bootstrap/js/bootstrap.min.js"></script>
 <!-- AdminLTE App -->
 <script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/AdminLTE-2.3.7/dist/js/app.min.js"></script>
+
+
+<link rel="stylesheet" href="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/css/bootstrap-wysihtml5.css">
+
+
+<script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/js/wysihtml.min.js"></script>
+
+<script src="http://<?php echo $_SERVER["SERVER_ADDR"]; ?>/core/bootstrap3-wysihtml5.all.js"></script>
+
+<script>
+$(function(){
+        $('#message').wysihtml5({
+
+    "font-styles": true, //Font styling, e.g. h1, h2, etc. Default true
+    "emphasis": true, //Italics, bold, etc. Default true
+    "lists": true, //(Un)ordered lists, e.g. Bullets, Numbers. Default true
+    "html": false, //Button which allows you to edit the generated HTML. Default false
+    "link": true, //Button to insert a link. Default true
+    "image": true, //Button to insert an image. Default true,
+    "color": false, //Button to change color of font  
+            stylesheets: []
+        });
+
+});
+</script>
   <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
   <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
   <!--[if lt IE 9]>
@@ -155,8 +179,6 @@ function sendChat(message, nickname) {
 	});
 }
 
-  </script>
-  <script>
     $(function(){
       var chat = new Chat();
            chat.getState();
@@ -1114,7 +1136,7 @@ function sendChat(message, nickname) {
     <div class="pull-right hidden-xs">
       <b>Version</b> 2.3.7
     </div>
-    <strong>Copyright &copy; 2014-2016 <a href="http://almsaeedstudio.com">CarnosOS Software Foundation</a>.</strong> All rights
+    <strong>Copyright &copy; 2014-2016 <a href="http://carnosos.github.io">CarnosOS Software Foundation</a>.</strong> All rights
     reserved.
   </footer>
 
@@ -1315,16 +1337,6 @@ function sendChat(message, nickname) {
 <!-- jQuery 2.2.3 -->
 
 </body>
-<script>
-require(['converse'], function (converse) {
-    converse.initialize({
-        bosh_service_url: 'https://bind.conversejs.org', // Please use this connection manager only for testing purposes
-        i18n: locales.en, // Refer to ./locale/locales.js to see which locales are supported
-        show_controlbox_by_default: true,
-        roster_groups: true
-    });
-});
-</script>
 </html>
 <?php
 
